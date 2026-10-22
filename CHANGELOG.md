@@ -34,6 +34,10 @@ Entries reference the pull request that made the change.
   OpenCode's own database with a short read-only query on the Host, which
   needs sqlite3 or python3, and says when OpenCode has left the
   conversation it shows. (#483)
+- Reach a Mac through Cloudflare Tunnel instead of an overlay network: a
+  Cloudflare client on the phone carries the connection, so the Mac opens no
+  port, and a Host connects through either a private network route or a VPS
+  running the tunnel client. English or Simplified Chinese. (#487)
 
 ### Changed
 

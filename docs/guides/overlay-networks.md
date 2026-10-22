@@ -19,6 +19,8 @@ Prepare the Host below, then follow one provider guide. It sends you to [Connect
 
 If you're new to this, start with Tailscale. For a Linux or Windows machine, install the provider's client from its own documentation, then follow the same Heeler steps. Windows also needs the [Windows SSH and herdr setup](windows-setup.md).
 
+These guides all join a network from inside Heeler. If you would rather run a VPN app on the phone and open no port anywhere, [Cloudflare Tunnel](cloudflare-tunnel.md) reaches the Mac with Cloudflare's own client app. It needs a Cloudflare account, and it is not an Overlay Network under **Settings**.
+
 ## Heeler setup screenshots
 
 Go to **Settings > Overlay Networks > Add Network**. Each provider has its own form; EasyTier has two. Tap an image to see it full size.

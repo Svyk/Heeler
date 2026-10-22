@@ -21,6 +21,8 @@ Heeler 会直接加入 Overlay Network，因此手机上无需安装 Tailscale�
 
 如果你是初次配置，建议从 Tailscale 开始。对于 Linux 或 Windows 主机，请先参考对应服务商的官方文档安装客户端，再按相同的 Heeler 步骤操作。Windows 主机还需完成 [Windows SSH 与 herdr 配置](windows-setup.md)。
 
+以上方式都是让 Heeler 自己加入网络。如果你更愿意在手机上运行一个 VPN 应用、并且不在任何地方开放端口，可以改用 [Cloudflare Tunnel](cloudflare-tunnel.md)：连接由 Cloudflare 的官方客户端 App 承载。它需要一个 Cloudflare 账号，也不是 **Settings** 里的 Overlay Network。
+
 ## Heeler 配置界面截图
 
 前往 **Settings > Overlay Networks > Add Network**。不同服务商对应不同的配置表单（EasyTier 提供两种模式）。轻点图片可查看大图。

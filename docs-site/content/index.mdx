@@ -68,6 +68,15 @@ Heeler joins the network by itself, so your iPhone or iPad needs no VPN app. The
   <GuideCard slug="easytier">No account needed. Away from home, it needs a relay or a Mac reachable from the internet.</GuideCard>
 </Cards>
 
+## Cloudflare Tunnel
+
+Cloudflare's own app on the phone carries the connection, and the Mac opens no port. The phone runs a system VPN
+instead, so this suits people who would rather not run an overlay network.
+
+<Cards>
+  <GuideCard slug="cloudflare-tunnel">A private network route with no domain, or a VPS running the tunnel client, then a Direct route in Heeler.</GuideCard>
+</Cards>
+
 ## Jump Host
 
 If you run a Debian or Ubuntu VPS, the Mac can keep a reverse SSH tunnel open to it, and Heeler connects through
