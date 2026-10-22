@@ -42,6 +42,8 @@ Entries reference the pull request that made the change.
   Collapse, so the header covers less output. (#480)
 - Chat's Collapse Steps and Jump to Latest buttons are glass icons like the
   detail header's, and Collapse Steps uses a clearer collapse glyph. (#480)
+- The expanded Agent title centres on the screen, and a grip under it
+  resizes it, so a long task title can wrap into the room you give it. (#485)
 
 ### Fixed
 
