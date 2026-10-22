@@ -880,13 +880,31 @@ struct ConsoleView: View {
             }
             .toolbarItemBackground(.hidden)
         }
-        // A sidebar keeps its list menus at its foot.
-        if !usesSidebarNavigation, filtersByHost, !foldsHostFilter {
+        // A sidebar keeps its list menus at its foot. Beside a detail on a wide
+        // iPhone (an iPhone Duo's inner display, or a large iPhone in landscape)
+        // separate items crowd out the sidebar's title, so these share one item,
+        // as the iPad's bar does below. Compact width keeps them separate.
+        if !usesSidebarNavigation, horizontalSizeClass == .regular,
+           (filtersByHost && !foldsHostFilter) || !hosts.hosts.isEmpty {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: 0) {
+                    if filtersByHost, !foldsHostFilter {
+                        hostFilterMenu.hoverEffect(.highlight)
+                    }
+                    if !hosts.hosts.isEmpty {
+                        presentationMenu(for: tab).hoverEffect(.highlight)
+                        newItemButton(for: tab).hoverEffect(.highlight)
+                    }
+                }
+            }
+        }
+        if !usesSidebarNavigation, horizontalSizeClass != .regular,
+           filtersByHost, !foldsHostFilter {
             ToolbarItem(placement: .primaryAction) {
                 hostFilterMenu.hoverEffect(.highlight)
             }
         }
-        if !usesSidebarNavigation, !hosts.hosts.isEmpty {
+        if !usesSidebarNavigation, horizontalSizeClass != .regular, !hosts.hosts.isEmpty {
             ToolbarItem(placement: .primaryAction) {
                 presentationMenu(for: tab).hoverEffect(.highlight)
             }
@@ -909,7 +927,7 @@ struct ConsoleView: View {
                 .buttonStyle(SidebarIconButtonStyle())
             }
             .toolbarItemBackground(.hidden)
-        } else if !hosts.hosts.isEmpty {
+        } else if horizontalSizeClass != .regular, !hosts.hosts.isEmpty {
             ToolbarItem(placement: .primaryAction) {
                 newItemButton(for: tab).hoverEffect(.highlight)
             }
