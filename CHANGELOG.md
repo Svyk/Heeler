@@ -59,9 +59,10 @@ Entries reference the pull request that made the change.
 - Show long Composer notices whole, up to six lines, instead of cutting
   them after three, which could hide what to do next. (#482)
 - Move the Agents and Terminals filter, presentation and new-item controls
-  to the top right, beside a detail on an iPhone Duo's inner display and in
+  to the bottom right of the sidebar, on an iPhone Duo's inner display and in
   landscape on large iPhones, so they are within reach and the sidebar title
-  stays whole. (#485)
+  stays whole. The sidebar can also be dragged wider, up to 600 points, on
+  regular-width layouts, including iPad. (#485)
 
 ## [0.1.15] - 2026-10-19
 
