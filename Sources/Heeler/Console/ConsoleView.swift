@@ -629,7 +629,11 @@ struct ConsoleView: View {
                     // leading edge itself.
                     .toolbar(removing: usesSidebarNavigation ? .title : nil)
                     .bottomBar {
-                        if usesSidebarNavigation { sidebarFooter(for: tab) }
+                        if usesSidebarNavigation {
+                            sidebarFooter(for: tab)
+                        } else if horizontalSizeClass == .regular {
+                            wideSidebarListMenus(for: tab)
+                        }
                     }
                     // iPadOS 27 draws the system's button on its own glass;
                     // the sidebar has a bare one beside its others, and the
@@ -654,9 +658,6 @@ struct ConsoleView: View {
                             .environment(
                                 \.showsDetailBackButton, !presentation.usesRegularColumns)
                             .toolbar {
-                                if horizontalSizeClass == .regular, !usesSidebarNavigation {
-                                    wideListActions(for: tab)
-                                }
                                 if usesSidebarNavigation,
                                     splitVisibility(for: tab).isSidebarVisible == false
                                 {
@@ -883,10 +884,9 @@ struct ConsoleView: View {
             }
             .toolbarItemBackground(.hidden)
         }
-        // A sidebar keeps its list menus at its foot. Beside a detail on a wide
-        // iPhone they sit at the screen's trailing edge instead, in the detail's
-        // bar (`wideListActions`), so the sidebar's own bar keeps only its title.
-        // Compact width keeps them here.
+        // A sidebar keeps its list menus at its foot. A wide iPhone's sidebar
+        // does too, on its trailing edge (`wideSidebarListMenus`), so its bar
+        // keeps only the title. Compact width keeps them in the bar.
         if !usesSidebarNavigation, horizontalSizeClass != .regular,
            filtersByHost, !foldsHostFilter {
             ToolbarItem(placement: .primaryAction) {
@@ -923,24 +923,24 @@ struct ConsoleView: View {
         }
     }
 
-    /// A wide iPhone's list menus and new-item button, at the screen's
-    /// trailing edge where a thumb reaches them. Beside a detail, the sidebar
-    /// column is too narrow for them without crowding its title.
-    @ToolbarContentBuilder
-    private func wideListActions(for tab: ConsoleTab) -> some ToolbarContent {
-        if (filtersByHost && !foldsHostFilter) || !hosts.hosts.isEmpty {
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 0) {
-                    if filtersByHost, !foldsHostFilter {
-                        hostFilterMenu.hoverEffect(.highlight)
-                    }
-                    if !hosts.hosts.isEmpty {
-                        presentationMenu(for: tab).hoverEffect(.highlight)
-                        newItemButton(for: tab).hoverEffect(.highlight)
-                    }
-                }
+    /// A wide iPhone's list menus and new-item button, at the sidebar's foot
+    /// on its trailing edge: out of the title's way, and within reach.
+    private func wideSidebarListMenus(for tab: ConsoleTab) -> some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 0)
+            if filtersByHost, !foldsHostFilter {
+                hostFilterMenu.roundPointerHighlight()
+            }
+            if !hosts.hosts.isEmpty {
+                presentationMenu(for: tab).roundPointerHighlight()
+                newItemButton(for: tab)
             }
         }
+        .labelStyle(.iconOnly)
+        .buttonStyle(SidebarIconButtonStyle())
+        .menuStyle(.button)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     /// One button for both lists, so a sidebar switching lists keeps its
