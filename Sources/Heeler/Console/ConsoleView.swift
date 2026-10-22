@@ -654,6 +654,9 @@ struct ConsoleView: View {
                             .environment(
                                 \.showsDetailBackButton, !presentation.usesRegularColumns)
                             .toolbar {
+                                if horizontalSizeClass == .regular, !usesSidebarNavigation {
+                                    wideListActions(for: tab)
+                                }
                                 if usesSidebarNavigation,
                                     splitVisibility(for: tab).isSidebarVisible == false
                                 {
@@ -881,23 +884,9 @@ struct ConsoleView: View {
             .toolbarItemBackground(.hidden)
         }
         // A sidebar keeps its list menus at its foot. Beside a detail on a wide
-        // iPhone (an iPhone Duo's inner display, or a large iPhone in landscape)
-        // separate items crowd out the sidebar's title, so these share one item,
-        // as the iPad's bar does below. Compact width keeps them separate.
-        if !usesSidebarNavigation, horizontalSizeClass == .regular,
-           (filtersByHost && !foldsHostFilter) || !hosts.hosts.isEmpty {
-            ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 0) {
-                    if filtersByHost, !foldsHostFilter {
-                        hostFilterMenu.hoverEffect(.highlight)
-                    }
-                    if !hosts.hosts.isEmpty {
-                        presentationMenu(for: tab).hoverEffect(.highlight)
-                        newItemButton(for: tab).hoverEffect(.highlight)
-                    }
-                }
-            }
-        }
+        // iPhone they sit at the screen's trailing edge instead, in the detail's
+        // bar (`wideListActions`), so the sidebar's own bar keeps only its title.
+        // Compact width keeps them here.
         if !usesSidebarNavigation, horizontalSizeClass != .regular,
            filtersByHost, !foldsHostFilter {
             ToolbarItem(placement: .primaryAction) {
@@ -930,6 +919,26 @@ struct ConsoleView: View {
         } else if horizontalSizeClass != .regular, !hosts.hosts.isEmpty {
             ToolbarItem(placement: .primaryAction) {
                 newItemButton(for: tab).hoverEffect(.highlight)
+            }
+        }
+    }
+
+    /// A wide iPhone's list menus and new-item button, at the screen's
+    /// trailing edge where a thumb reaches them. Beside a detail, the sidebar
+    /// column is too narrow for them without crowding its title.
+    @ToolbarContentBuilder
+    private func wideListActions(for tab: ConsoleTab) -> some ToolbarContent {
+        if (filtersByHost && !foldsHostFilter) || !hosts.hosts.isEmpty {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 0) {
+                    if filtersByHost, !foldsHostFilter {
+                        hostFilterMenu.hoverEffect(.highlight)
+                    }
+                    if !hosts.hosts.isEmpty {
+                        presentationMenu(for: tab).hoverEffect(.highlight)
+                        newItemButton(for: tab).hoverEffect(.highlight)
+                    }
+                }
             }
         }
     }
