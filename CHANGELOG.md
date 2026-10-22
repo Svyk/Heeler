@@ -58,6 +58,10 @@ Entries reference the pull request that made the change.
   fades out at the edge it scrolls past. (#480)
 - Show long Composer notices whole, up to six lines, instead of cutting
   them after three, which could hide what to do next. (#482)
+- Keep the Agents and Terminals sidebar title whole beside a detail on an
+  iPhone Duo's inner display and in landscape on large iPhones, instead of
+  truncating it to "Age…" beside its filter, presentation and new-item
+  controls. (#485)
 
 ## [0.1.15] - 2026-10-19
 
