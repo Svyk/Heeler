@@ -53,57 +53,78 @@ struct AgentDetailHeader: View {
     @State private var titleHeight: CGFloat = AgentDetailHeader.controlSize
     /// Set while a grip drag is under way, so the drag measures from where it began.
     @State private var titleHeightAtDragStart: CGFloat?
-    /// The controls either side of the title, measured so the title centres on the screen.
-    @State private var leadingWidth: CGFloat = 0
+    /// The width of the trailing controls, measured so the leading slot can match it.
     @State private var trailingWidth: CGFloat = 0
+    /// The trailing safe inset, which a floating tab bar takes. The row starts
+    /// this far in too, so the title centres on the content, not the row.
+    @State private var trailingSafeInset: CGFloat = 0
 
     /// How tall the expanded title may grow, so it never covers most of the output.
     static let titleHeightRange: ClosedRange<CGFloat> = controlSize...240
 
+    /// Both side slots are this wide while expanded, so the title sits at the
+    /// header's centre rather than between controls of different widths.
+    private var slotWidth: CGFloat { max(trailingWidth, Self.controlSize) }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if isExpanded, let onBack {
+            leadingSlot
+            if isExpanded, let title {
+                titlePill(title)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            } else {
+                Spacer(minLength: 0)
+            }
+            trailingControls
+                .frame(width: isExpanded ? slotWidth : nil, alignment: .trailing)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.trailing } action: {
+            trailingSafeInset = $0
+        }
+        .padding(.leading, trailingSafeInset)
+        .foregroundStyle(palette.foreground)
+    }
+
+    /// Back while expanded, on a slot as wide as the trailing controls. Empty
+    /// and absent while folded, so the folded header is unchanged.
+    @ViewBuilder
+    private var leadingSlot: some View {
+        if isExpanded {
+            if let onBack {
                 AgentDetailHeaderButton("Back", systemImage: "chevron.left", action: onBack)
                     .headerGlass(in: .circle)
+                    .frame(width: slotWidth, alignment: .leading)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-                        leadingWidth = $0
-                    }
+            } else {
+                Color.clear.frame(width: slotWidth)
             }
-            Spacer(minLength: 0)
-            if let surfaceSwitch {
-                HStack(spacing: 0) {
-                    surfaceButton(surfaceSwitch)
-                    Rectangle()
-                        .fill(palette.foreground.opacity(0.25))
-                        .frame(width: 1 / max(displayScale, 1), height: 20)
-                        .padding(.horizontal, 2)
-                    moreMenu(width: Self.capsuleButtonWidth)
-                }
-                .padding(.horizontal, Self.capsuleInset)
-                .fixedSize()
-                .headerGlass(in: .capsule)
+        }
+    }
+
+    @ViewBuilder
+    private var trailingControls: some View {
+        if let surfaceSwitch {
+            HStack(spacing: 0) {
+                surfaceButton(surfaceSwitch)
+                Rectangle()
+                    .fill(palette.foreground.opacity(0.25))
+                    .frame(width: 1 / max(displayScale, 1), height: 20)
+                    .padding(.horizontal, 2)
+                moreMenu(width: Self.capsuleButtonWidth)
+            }
+            .padding(.horizontal, Self.capsuleInset)
+            .fixedSize()
+            .headerGlass(in: .capsule)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                trailingWidth = $0
+            }
+        } else {
+            moreMenu(width: Self.controlSize)
+                .headerGlass(in: .circle)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
                     trailingWidth = $0
                 }
-            } else {
-                moreMenu(width: Self.controlSize)
-                    .headerGlass(in: .circle)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-                        trailingWidth = $0
-                    }
-            }
         }
-        // Centred on the header rather than between its controls, so it sits
-        // over the middle of the screen when the controls differ in width.
-        .overlay(alignment: .top) {
-            if isExpanded, let title {
-                titlePill(title)
-                    .padding(.horizontal, max(leadingWidth, trailingWidth) + 8)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
-            }
-        }
-        .foregroundStyle(palette.foreground)
     }
 
     /// Fills the room up to the trailing capsule, so the gaps on either side
