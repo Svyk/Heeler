@@ -26,11 +26,12 @@ try {
     let refreshing = Boolean(activeLock(directory));
     if (!refreshing && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint
         || Date.now() - Date.parse(snapshot.generatedAt) > 60_000
-        || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt)) {
+        || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt
+        || (values["claude-limits"] && (!snapshot.nextClaudeLimitsAt || Date.now() >= snapshot.nextClaudeLimitsAt)))) {
       const lock = reserveWorker(directory);
       if (lock) {
         try {
-          const worker = spawn(runtime.node, [fileURLToPath(new URL("./usage-worker.js", import.meta.url)), "--config", process.env.HERDR_PLUGIN_CONFIG_DIR, "--lock-token", lock.token], {
+          const worker = spawn(runtime.node, [fileURLToPath(new URL("./usage-worker.js", import.meta.url)), "--config", process.env.HERDR_PLUGIN_CONFIG_DIR, "--lock-token", lock.token, ...(values["claude-limits"] ? ["--claude-limits"] : [])], {
             detached: true, stdio: "ignore", env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
           });
           worker.on("error", () => releaseWorker(directory, lock.token));
@@ -44,7 +45,7 @@ try {
         } catch { releaseWorker(directory, lock.token); }
       } else { refreshing = true; }
     }
-    report = reportFromSnapshot(snapshot, timeZone, refreshing);
+    report = reportFromSnapshot(snapshot, timeZone, refreshing, Date.now(), values["claude-limits"]);
   }
   console.log(JSON.stringify(report));
 } catch {

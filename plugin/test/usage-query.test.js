@@ -113,7 +113,7 @@ test("query returns the empty cache without exposing runtime paths", async (t) =
     refreshing: false,
     scan: { state: "complete", coveredFrom: null, coveredThrough: "2026-10-23T12:34:56.000Z", skippedArchives: 0 },
     programs: [
-      { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "disabled" } },
+      { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "error", reason: "requestFailed" } },
       { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "error", reason: "requestFailed" } },
     ],
   };

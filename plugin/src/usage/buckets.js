@@ -24,7 +24,7 @@ export function dayInZone(timestamp, timeZone) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
-export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.now()) {
+export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.now(), claudeLimits = false) {
   const today = dayInZone(now, timeZone);
   const dates = Array.from({ length: 30 }, (_, index) => new Date(Date.parse(today + "T12:00:00Z") - (29 - index) * 86_400_000).toISOString().slice(0, 10));
   const programs = ["claude", "codex"].map(program => {
@@ -52,7 +52,9 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
     };
     return { program, tokenUsage: snapshot?.errors?.[program] ? { state: "error", reason: snapshot.errors[program] } : hasData ? {
       state: "ok", totals: { today: sum(daily.slice(-1)), last7Days: sum(daily.slice(-7)), last30Days: sum(daily) }, daily: daily.map(pricedSummary),
-    } : { state: "noData" }, usageLimits: program === "claude" ? { state: "disabled" }
+    } : { state: "noData" }, usageLimits: program === "claude" ? (claudeLimits
+      ? expireLimitWindows(snapshot?.usageLimits?.claude || { state: "unavailable", reason: "programMissing" }, now)
+      : { state: "disabled" })
       : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
   });
   const covered = (snapshot?.buckets || []).map(bucket => dayInZone(bucket.timestamp, timeZone)).filter(date => date >= dates[0] && date <= today).sort()[0] || null;

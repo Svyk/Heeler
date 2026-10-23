@@ -12,10 +12,11 @@ import { priceContribution, pricingVersion } from "./usage/pricing.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
 import { createCodexState, consumeCodexLine, finishCodexRead, codexTotalSignature } from "./usage/codex-scanner.js";
 import { readCodexLimits, codexRolloutLimits, codexLimitsWithFallback } from "./usage/codex-limits.js";
+import { readClaudeLimits, cacheClaudeLimits } from "./usage/claude-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function run() {
-  const { values } = parseArgs({ options: { config: { type: "string" }, "lock-token": { type: "string" } } });
+  const { values } = parseArgs({ options: { config: { type: "string" }, "lock-token": { type: "string" }, "claude-limits": { type: "boolean", default: false } } });
   try { setPriority(10); } catch { /* Lower priority is best effort on the Host. */ }
   const runtime = readUsageRuntime(values.config);
   if (!runtime) return;
@@ -71,11 +72,12 @@ async function run() {
       // The query keeps the old aggregates; the next worker resumes the new log.
       const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
         complete, pricingVersion, buckets: [...buckets.values()], errors,
-        limitsVersion: 1, usageLimits: { codex: limits.codex?.report }, nextLimitsAt: limits.codex?.nextAllowedAt,
+        limitsVersion: 1, usageLimits: { codex: limits.codex?.report, claude: limits.claude?.report },
+        nextLimitsAt: limits.codex?.nextAllowedAt, nextClaudeLimitsAt: limits.claude?.nextAllowedAt,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
       saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
         ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
-          usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt }
+          usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt, nextClaudeLimitsAt: progress.nextClaudeLimitsAt }
         : { ...progress, rebuilding: false });
     };
     const threads = new Map();
@@ -194,6 +196,13 @@ async function run() {
     snapshot(!pendingPrefix);
     if (!limits.codex || !Number.isFinite(limits.codex.nextAllowedAt) || Date.now() >= limits.codex.nextAllowedAt) {
       limits.codex = { service: await readCodexLimits(runtime, directory), nextAllowedAt: Date.now() + 60_000 };
+      heartbeat();
+    }
+    if (values["claude-limits"] && (!limits.claude || !Number.isFinite(limits.claude.nextAllowedAt) || Date.now() >= limits.claude.nextAllowedAt)) {
+      // Reserve the cadence before starting the program, including a worker crash.
+      limits.claude = { ...limits.claude, nextAllowedAt: Date.now() + 60_000 };
+      writeJSON(join(directory, "limits.json"), limits);
+      limits.claude = cacheClaudeLimits(limits.claude, await readClaudeLimits(runtime, directory));
       heartbeat();
     }
     const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(Boolean)
