@@ -10,10 +10,37 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
         let skippedArchives: Int
     }
 
+    struct Tokens: Decodable, Equatable, Sendable {
+        let input: Int64
+        let cacheRead: Int64
+        let cacheWrite: Int64
+        let output: Int64
+        /// Informative only: already included in output for programs that report it.
+        let reasoning: Int64
+        let total: Int64
+    }
+
+    struct Summary: Decodable, Equatable, Sendable {
+        let tokens: Tokens
+    }
+
+    struct Totals: Decodable, Equatable, Sendable {
+        let today: Summary
+        let last7Days: Summary
+        let last30Days: Summary
+    }
+
+    struct Daily: Decodable, Equatable, Sendable {
+        let date: String
+        let tokens: Tokens
+    }
+
     struct Program: Decodable, Equatable, Sendable {
         struct TokenUsage: Decodable, Equatable, Sendable {
             let state: String
             let reason: String?
+            let totals: Totals?
+            let daily: [Daily]?
         }
         struct UsageLimits: Decodable, Equatable, Sendable {
             let state: String

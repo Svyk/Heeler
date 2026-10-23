@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { cacheDirectory, readJSON, writeJSON, activeLock, reserveWorker, releaseWorker, processStart } from "./usage/cache.js";
+import { reportFromSnapshot } from "./usage/buckets.js";
 import { readUsageRuntime } from "./usage-runtime.js";
 
 try {
@@ -13,18 +18,31 @@ try {
   }
   new Intl.DateTimeFormat("en", { timeZone }).format();
   const runtime = readUsageRuntime(process.env.HERDR_PLUGIN_CONFIG_DIR);
-  const report = !runtime ? { version: 1, runtime: "missing" } : {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    timeZone,
-    runtime: "recorded",
-    refreshing: false,
-    scan: { state: "complete", coveredFrom: null, coveredThrough: null, skippedArchives: 0 },
-    programs: [
-      { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "disabled" } },
-      { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "unavailable", reason: "programMissing" } },
-    ],
-  };
+  let report = { version: 1, runtime: "missing" };
+  if (runtime) {
+    const directory = cacheDirectory(runtime);
+    const snapshot = readJSON(join(directory, "buckets.json"));
+    let refreshing = Boolean(activeLock(directory));
+    if (!refreshing && (!snapshot?.complete || Date.now() - Date.parse(snapshot.generatedAt) > 60_000)) {
+      const lock = reserveWorker(directory);
+      if (lock) {
+        try {
+          const worker = spawn(runtime.node, [fileURLToPath(new URL("./usage-worker.js", import.meta.url)), "--config", process.env.HERDR_PLUGIN_CONFIG_DIR, "--lock-token", lock.token], {
+            detached: true, stdio: "ignore", env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
+          });
+          worker.on("error", () => releaseWorker(directory, lock.token));
+          if (worker.pid) {
+            lock.pid = worker.pid;
+            lock.processStart = processStart(worker.pid);
+            writeJSON(join(directory, "worker.lock"), lock);
+            worker.unref();
+            refreshing = true;
+          } else { releaseWorker(directory, lock.token); }
+        } catch { releaseWorker(directory, lock.token); }
+      } else { refreshing = true; }
+    }
+    report = reportFromSnapshot(snapshot, timeZone, refreshing);
+  }
   console.log(JSON.stringify(report));
 } catch {
   // Never echo arguments or Host configuration into the response.

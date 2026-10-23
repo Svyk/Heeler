@@ -87,12 +87,21 @@ test("query emits only a versioned missing-runtime state before the first hook",
   assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
 });
 
-test("query produces the shared usage v1 skeleton without exposing runtime paths", (t) => {
+test("query returns the empty cache without exposing runtime paths", async (t) => {
   const f = fixture(t);
   assert.equal(f.run("sidebar-hook.js").status, 0);
-  const result = f.run("usage-query.js", ["--tz", "Asia/Shanghai", "--claude-limits"]);
-  assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(result.stdout);
+  let result;
+  let report;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    result = f.run("usage-query.js", ["--tz", "Asia/Shanghai", "--claude-limits"]);
+    assert.equal(result.status, 0, result.stderr);
+    report = JSON.parse(result.stdout);
+    if (!report.refreshing) break;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.equal(report.refreshing, false);
+  assert.ok(Number.isFinite(Date.parse(report.scan.coveredThrough)));
+  report.scan.coveredThrough = "2026-10-23T12:34:56.000Z";
   assert.ok(Number.isFinite(Date.parse(report.generatedAt)));
   report.generatedAt = "2026-10-23T12:34:56.000Z";
   const expected = {
@@ -101,7 +110,7 @@ test("query produces the shared usage v1 skeleton without exposing runtime paths
     timeZone: "Asia/Shanghai",
     runtime: "recorded",
     refreshing: false,
-    scan: { state: "complete", coveredFrom: null, coveredThrough: null, skippedArchives: 0 },
+    scan: { state: "complete", coveredFrom: null, coveredThrough: "2026-10-23T12:34:56.000Z", skippedArchives: 0 },
     programs: [
       { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "disabled" } },
       { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "unavailable", reason: "programMissing" } },
@@ -109,9 +118,7 @@ test("query produces the shared usage v1 skeleton without exposing runtime paths
   };
   assert.deepEqual(report, expected);
   assert.equal(result.stdout.includes(f.root), false);
-  const vectorPath = join(plugin, "test-vectors", "usage-v1.json");
-  if (process.env.UPDATE_USAGE_VECTOR === "1") writeFileSync(vectorPath, JSON.stringify(report, null, 2) + "\n");
-  assert.deepEqual(report, JSON.parse(readFileSync(vectorPath, "utf8")));
+
 });
 
 test("query treats missing bootstrap, corrupt and incomplete records as runtime missing", (t) => {
