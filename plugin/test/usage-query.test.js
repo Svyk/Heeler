@@ -153,3 +153,15 @@ test("missing programs and optional root variables are recorded as null", (t) =>
   assert.equal(runtime.env.CODEX_HOME, null);
   assert.equal(runtime.env.XDG_CONFIG_HOME, null);
 });
+
+test("an absent PATH does not discover programs in the hook working directory", (t) => {
+  const f = fixture(t);
+  const result = spawnSync(process.execPath, [join(plugin, "src", "sidebar-hook.js")], {
+    cwd: f.bin, env: { ...f.env, PATH: undefined }, encoding: "utf8", timeout: 10_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
+  assert.equal(runtime.env.PATH, null);
+  assert.equal(runtime.codex, null);
+  assert.equal(runtime.claude, null);
+});

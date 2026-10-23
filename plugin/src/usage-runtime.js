@@ -6,7 +6,8 @@ import { isDeepStrictEqual } from "node:util";
 const ENVIRONMENT_NAMES = ["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"];
 
 function executableOnPath(name, path) {
-  for (const directory of (path ?? "").split(delimiter)) {
+  if (typeof path !== "string") return null;
+  for (const directory of path.split(delimiter)) {
     const candidate = resolve(directory, name);
     try {
       if (!statSync(candidate).isFile()) continue;
