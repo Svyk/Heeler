@@ -40,6 +40,41 @@ struct ConsoleDetailPresentationTests {
 
     private static let reconnectingSummary = TransportError.timedOut.presentation.summary
 
+    @Test func aConfiguredHostConnectsBeforeItsSessionStarts() throws {
+        let host = Host.fixture()
+        let console = makeStore(transport: ScriptedTransport(snapshot: .fixture()))
+        let hosts = HostStore(volatileHosts: [host])
+        defer { console.setHosts([]) }
+
+        console.setHosts([host])
+
+        // No yield or resume: these are the first values a cold view reads.
+        #expect(console.hostStatuses[host.id] == .connecting)
+        #expect(console.hostsAwaitingSnapshot.contains(host.id))
+        let presentation = MissingAgentPresentation(
+            agentID: ConsoleAgent.ID(hostID: host.id, paneID: "w1:p1"),
+            console: console, hosts: hosts)
+        #expect(presentation.cause == .hostConnecting)
+        #expect(presentation.title == "Connecting…")
+        #expect(presentation.message == "\(host.displayName): Opening the connection.")
+        #expect(presentation.renderingMode == .progress)
+        let issue = try #require(ConsoleHostStatusPresentation(
+            host: host, status: console.hostStatuses[host.id], syncError: nil))
+        #expect(issue.status == "Connecting…")
+        #expect(ConsoleAgentsSurface(
+            hostCount: hosts.hosts.count, filteredHostName: nil,
+            filteredAgentCount: console.chatDisplayAgents.count,
+            visibleIssueCount: [issue].count) == .rows)
+
+        console.setHosts([])
+        let deleted = MissingAgentPresentation(
+            agentID: ConsoleAgent.ID(hostID: host.id, paneID: "w1:p1"),
+            console: console, hosts: HostStore(volatileHosts: []))
+        #expect(deleted.cause == .paneGone)
+        #expect(deleted.title == "Agent Gone")
+        #expect(deleted.message == "This Agent's pane is no longer reported.")
+    }
+
     /// The case the ticket names: a Host actually driven to `.failed`, and
     /// what the screen renders once its Agent list has emptied.
     @Test func aFailedHostShowsItsGuidanceInsteadOfBlamingTheAgent() async throws {

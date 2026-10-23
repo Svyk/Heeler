@@ -14,6 +14,29 @@ import Testing
 @MainActor
 @Suite("App model activity driver")
 struct AppModelActivityDriverTests {
+    @Test func configuredHostsArePublishedBeforeTheFirstWindowStarts() {
+        let host = Host.fixture()
+        let console = ConsoleStore { _, subscriptions in
+            EventsSession(
+                subscriptions: subscriptions,
+                connect: { ScriptedTransport(snapshot: .fixture()) }, keepalive: nil)
+        }
+        defer { console.setHosts([]) }
+        let app = HeelerAppModel(
+            pushRegistration: PushRegistrationStore(
+                client: ScriptedPushRegistrationClient(), environment: .sandbox),
+            sceneDirectory: AgentSceneDirectory(),
+            hostStore: HostStore(volatileHosts: [host]), console: console)
+
+        // ContentView can render before onAppear calls app.start().
+        #expect(app.console.hostStatuses[host.id] == .connecting)
+        #expect(app.console.hostsAwaitingSnapshot.contains(host.id))
+        let presentation = MissingAgentPresentation(
+            agentID: ConsoleAgent.ID(hostID: host.id, paneID: "w1:p1"),
+            console: app.console, hosts: app.hostStore)
+        #expect(presentation.cause == .hostConnecting)
+    }
+
     /// Backgrounding past the grace period must suspend the Host's
     /// connection: the coordinator emits `.suspended`, and only the driver
     /// consuming it calls `console.suspend()`. Both halves of that
