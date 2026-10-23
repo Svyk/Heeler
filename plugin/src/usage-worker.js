@@ -10,6 +10,7 @@ import { loadCheckpoint, startLog, saveCheckpoint, matchFiles } from "./usage/ch
 import { changeBucket } from "./usage/buckets.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
 import { createCodexState, consumeCodexLine, finishCodexRead, codexTotalSignature } from "./usage/codex-scanner.js";
+import { readCodexLimits, codexRolloutLimits, codexLimitsWithFallback } from "./usage/codex-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function run() {
@@ -44,6 +45,7 @@ async function run() {
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const previousSnapshot = readJSON(join(directory, "buckets.json"));
+    const limits = readJSON(join(directory, "limits.json")) || {};
     const maintainHeartbeat = () => { if (Date.now() - lock.heartbeat >= 1000) heartbeat(); };
     const previous = await loadCheckpoint(directory, previousSnapshot, maintainHeartbeat);
     const errors = {};
@@ -54,7 +56,7 @@ async function run() {
     catch { errors.codex = "Could not read the Codex Transcripts."; }
     files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
     const match = matchFiles(files, previous?.files || {}, now);
-    const rebuilding = !previous || match.rebuild;
+    const rebuilding = !previous || match.rebuild || previousSnapshot?.limitsVersion !== 1;
     const preserveSnapshot = previousSnapshot !== null && (rebuilding || previousSnapshot.rebuilding);
     const buckets = rebuilding ? new Map() : previous.buckets;
     const keys = rebuilding ? new Map() : previous.keys;
@@ -68,9 +70,11 @@ async function run() {
       // The query keeps the old aggregates; the next worker resumes the new log.
       const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
         complete, buckets: [...buckets.values()], errors,
+        limitsVersion: 1, usageLimits: { codex: limits.codex?.report }, nextLimitsAt: limits.codex?.nextAllowedAt,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
       saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
-        ? { ...previousSnapshot, complete: false, rebuilding: true }
+        ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
+          usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt }
         : { ...progress, rebuilding: false });
     };
     const threads = new Map();
@@ -127,6 +131,8 @@ async function run() {
         try {
           if (!state.finished) for await (const entry of codexLines(file, runtime, maintainHeartbeat, state.offset)) {
             state.offset = entry.offset;
+            const reading = codexRolloutLimits(entry.line);
+            if (reading && (!carry.latestLimits || reading.observedAt >= carry.latestLimits.observedAt)) carry.latestLimits = reading;
             countContributions(consumeCodexLine(carry, entry.line, state.offset, cutoff, parent));
             if (carry.parentId && parent === null) parent = await totalsForParent(carry.parentId);
           }
@@ -181,6 +187,15 @@ async function run() {
       }
       snapshot(false);
     }
+    snapshot(!pendingPrefix);
+    if (!limits.codex || !Number.isFinite(limits.codex.nextAllowedAt) || Date.now() >= limits.codex.nextAllowedAt) {
+      limits.codex = { service: await readCodexLimits(runtime, directory), nextAllowedAt: Date.now() + 60_000 };
+      heartbeat();
+    }
+    const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(Boolean)
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    limits.codex.report = codexLimitsWithFallback(limits.codex.service || limits.codex.report, fallback);
+    writeJSON(join(directory, "limits.json"), limits);
     snapshot(!pendingPrefix);
   } finally { releaseWorker(directory, values["lock-token"]); }
 }

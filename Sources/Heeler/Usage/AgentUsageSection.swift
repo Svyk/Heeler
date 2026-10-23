@@ -33,6 +33,7 @@ struct AgentUsageContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(program.program == "claude" ? "Claude Code" : "Codex")
                         .font(.headline)
+                    AgentUsageLimitsView(program: program.program, limits: program.usageLimits)
                     if program.tokenUsage.state == "ok", let totals = program.tokenUsage.totals {
                         Text("Token Usage on this Host")
                             .font(.subheadline)

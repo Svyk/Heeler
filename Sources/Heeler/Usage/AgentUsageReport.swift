@@ -43,8 +43,21 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
             let daily: [Daily]?
         }
         struct UsageLimits: Decodable, Equatable, Sendable {
+            struct Window: Decodable, Equatable, Sendable, Identifiable {
+                let id: String
+                let label: String?
+                let durationMinutes: Int?
+                let usedPercent: Double?
+                let resetsAt: String?
+                let expired: Bool
+            }
+
             let state: String
             let reason: String?
+            let source: String?
+            let observedAt: String?
+            let plan: String?
+            let windows: [Window]?
         }
         let program: String
         let tokenUsage: TokenUsage
