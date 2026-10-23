@@ -36,28 +36,41 @@ final class AgentUsageStore {
     }
 
     func refresh(timeZone: String = TimeZone.current.identifier, claudeLimits: Bool = false) async {
+        guard !Task.isCancelled else { return }
         let id = UUID()
         request = id
         isLoading = true
         if state == .idle { state = .loading }
-        let next: State
-        do {
-            next = try await read(timeZone, claudeLimits)
-        } catch AgentUsageError.unsupportedVersion {
-            next = .updateRequired
-        } catch TransportError.hostFeatureUnavailable {
-            next = .unsupportedPlatform
-        } catch {
-            next = .failed("Could not read Usage. Check the Host connection and try again.")
+        defer {
+            if request == id {
+                isLoading = false
+                request = nil
+            }
         }
-        guard request == id else { return }
-        isLoading = false
-        request = nil
-        guard !Task.isCancelled else {
-            if state == .loading { state = .idle }
-            return
+        while request == id && !Task.isCancelled {
+            let next: State
+            do {
+                next = try await read(timeZone, claudeLimits)
+            } catch AgentUsageError.unsupportedVersion {
+                next = .updateRequired
+            } catch TransportError.hostFeatureUnavailable {
+                next = .unsupportedPlatform
+            } catch {
+                next = .failed("Could not read Usage. Check the Host connection and try again.")
+            }
+            guard request == id else { return }
+            guard !Task.isCancelled else {
+                if state == .loading { state = .idle }
+                return
+            }
+            state = next
+            guard case .available(let report) = next, report.refreshing == true else { return }
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
         }
-        state = next
     }
 
     func invalidate() {

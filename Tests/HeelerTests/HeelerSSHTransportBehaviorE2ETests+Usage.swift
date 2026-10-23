@@ -64,6 +64,36 @@ extension HeelerSSHTransportBehaviorE2ETests {
         }
     }
 
+    @Test("Usage returns from SSH while its real worker keeps scanning")
+    func usageWorkerOutlivesSSHQuery() async throws {
+        let environment = try #require(HeelerSSHTransportBehaviorEnvironment.current)
+        try await UsageScratchPlugin.with(environment: environment) { plugin in
+            let node = environment.homePath + "/.heeler-ci/usage-node"
+            try await plugin.seedTranscripts(node: node, source: environment.homePath + "/.heeler-ci/usage-plugin")
+            let transport = try await HeelerSSHTransport.connect(settings: plugin.settings)
+            defer { Task { try? await transport.close() } }
+            let started = ContinuousClock.now
+            let first = try await transport.readAgentUsage(
+                timeZone: "UTC", claudeLimits: false, pluginRoot: plugin.root)
+            #expect(first.refreshing == true)
+            #expect(started.duration(to: .now) < .seconds(5))
+            let alive = try await plugin.runNode(node, script: "worker-alive.js")
+            #expect(alive.trimmingCharacters(in: .whitespacesAndNewlines) == "alive")
+            #expect(try await transport.ping().version == "fake")
+
+            var report = first
+            let deadline = ContinuousClock.now.advanced(by: .seconds(45))
+            while report.refreshing == true && ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(250))
+                report = try await transport.readAgentUsage(
+                    timeZone: "UTC", claudeLimits: false, pluginRoot: plugin.root)
+            }
+            #expect(report.refreshing == false)
+            #expect(report.programs?.first?.tokenUsage.state == "ok")
+            #expect(report.programs?.first?.tokenUsage.totals?.last30Days.tokens.total == 5)
+        }
+    }
+
     @Test("Usage times out without invalidating the Host connection")
     func usageTimeoutPreservesConnection() async throws {
         let environment = try #require(HeelerSSHTransportBehaviorEnvironment.current)
@@ -152,6 +182,51 @@ private struct UsageScratchPlugin {
             let result = try await connection.execute("rm -f \(quoted)", timeout: Self.timeout)
             #expect(result.exitStatus == 0)
         }
+    }
+
+    func seedTranscripts(node: String, source: String) async throws {
+        let copy = try await connection.execute(
+            "cp -R " + GitProbe.singleQuoted(source) + " " + GitProbe.singleQuoted(root),
+            timeout: Self.timeout)
+        try #require(copy.exitStatus == 0)
+        try await upload(path: directory + "/seed.js", text: """
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const root = process.argv[2];
+            const home = path.join(root, 'home');
+            const projects = path.join(home, '.claude', 'projects', '-fixture');
+            fs.mkdirSync(projects, { recursive: true });
+            const line = JSON.stringify({type:'assistant', sessionId:'fixture', requestId:'request',
+              timestamp:new Date().toISOString(), cwd:'/fixture', message:{id:'response',
+              model:'claude-fixture', usage:{input_tokens:3, output_tokens:2}}}) + '\\n';
+            const batch = line.repeat(10000);
+            for (let i = 0; i < 96; i++) fs.writeFileSync(path.join(projects, i + '.jsonl'), batch);
+            fs.writeFileSync(path.join(root, 'runtime.json'), JSON.stringify({version:1,
+              recordedAt:new Date().toISOString(),node:process.execPath,codex:null,claude:null,
+              env:{PATH:path.dirname(process.execPath) + ':/usr/bin:/bin',HOME:home,
+                CLAUDE_CONFIG_DIR:null,CODEX_HOME:null,XDG_CONFIG_HOME:null},
+              stateDir:path.join(root,'state')}));
+            fs.writeFileSync(path.join(root,'runtime-node'), process.execPath + '\\n');
+            """, permissions: 0o600)
+        _ = try await runNode(node, script: "seed.js")
+        try await upload(path: directory + "/worker-alive.js", text: """
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const usage = path.join(process.argv[2], 'state', 'usage');
+            for (const key of fs.readdirSync(usage)) {
+              const lock = JSON.parse(fs.readFileSync(path.join(usage, key, 'worker.lock'), 'utf8'));
+              process.kill(lock.pid, 0);
+              console.log('alive');
+            }
+            """, permissions: 0o600)
+    }
+
+    func runNode(_ node: String, script: String) async throws -> String {
+        let result = try await connection.execute(
+            [node, directory + "/" + script, directory].map(GitProbe.singleQuoted).joined(separator: " "),
+            timeout: Self.timeout)
+        try #require(result.exitStatus == 0)
+        return String(decoding: result.stdout, as: UTF8.self)
     }
 
     private func upload(path: String, text: String, permissions: UInt32) async throws {

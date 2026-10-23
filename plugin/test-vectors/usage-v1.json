@@ -6,15 +6,379 @@
   "refreshing": false,
   "scan": {
     "state": "complete",
-    "coveredFrom": null,
-    "coveredThrough": null,
+    "coveredFrom": "2026-10-23",
+    "coveredThrough": "2026-10-23T12:34:56.000Z",
     "skippedArchives": 0
   },
   "programs": [
     {
       "program": "claude",
       "tokenUsage": {
-        "state": "noData"
+        "state": "ok",
+        "totals": {
+          "today": {
+            "tokens": {
+              "input": 1200,
+              "cacheRead": 830000,
+              "cacheWrite": 41000,
+              "output": 9800,
+              "reasoning": 0,
+              "total": 882000
+            }
+          },
+          "last7Days": {
+            "tokens": {
+              "input": 1200,
+              "cacheRead": 830000,
+              "cacheWrite": 41000,
+              "output": 9800,
+              "reasoning": 0,
+              "total": 882000
+            }
+          },
+          "last30Days": {
+            "tokens": {
+              "input": 1200,
+              "cacheRead": 830000,
+              "cacheWrite": 41000,
+              "output": 9800,
+              "reasoning": 0,
+              "total": 882000
+            }
+          }
+        },
+        "daily": [
+          {
+            "date": "2026-09-24",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-25",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-26",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-27",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-28",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-29",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-09-30",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-01",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-02",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-03",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-04",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-05",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-06",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-07",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-08",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-09",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-10",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-11",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-12",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-13",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-14",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-15",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-16",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-17",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-18",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-19",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-20",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-21",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-22",
+            "tokens": {
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reasoning": 0,
+              "total": 0
+            }
+          },
+          {
+            "date": "2026-10-23",
+            "tokens": {
+              "input": 1200,
+              "cacheRead": 830000,
+              "cacheWrite": 41000,
+              "output": 9800,
+              "reasoning": 0,
+              "total": 882000
+            }
+          }
+        ]
       },
       "usageLimits": {
         "state": "disabled"
