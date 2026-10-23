@@ -106,6 +106,7 @@ test("query returns the empty cache without exposing runtime paths", async (t) =
   report.generatedAt = "2026-10-23T12:34:56.000Z";
   const expected = {
     version: 1,
+    pricingVersion: JSON.parse(readFileSync(new URL("../src/usage/pricing.json", import.meta.url))).pricingVersion,
     generatedAt: "2026-10-23T12:34:56.000Z",
     timeZone: "Asia/Shanghai",
     runtime: "recorded",

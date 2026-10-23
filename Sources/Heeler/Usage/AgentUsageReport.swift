@@ -22,6 +22,8 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
 
     struct Summary: Decodable, Equatable, Sendable {
         let tokens: Tokens
+        let estimatedCostUSD: Double?
+        let unpricedTokens: Int64?
     }
 
     struct Totals: Decodable, Equatable, Sendable {
@@ -33,6 +35,8 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
     struct Daily: Decodable, Equatable, Sendable {
         let date: String
         let tokens: Tokens
+        let estimatedCostUSD: Double?
+        let unpricedTokens: Int64?
     }
 
     struct Program: Decodable, Equatable, Sendable {
@@ -69,6 +73,7 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
     let generatedAt: String?
     let timeZone: String?
     let refreshing: Bool?
+    let pricingVersion: String?
     let scan: Scan?
     let programs: [Program]?
 
