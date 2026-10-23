@@ -71,7 +71,7 @@ async function run() {
       // Commit parser progress even when a rebuild is still resolving a burst.
       // The query keeps the old aggregates; the next worker resumes the new log.
       const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
-        complete, pricingVersion, buckets: [...buckets.values()], errors,
+        complete, pricingVersion, breakdownsVersion: 1, buckets: [...buckets.values()], errors,
         limitsVersion: 1, usageLimits: { codex: limits.codex?.report, claude: limits.claude?.report },
         nextLimitsAt: limits.codex?.nextAllowedAt, nextClaudeLimitsAt: limits.claude?.nextAllowedAt,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
