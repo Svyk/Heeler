@@ -3,6 +3,7 @@ import { constants, createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { basename, delimiter, join, resolve } from "node:path";
 import zlib from "node:zlib";
+import { jsonLines } from "./json-lines.js";
 
 export class ArchiveUnavailableError extends Error {
   constructor() { super("No zstd decoder is available."); this.name = "ArchiveUnavailableError"; }
@@ -67,35 +68,8 @@ export async function* codexLines(file, runtime, onChunk = () => {}, start = 0) 
     input = file.compressed ? source.pipe(zlib.createZstdDecompress()) : source;
     if (input !== source) source.on("error", error => input.destroy(error));
   }
-  let fragments = [];
-  let length = 0;
-  let offset = start;
-  let skip = file.compressed ? start : 0;
   try {
-    for await (let chunk of input) {
-      onChunk();
-      if (skip >= chunk.length) { skip -= chunk.length; continue; }
-      if (skip) { chunk = chunk.subarray(skip); skip = 0; }
-      let from = 0;
-      let newline;
-      while ((newline = chunk.indexOf(10, from)) >= 0) {
-        const part = chunk.subarray(from, newline);
-        fragments.push(part);
-        length += part.length;
-        offset += length + 1;
-        let line = null;
-        try { line = JSON.parse(Buffer.concat(fragments, length).toString("utf8")); }
-        catch { /* A complete torn line is consumed; a partial tail is not. */ }
-        yield { line, offset };
-        fragments = [];
-        length = 0;
-        from = newline + 1;
-      }
-      if (from < chunk.length) {
-        fragments.push(chunk.subarray(from));
-        length += chunk.length - from;
-      }
-    }
+    yield* jsonLines(input, start, file.compressed ? start : 0, onChunk);
     if (childResult) {
       const result = await childResult;
       if (result.error || result.code !== 0) throw new Error("Could not decompress the Codex archive.");
