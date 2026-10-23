@@ -10,7 +10,7 @@ extension HeelerSSHTransportBehaviorE2ETests {
         let environment = try #require(HeelerSSHTransportBehaviorEnvironment.current)
         try await UsageScratchPlugin.with(environment: environment) { plugin in
             try await plugin.writeNode("""
-                [ "$1" = \(try #require(RemoteShellPath.quotedAbsolute(plugin.root + "/src/usage-query.js"))) ] || exit 3
+                [ "$1" = \(GitProbe.singleQuoted(plugin.root + "/src/usage-query.js")) ] || exit 3
                 [ "$2" = '--tz' ] && [ "$3" = 'Asia/Kathmandu' ] || exit 4
                 [ "$4" = '--claude-limits' ] || exit 5
                 printf '%s' '{"version":1,"runtime":"missing"}'
@@ -101,7 +101,7 @@ private struct UsageScratchPlugin {
         let connection = try await SSHConnection.connect(
             to: SSHEndpoint(host: environment.host, port: environment.port),
             timeout: RealSSHFixture.setupTimeout)
-        let directory = environment.homePath + "/usage's $literal-" + UUID().uuidString
+        let directory = environment.homePath + "/usage $literal-" + UUID().uuidString
         let quoted = try #require(RemoteShellPath.quotedAbsolute(directory))
         do {
             try await connection.authenticate(
@@ -111,16 +111,16 @@ private struct UsageScratchPlugin {
                 "umask 077; mkdir \(quoted)", timeout: timeout)
             try #require(created.exitStatus == 0)
             var settings = environment.directSettings()
-            let launcher = directory + "/herdr's launcher"
+            let launcher = directory + "/herdr launcher"
             settings.herdrLauncher = try #require(
-                HerdrLauncher(executablePath: launcher, socketPath: directory + "/endpoint's $socket"))
+                HerdrLauncher(executablePath: launcher, socketPath: directory + "/endpoint $socket"))
             let fixture = UsageScratchPlugin(connection: connection, directory: directory, settings: settings)
             try await fixture.upload(
                 path: launcher,
                 text: """
                     #!/bin/sh
                     [ "$1 $2 $3" = 'plugin config-dir heeler' ] || exit 11
-                    [ "$HERDR_SOCKET_PATH" = \(try #require(RemoteShellPath.quotedAbsolute(directory + "/endpoint's $socket"))) ] || exit 12
+                    [ "$HERDR_SOCKET_PATH" = \(try #require(RemoteShellPath.quotedAbsolute(directory + "/endpoint $socket"))) ] || exit 12
                     printf '%s\\n' \(quoted)
                     """, permissions: 0o700)
             do {

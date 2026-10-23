@@ -8,7 +8,7 @@ enum AgentUsageProbe {
         nonce: String, launcher: HerdrLauncher?
     ) throws -> Data {
         guard TimeZone.knownTimeZoneIdentifiers.contains(timeZone) || timeZone == "UTC",
-            let query = RemoteShellPath.quotedAbsolute(pluginRoot + "/src/usage-query.js"),
+            pluginRoot.hasPrefix("/"), !pluginRoot.utf8.contains(0),
             !nonce.isEmpty, nonce.utf8.allSatisfy({
                 (48...57).contains($0) || (65...90).contains($0)
                     || (97...122).contains($0) || $0 == 45
@@ -28,6 +28,7 @@ enum AgentUsageProbe {
             environment = HerdrHostPath.pathExport
             configCommand = "herdr plugin config-dir heeler"
         }
+        let query = GitProbe.singleQuoted(pluginRoot + "/src/usage-query.js")
         let flags = claudeLimits ? " --claude-limits" : ""
         // Cap the entire framed response. Truncation removes the end marker,
         // so a plausible JSON prefix can never become a successful read.
