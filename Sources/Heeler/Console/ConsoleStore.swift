@@ -980,9 +980,13 @@ final class ConsoleStore {
         let current = Array(projections.values)
         reconcileTerminalConnections(current)
         requestChatHostPlatforms(current)
+        // A configured Host without a session update is awaiting its first
+        // activation, not gone. Publish that pending connection to every
+        // surface, including the list and saved Chat banners. Removed Hosts
+        // have no projection; explicit ended and suspended states stay intact.
         hostStatuses = Dictionary(
-            uniqueKeysWithValues: current.compactMap { projection in
-                projection.status.map { (projection.host.id, $0) }
+            uniqueKeysWithValues: current.map { projection in
+                (projection.host.id, projection.status ?? .connecting)
             })
         hostStandingFailures = Dictionary(
             uniqueKeysWithValues: current.compactMap { projection in

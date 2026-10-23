@@ -138,6 +138,10 @@ final class HeelerAppModel {
         notificationPreferences.onRegistered = { [weak liveActivities] _ in
             liveActivities?.connectionsDidChange()
         }
+        // A window can render before start() runs. Publish the configured
+        // Hosts and begin loading saved Chats before that first render;
+        // connections still wait for start() to resume the Console.
+        console.setHosts(hostStore.hosts)
     }
 
     var terminal: TerminalSettings {
