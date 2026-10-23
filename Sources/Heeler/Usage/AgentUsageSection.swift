@@ -39,8 +39,10 @@ struct AgentUsageContent: View {
                             .foregroundStyle(.secondary)
                         Text("Today: \(totals.today.tokens.total.formatted()) tokens")
                             .font(.subheadline)
+                        AgentUsageEstimatedCost(summary: totals.today)
                         Text("Last 30 days: \(totals.last30Days.tokens.total.formatted()) tokens")
                             .font(.subheadline)
+                        AgentUsageEstimatedCost(summary: totals.last30Days)
                     } else if program.tokenUsage.state == "noData" {
                         Text("No Token Usage recorded on this Host yet.")
                             .font(.subheadline)
@@ -54,6 +56,31 @@ struct AgentUsageContent: View {
                 .accessibilityElement(children: .combine)
             }
         }
+    }
+}
+
+struct AgentUsageEstimatedCost: View {
+    let summary: AgentUsageReport.Summary
+    @Environment(\.locale) private var locale
+
+    private var amount: String {
+        guard let value = summary.estimatedCostUSD else { return "Unpriced" }
+        let style = FloatingPointFormatStyle<Double>.Currency(code: "USD").locale(locale)
+        if value > 0 && value < 0.01 {
+            return "< \(0.01.formatted(style))"
+        }
+        return value.formatted(style)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Estimated API cost: \(amount)")
+            if let unpriced = summary.unpricedTokens, unpriced > 0 {
+                Text("\(unpriced.formatted()) tokens unpriced")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 

@@ -6,6 +6,43 @@ import Testing
 @MainActor
 @Suite("Agent usage store", .timeLimit(.minutes(1)))
 struct AgentUsageStoreTests {
+    @Test func theSharedVectorCarriesVersionedEstimatedAPICost() throws {
+        let object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
+        #expect(object["pricingVersion"] is String)
+        let programs = try #require(object["programs"] as? [[String: Any]])
+        for program in programs {
+            let usage = try #require(program["tokenUsage"] as? [String: Any])
+            let totals = try #require(usage["totals"] as? [String: Any])
+            let today = try #require(totals["today"] as? [String: Any])
+            #expect(today["estimatedCostUSD"] != nil)
+            #expect(today["unpricedTokens"] is Int)
+        }
+        let report = try AgentUsageFixture.report()
+        #expect(report.pricingVersion == "2026-10-23")
+        for program in report.programs ?? [] {
+            #expect(program.tokenUsage.totals?.today.estimatedCostUSD != nil)
+            #expect(program.tokenUsage.totals?.today.unpricedTokens == 0)
+            #expect(program.tokenUsage.daily?.last?.estimatedCostUSD != nil)
+        }
+        let claudeCost = try #require(report.programs?.first { $0.program == "claude" }?
+            .tokenUsage.totals?.today.estimatedCostUSD)
+        let codexCost = try #require(report.programs?.first { $0.program == "codex" }?
+            .tokenUsage.totals?.today.estimatedCostUSD)
+        #expect(abs(claudeCost - 0.92225) < 0.000000001)
+        #expect(abs(codexCost - 0.000742) < 0.000000001)
+    }
+
+    @Test func nullEstimatedCostDoesNotBecomeZeroAndUnpricedTokensRemainVisible() throws {
+        let report = try AgentUsageFixture.costReport(cost: nil, unpriced: 882_000)
+        let today = try #require(report.programs?.first?.tokenUsage.totals?.today)
+        #expect(today.estimatedCostUSD == nil)
+        #expect(today.unpricedTokens == 882_000)
+        let mixed = try AgentUsageFixture.costReport(cost: 1.92, unpriced: 250)
+        #expect(mixed.programs?.first?.tokenUsage.totals?.last30Days.estimatedCostUSD == 1.92)
+        #expect(mixed.programs?.first?.tokenUsage.totals?.last30Days.unpricedTokens == 250)
+        #expect(mixed.programs?.first?.tokenUsage.daily?.last?.estimatedCostUSD == 1.92)
+    }
+
     @Test func anOldPluginShowsItsRequirementWithoutAUsageRead() async {
         let hostID = UUID()
         let transport = ScriptedTransport()
@@ -200,6 +237,30 @@ enum AgentUsageFixture {
         for index in programs.indices { programs[index]["tokenUsage"] = ["state": "noData"] }
         object["programs"] = programs
         object["refreshing"] = false
+        return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+    }
+
+    static func costReport(cost: Double?, unpriced: Int64) throws -> AgentUsageReport {
+        var object = try #require(JSONSerialization.jsonObject(with: data()) as? [String: Any])
+        var program = try #require((object["programs"] as? [[String: Any]])?.first)
+        var usage = try #require(program["tokenUsage"] as? [String: Any])
+        var totals = try #require(usage["totals"] as? [String: Any])
+        for name in ["today", "last7Days", "last30Days"] {
+            var summary = try #require(totals[name] as? [String: Any])
+            summary["estimatedCostUSD"] = cost.map { $0 as Any } ?? NSNull()
+            summary["unpricedTokens"] = unpriced
+            totals[name] = summary
+        }
+        var daily = try #require(usage["daily"] as? [[String: Any]])
+        for index in daily.indices {
+            daily[index]["estimatedCostUSD"] = cost.map { $0 as Any } ?? NSNull()
+            daily[index]["unpricedTokens"] = unpriced
+        }
+        usage["totals"] = totals
+        usage["daily"] = daily
+        program["tokenUsage"] = usage
+        object["programs"] = [program]
+        object["pricingVersion"] = "2026-10-24"
         return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
     }
 
