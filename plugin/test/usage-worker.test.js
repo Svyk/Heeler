@@ -198,19 +198,21 @@ test("query folds UTC quarter-hours into Nepal days and the spring DST day", asy
 
 test("the shared v1 vector comes from the worker's Claude and Codex aggregation", async t => {
   const f = fixture(t);
-  f.transcript("vector.jsonl", [assistant("vector", 1200, { message: { id: "vector", model: "claude-test", usage: { input_tokens: 1200, cache_read_input_tokens: 830000, cache_creation_input_tokens: 41000, output_tokens: 9800 } } })]);
+  f.transcript("vector.jsonl", [assistant("vector", 1200, { message: { id: "vector", model: "claude-opus-4-5", usage: { input_tokens: 1200, cache_read_input_tokens: 830000, cache_creation_input_tokens: 41000, output_tokens: 9800 } } })]);
   const codexDirectory = join(f.env.HOME, ".codex", "sessions", "2026", "10", "23");
   mkdirSync(codexDirectory, { recursive: true });
   const timestamp = new Date().toISOString();
   writeFileSync(join(codexDirectory, "rollout-vector.jsonl"), [
     { type: "session_meta", timestamp, payload: { id: "vector-codex", cwd: "/work/codex" } },
-    { type: "turn_context", timestamp, payload: { model: "gpt-test" } },
+    { type: "turn_context", timestamp, payload: { model: "gpt-5.3-codex" } },
     { type: "token_usage_record", timestamp, payload: { thread_id: "vector-codex", response_id: "vector-response", usage: { input_tokens: 220, cached_input_tokens: 40, cache_write_input_tokens: 60, output_tokens: 30, reasoning_output_tokens: 10 } } },
   ].map(line => JSON.stringify(line)).join("\n") + "\n");
   const report = await f.finish("Asia/Shanghai");
   const expected = { input: 1200, cacheRead: 830000, cacheWrite: 41000, output: 9800, reasoning: 0, total: 882000 };
   assert.deepEqual(claude(report).totals.today.tokens, expected);
   assert.equal(claude(report).daily.length, 30);
+  assert.ok(Math.abs(claude(report).totals.today.estimatedCostUSD - 0.92225) < 1e-10);
+  assert.ok(Math.abs(report.programs[1].tokenUsage.totals.today.estimatedCostUSD - 0.000742) < 1e-12);
   assert.deepEqual(report.programs[1].tokenUsage.totals.today.tokens, { input: 120, cacheRead: 40, cacheWrite: 60, output: 30, reasoning: 10, total: 250 });
   report.generatedAt = report.scan.coveredThrough = "2026-10-23T12:34:56.000Z";
   report.scan.coveredFrom = "2026-10-23";

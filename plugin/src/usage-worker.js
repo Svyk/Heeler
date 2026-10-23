@@ -8,6 +8,7 @@ import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeL
 import { claudeFiles, transcriptEntries, claudeContribution } from "./usage/claude-scanner.js";
 import { loadCheckpoint, startLog, saveCheckpoint, matchFiles } from "./usage/checkpoint.js";
 import { changeBucket } from "./usage/buckets.js";
+import { priceContribution, pricingVersion } from "./usage/pricing.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
 import { createCodexState, consumeCodexLine, finishCodexRead, codexTotalSignature } from "./usage/codex-scanner.js";
 
@@ -67,7 +68,7 @@ async function run() {
       // Commit parser progress even when a rebuild is still resolving a burst.
       // The query keeps the old aggregates; the next worker resumes the new log.
       const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
-        complete, buckets: [...buckets.values()], errors,
+        complete, pricingVersion, buckets: [...buckets.values()], errors,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
       saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
         ? { ...previousSnapshot, complete: false, rebuilding: true }
@@ -115,7 +116,8 @@ async function run() {
         const carry = state.carry;
         let parent = carry.parentId && !carry.inheritedEnded ? await totalsForParent(carry.parentId) : null;
         const countContributions = contributions => {
-          for (const candidate of contributions) {
+          for (const contribution of contributions) {
+            const candidate = priceContribution(contribution);
             if (keys.has(candidate.key)) continue;
             keys.set(candidate.key, candidate);
             changeBucket(buckets, candidate, 1);
@@ -145,8 +147,9 @@ async function run() {
         if (!state.finished) for await (const { line, offset } of transcriptEntries(file.path, maintainHeartbeat, state.offset)) {
           state.offset = offset;
           if (typeof line?.cwd === "string") state.carry.directory = line.cwd;
-          const candidate = claudeContribution(line, file.path, cutoff, state.carry.directory);
-          if (!candidate) continue;
+          const contribution = claudeContribution(line, file.path, cutoff, state.carry.directory);
+          if (!contribution) continue;
+          const candidate = priceContribution(contribution);
           const peers = groups.get(candidate.group) || new Set();
           groups.set(candidate.group, peers);
           const existing = keys.get(candidate.key);
@@ -158,7 +161,8 @@ async function run() {
           if (candidate.sidechain && siblings.some(record => !record.sidechain)) continue;
           const collisions = [existing, ...siblings.filter(record => record.sidechain)].filter(Boolean);
           // A stable final comparison makes even equal-size streamed copies order independent.
-          const preferred = (a, b) => Number(!a.sidechain) - Number(!b.sidechain) || a.tokens.total - b.tokens.total || JSON.stringify(a).localeCompare(JSON.stringify(b));
+          const collisionFields = ({ estimatedCostUSD, unpricedTokens, ...record }) => JSON.stringify(record);
+          const preferred = (a, b) => Number(!a.sidechain) - Number(!b.sidechain) || a.tokens.total - b.tokens.total || collisionFields(a).localeCompare(collisionFields(b));
           const winner = collisions.reduce((best, record) => preferred(record, best) >= 0 ? record : best, candidate);
           const removed = [...new Set(collisions.filter(record => record !== winner && (winner === candidate || !candidate.sidechain)).map(record => record.key))];
           for (const key of removed) {
