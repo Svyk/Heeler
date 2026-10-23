@@ -155,6 +155,9 @@ private struct UsageScratchPlugin {
     }
 
     private func upload(path: String, text: String, permissions: UInt32) async throws {
+        let quoted = GitProbe.singleQuoted(path)
+        let removed = try await connection.execute("rm -f " + quoted, timeout: Self.timeout)
+        try #require(removed.exitStatus == 0)
         let sftp = try await connection.openSFTP(timeout: Self.timeout)
         let file = try await sftp.openFileForWriting(at: path, permissions: permissions, timeout: Self.timeout)
         try await file.write(Data(text.utf8), timeout: Self.timeout)
