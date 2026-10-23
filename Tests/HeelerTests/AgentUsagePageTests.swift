@@ -9,7 +9,7 @@ import UIKit
 struct AgentUsagePageTests {
     @Test func thePageShowsTheSevenDayTotalFromTheSharedVector() async throws {
         let report = try AgentUsageFixture.report()
-        let store = AgentUsageStore { _, _ in .available(report) }
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in .available(report) }
         await store.refresh()
         let controller = UIHostingController(rootView:
             NavigationStack { AgentUsageView(store: store) }
@@ -165,7 +165,7 @@ struct AgentUsagePageInteractionTests {
     @Test func leavingThePageCancelsItsPollingTask() async throws {
         let partial = try AgentUsageFixture.report(refreshing: true)
         var reads = 0
-        let store = AgentUsageStore { _, _ in reads += 1; return .available(partial) }
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in reads += 1; return .available(partial) }
         let controller = UIHostingController(rootView: AnyView(NavigationStack { AgentUsageView(store: store) }))
         let window = try await makeTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844),
             rootViewController: controller)

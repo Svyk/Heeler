@@ -8,6 +8,127 @@ import UIKit
 @MainActor
 @Suite("Agent usage limits", .serialized, .timeLimit(.minutes(1)))
 struct AgentUsageLimitsTests {
+    @Test func claudeToggleAndLimitStatesRenderAtStandardAndAccessibleSizes() async throws {
+        let directory = URL.documentsDirectory.appendingPathComponent("usage-claude-renders")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for state in ["disabled", "ok", "throttled", "unavailable"] {
+            for accessible in [false, true] {
+                let name = "claude-render-\(UUID())"
+                let defaults = try #require(UserDefaults(suiteName: name))
+                defer { defaults.removePersistentDomain(forName: name) }
+                let report = try ClaudeUsageFixture.report(state: state)
+                let store = AgentUsageStore(hostID: UUID(), defaults: defaults) { _, _ in .available(report) }
+                store.claudeLimitsEnabled = state != "disabled"
+                await store.refresh()
+                guard case .available(let visible) = store.state else { Issue.record("Missing report"); return }
+                let limits = try #require(visible.programs?.first?.usageLimits)
+                let controller = UIHostingController(rootView:
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Usage").font(.title2.bold())
+                        ClaudeUsageSettings(store: store)
+                        AgentUsageLimitsView(program: "claude", limits: limits)
+                    }
+                    .padding(20).frame(width: 390, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(Color(uiColor: .systemBackground))
+                    .environment(\.colorScheme, accessible ? .dark : .light)
+                    .environment(\.locale, Locale(identifier: "en_US"))
+                    .environment(\.dynamicTypeSize, accessible ? .accessibility3 : .large))
+                controller.safeAreaRegions = []
+                let size = controller.sizeThatFits(in: CGSize(width: 390, height: 5_000))
+                let bounds = CGRect(origin: .zero, size: size)
+                controller.view.frame = bounds
+                let window = try await makeTestWindow(frame: bounds, rootViewController: controller)
+                defer { window.isHidden = true }
+                controller.view.layoutIfNeeded()
+                let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+                #expect(labels.contains("Claude Code limits"))
+                if state == "disabled" { #expect(labels.contains("Usage Limits are off.")) }
+                if state == "ok" || state == "throttled" {
+                    #expect(labels.contains("Weekly · Opus"))
+                    #expect(labels.contains("Weekly · Sonnet"))
+                    #expect(labels.contains("Custom model"))
+                    #expect(labels.contains("Expired · current usage unknown"))
+                }
+                if state == "throttled" { #expect(labels.contains("Retry after")) }
+                if state == "unavailable" { #expect(labels.contains("Update Claude Code")) }
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 2
+                let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
+                    #expect(controller.view.drawHierarchy(in: bounds, afterScreenUpdates: true))
+                }
+                let filename = "claude-\(state)-accessible-\(accessible).png"
+                Attachment.record(image, named: filename, as: .png)
+                try #require(image.pngData()).write(to: directory.appendingPathComponent(filename))
+            }
+        }
+    }
+
+    @Test func claudeDisclosureAppearsOnTheHostAndUsagePage() async throws {
+        for detailed in [false, true] {
+            let name = "claude-disclosure-\(UUID())"
+            let defaults = try #require(UserDefaults(suiteName: name))
+            defer { defaults.removePersistentDomain(forName: name) }
+            let report = try ClaudeUsageFixture.report()
+            let store = AgentUsageStore(hostID: UUID(), defaults: defaults) { _, _ in .available(report) }
+            let content = detailed
+                ? AnyView(NavigationStack { AgentUsageView(store: store) })
+                : AnyView(NavigationStack { Form { AgentUsageSection(store: store) } })
+            let controller = UIHostingController(rootView: content.environment(\.locale, Locale(identifier: "en_US")))
+            let window = try await makeTestWindow(
+                frame: CGRect(x: 0, y: 0, width: 390, height: 844), rootViewController: controller)
+            defer { window.isHidden = true }
+            try await Task.sleep(for: .milliseconds(150))
+            controller.view.layoutIfNeeded()
+            let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+            #expect(labels.contains("Claude Code limits"))
+            #expect(labels.contains("The plugin asks Claude Code on this computer for your plan limits."))
+            #expect(labels.contains("Neither the plugin nor Heeler handles your sign-in."))
+            #expect(labels.contains("This automated use is not officially supported."))
+            let directory = URL.documentsDirectory.appendingPathComponent("usage-claude-surfaces")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
+                #expect(controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true))
+            }
+            let filename = detailed ? "page.png" : "host.png"
+            Attachment.record(image, named: filename, as: .png)
+            try #require(image.pngData()).write(to: directory.appendingPathComponent(filename))
+        }
+    }
+
+    @Test func theSharedVectorCarriesClaudeServiceAndNullableModelWindows() throws {
+        let report = try AgentUsageReport.decode(AgentUsageFixture.data())
+        let limits = try #require(report.programs?.first?.usageLimits)
+        #expect(limits.state == "ok")
+        #expect(limits.source == "service")
+        #expect(limits.plan == "max")
+        #expect(limits.windows?.map(\.id) == ["fiveHour", "sevenDayOpus", "sevenDaySonnet", "claude:model:Custom model"])
+        #expect(limits.windows?.first?.resetsAt == nil)
+        #expect(limits.windows?.first?.usedPercent == 12)
+        #expect(limits.windows?.last?.label == "Custom model")
+        #expect(limits.windows?.last?.durationMinutes == nil)
+        #expect(limits.windows?.last?.usedPercent == nil)
+        #expect(limits.windows?.last?.expired == true)
+    }
+
+    @Test func claudeBackoffKeepsItsLastReadingAndNamesModelWindows() async throws {
+        let limits = try #require(ClaudeUsageFixture.report(state: "throttled").programs?.first?.usageLimits)
+        let controller = UIHostingController(rootView: AgentUsageLimitsView(program: "claude", limits: limits)
+            .padding(20).frame(width: 390).environment(\.locale, Locale(identifier: "en_US")))
+        let window = try await makeTestWindow(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 1_200), rootViewController: controller)
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+        #expect(labels.contains("Weekly · Opus"))
+        #expect(labels.contains("Weekly · Sonnet"))
+        #expect(labels.contains("12%"))
+        #expect(labels.contains("Last reading"))
+        #expect(labels.contains("Retry after"))
+    }
+
     @Test func theStoreKeepsLimitSourcesAndExpiredWindowsFromThePlugin() async throws {
         let report = try AgentUsageLimitFixture.report(source: "lastSession")
         let hostID = UUID()
@@ -139,6 +260,30 @@ enum AgentUsageLimitFixture {
         if let reason { limits["reason"] = reason }
         if state != "ok" { limits.removeValue(forKey: "windows") }
         programs[programs.count - 1]["usageLimits"] = limits
+        object["programs"] = programs
+        return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+    }
+}
+
+
+enum ClaudeUsageFixture {
+    static func report(state: String = "ok") throws -> AgentUsageReport {
+        var object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
+        var programs = try #require(object["programs"] as? [[String: Any]])
+        let timestamp = ISO8601DateFormatter()
+        let now = Date()
+        programs[0]["usageLimits"] = [
+            "state": state, "source": "service", "plan": "max", "reason": "programTooOld",
+            "observedAt": timestamp.string(from: now.addingTimeInterval(-60)),
+            "retryAt": timestamp.string(from: now.addingTimeInterval(300)),
+            "windows": [
+                ["id": "fiveHour", "durationMinutes": 300, "usedPercent": 12, "resetsAt": NSNull(), "expired": false],
+                ["id": "sevenDayOpus", "durationMinutes": 10080, "usedPercent": 23, "resetsAt": NSNull(), "expired": false],
+                ["id": "sevenDaySonnet", "durationMinutes": 10080, "usedPercent": 34, "resetsAt": NSNull(), "expired": false],
+                ["id": "claude:model:Custom", "label": "Custom model", "durationMinutes": NSNull(),
+                 "usedPercent": NSNull(), "resetsAt": timestamp.string(from: now.addingTimeInterval(-120)), "expired": true],
+            ],
+        ]
         object["programs"] = programs
         return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
     }

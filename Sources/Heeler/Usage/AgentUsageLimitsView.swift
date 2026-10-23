@@ -9,7 +9,12 @@ struct AgentUsageLimitsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Usage Limits").font(.subheadline.weight(.semibold))
-            if limits.state == "ok" {
+            if limits.state == "ok" || limits.state == "throttled" {
+                if limits.state == "throttled" {
+                    Text("Last reading · \(retrySummary)")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let sourceSummary {
                     Text(sourceSummary)
                         .font(.caption)
@@ -75,12 +80,24 @@ struct AgentUsageLimitsView: View {
 
     private func windowName(_ window: AgentUsageReport.Program.UsageLimits.Window) -> String {
         if let label = window.label, !label.isEmpty { return label }
+        if program == "claude" {
+            switch window.id {
+            case "sevenDayOpus": return "Weekly · Opus"
+            case "sevenDaySonnet": return "Weekly · Sonnet"
+            default: break
+            }
+        }
         guard let minutes = window.durationMinutes, minutes > 0 else { return "Usage window" }
         if minutes == 10_080 { return "Weekly" }
         if minutes == 1_440 { return "Daily" }
         if minutes.isMultiple(of: 1_440) { return "\(minutes / 1_440)-day" }
         if minutes.isMultiple(of: 60) { return "\(minutes / 60)-hour" }
         return "\(minutes)-minute"
+    }
+
+    private var retrySummary: String {
+        guard let retry = date(limits.retryAt) else { return "Waiting to retry" }
+        return "Retry after \(timestamp(retry))"
     }
 
     private var programName: String { program == "claude" ? "Claude Code" : "Codex" }

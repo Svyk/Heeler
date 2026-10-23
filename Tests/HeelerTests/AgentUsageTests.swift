@@ -105,7 +105,7 @@ struct AgentUsageStoreTests {
         var object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
         object["futureField"] = ["anything": true]
         #expect(try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
-            == AgentUsageFixture.report())
+            == AgentUsageReport.decode(AgentUsageFixture.data()))
         object["version"] = 2
         object["programs"] = "a different future shape"
         #expect(throws: AgentUsageError.unsupportedVersion) {
@@ -284,10 +284,83 @@ enum AgentUsageFixture {
     static func report(refreshing: Bool) throws -> AgentUsageReport {
         var object = try #require(JSONSerialization.jsonObject(with: data()) as? [String: Any])
         object["refreshing"] = refreshing
+        var programs = try #require(object["programs"] as? [[String: Any]])
+        programs[0]["usageLimits"] = ["state": "disabled"]
+        object["programs"] = programs
         return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
     }
 
     static func report() throws -> AgentUsageReport {
-        try AgentUsageReport.decode(data())
+        try report(refreshing: false)
+    }
+}
+
+
+@MainActor
+@Suite("Claude usage preference", .timeLimit(.minutes(1)))
+struct ClaudeUsagePreferenceTests {
+    @Test func disablingImmediatelyHidesCachedLimitsAndRejectsAnInFlightOptedInResponse() async throws {
+        let name = "claude-cancel-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let hostID = UUID()
+        let transport = ScriptedTransport()
+        let report = try ClaudeUsageFixture.report()
+        await transport.setHeelerPlugin(.success(.init(pluginRoot: "/plugins/heeler", version: "0.7.0")))
+        await transport.setAgentUsage(.success(report))
+        let store = AgentUsageStore(hostID: hostID,
+            transports: ScriptedTransportProvider(transports: [hostID: transport]), defaults: defaults)
+        store.claudeLimitsEnabled = true
+        await store.refresh()
+        let gate = ScriptedTransportCallGate()
+        await transport.setAgentUsage(.success(try AgentUsageFixture.costReport(cost: 9.99, unpriced: 0)))
+        await transport.gateNextAgentUsageRead(gate)
+        let refresh = Task { await store.refresh() }
+        await gate.waitForEntry()
+        store.claudeLimitsEnabled = false
+        guard case .available(let hidden) = store.state else {
+            await gate.open()
+            await refresh.value
+            Issue.record("Turning off Claude limits must retain Token Usage.")
+            return
+        }
+        #expect(hidden.programs?.first?.usageLimits.state == "disabled")
+        #expect(hidden.programs?.first?.tokenUsage == report.programs?.first?.tokenUsage)
+        #expect(hidden.programs?.last == report.programs?.last)
+        #expect(!store.isLoading)
+        await gate.open()
+        await refresh.value
+        #expect(store.state == .available(hidden))
+        #expect(await transport.agentUsageClaudeLimits == [true, true])
+        await store.refresh()
+        #expect(await transport.agentUsageClaudeLimits == [true, true, false])
+        guard case .available(let afterRefresh) = store.state else { Issue.record("Missing snapshot"); return }
+        #expect(afterRefresh.programs?.first?.usageLimits.state == "disabled")
+    }
+
+    @Test func thePerHostTogglePersistsOnThisDeviceAndReachesTransport() async throws {
+        let name = "claude-usage-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let hostID = UUID()
+        let otherID = UUID()
+        let transport = ScriptedTransport()
+        await transport.setHeelerPlugin(.success(.init(pluginRoot: "/plugins/heeler", version: "0.7.0")))
+        await transport.setAgentUsage(.success(try ClaudeUsageFixture.report()))
+        let provider = ScriptedTransportProvider(transports: [hostID: transport, otherID: transport])
+        let store = AgentUsageStore(hostID: hostID, transports: provider, defaults: defaults)
+        #expect(!store.claudeLimitsEnabled)
+        await store.refresh()
+        store.claudeLimitsEnabled = true
+        await store.refresh()
+        let reopened = AgentUsageStore(hostID: hostID, transports: provider, defaults: defaults)
+        #expect(reopened.claudeLimitsEnabled)
+        await reopened.refresh()
+        let other = AgentUsageStore(hostID: otherID, transports: provider, defaults: defaults)
+        #expect(!other.claudeLimitsEnabled)
+        await other.refresh()
+        #expect(await transport.agentUsageClaudeLimits == [false, true, true, false])
+        reopened.claudeLimitsEnabled = false
+        #expect(!AgentUsageStore(hostID: hostID, transports: provider, defaults: defaults).claudeLimitsEnabled)
     }
 }

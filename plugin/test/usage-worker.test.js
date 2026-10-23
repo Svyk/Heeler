@@ -8,14 +8,36 @@ import { fileURLToPath } from "node:url";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-function fixture(t) {
+function fixture(t, claudeLimits = false) {
   const root = mkdtempSync(join(tmpdir(), "heeler-worker-"));
   const env = { PATH: "/usr/bin:/bin", HOME: join(root, "home"), CLAUDE_CONFIG_DIR: join(root, "claude,one"),
     HERDR_PLUGIN_CONFIG_DIR: join(root, "config"), HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing" };
   const run = (name, args = []) => spawnSync(process.execPath, [join(plugin, "src", name), ...args], { env, encoding: "utf8", timeout: 10_000 });
   assert.equal(run("sidebar-hook.js").status, 0);
+  if (claudeLimits) {
+    const executable = join(root, "claude-stub");
+    writeFileSync(executable, `#!${process.execPath}
+const readline = require('node:readline');
+readline.createInterface({input: process.stdin}).on('line', line => {
+  const request = JSON.parse(line);
+  const response = request.request.subtype === 'initialize' ? {} : {
+    subscription_type: 'max', rate_limits_available: true, rate_limits: {
+      five_hour: {utilization: 12, resets_at: null},
+      seven_day: {utilization: null, resets_at: null},
+      seven_day_opus: {utilization: 23, resets_at: null},
+      seven_day_sonnet: {utilization: 34, resets_at: null},
+      model_scoped: [{display_name: 'Custom model', utilization: 56, resets_at: '2020-01-01T00:00:00Z'}],
+    }
+  };
+  process.stdout.write(JSON.stringify({type:'control_response', response:{request_id:request.request_id, subtype:'success', response}})+'\\n');
+});
+`, {mode: 0o755});
+    const path = join(env.HERDR_PLUGIN_CONFIG_DIR, "runtime.json");
+    const runtime = JSON.parse(readFileSync(path)); runtime.claude = executable;
+    writeFileSync(path, JSON.stringify(runtime));
+  }
   const query = (tz = "UTC") => {
-    const result = run("usage-query.js", ["--tz", tz]);
+    const result = run("usage-query.js", ["--tz", tz, ...(claudeLimits ? ["--claude-limits"] : [])]);
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
   };
@@ -197,7 +219,7 @@ test("query folds UTC quarter-hours into Nepal days and the spring DST day", asy
 });
 
 test("the shared v1 vector comes from the worker's Claude and Codex aggregation", async t => {
-  const f = fixture(t);
+  const f = fixture(t, true);
   f.transcript("vector.jsonl", [assistant("vector", 1200, { message: { id: "vector", model: "claude-opus-4-5", usage: { input_tokens: 1200, cache_read_input_tokens: 830000, cache_creation_input_tokens: 41000, output_tokens: 9800 } } })]);
   const codexDirectory = join(f.env.HOME, ".codex", "sessions", "2026", "10", "23");
   mkdirSync(codexDirectory, { recursive: true });
@@ -223,6 +245,12 @@ test("the shared v1 vector comes from the worker's Claude and Codex aggregation"
   assert.ok(Math.abs(claude(report).totals.today.estimatedCostUSD - 0.92225) < 1e-10);
   assert.ok(Math.abs(report.programs[1].tokenUsage.totals.today.estimatedCostUSD - 0.000742) < 1e-12);
   assert.deepEqual(report.programs[1].tokenUsage.totals.today.tokens, { input: 120, cacheRead: 40, cacheWrite: 60, output: 30, reasoning: 10, total: 250 });
+  const claudeLimits = report.programs[0].usageLimits;
+  assert.equal(claudeLimits.state, "ok");
+  assert.equal(claudeLimits.plan, "max");
+  assert.deepEqual(claudeLimits.windows.map(window => [window.id, window.usedPercent, window.expired]),
+    [["fiveHour", 12, false], ["sevenDayOpus", 23, false], ["sevenDaySonnet", 34, false], ["claude:model:Custom model", null, true]]);
+  claudeLimits.observedAt = "2026-10-23T12:34:50.000Z";
   const limits = report.programs[1].usageLimits;
   assert.equal(limits.source, "lastSession");
   assert.deepEqual(limits.windows.map(window => [window.id, window.durationMinutes, window.usedPercent, window.expired]),
