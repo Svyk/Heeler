@@ -196,16 +196,27 @@ test("query folds UTC quarter-hours into Nepal days and the spring DST day", asy
   assert.equal(dst.totals.last7Days.tokens.total, 17);
 });
 
-test("the shared v1 vector comes from the worker's Claude aggregation", async t => {
+test("the shared v1 vector comes from the worker's Claude and Codex aggregation", async t => {
   const f = fixture(t);
   f.transcript("vector.jsonl", [assistant("vector", 1200, { message: { id: "vector", model: "claude-test", usage: { input_tokens: 1200, cache_read_input_tokens: 830000, cache_creation_input_tokens: 41000, output_tokens: 9800 } } })]);
+  const codexDirectory = join(f.env.HOME, ".codex", "sessions", "2026", "10", "23");
+  mkdirSync(codexDirectory, { recursive: true });
+  const timestamp = new Date().toISOString();
+  writeFileSync(join(codexDirectory, "rollout-vector.jsonl"), [
+    { type: "session_meta", timestamp, payload: { id: "vector-codex", cwd: "/work/codex" } },
+    { type: "turn_context", timestamp, payload: { model: "gpt-test" } },
+    { type: "token_usage_record", timestamp, payload: { thread_id: "vector-codex", response_id: "vector-response", usage: { input_tokens: 220, cached_input_tokens: 40, cache_write_input_tokens: 60, output_tokens: 30, reasoning_output_tokens: 10 } } },
+  ].map(line => JSON.stringify(line)).join("\n") + "\n");
   const report = await f.finish("Asia/Shanghai");
   const expected = { input: 1200, cacheRead: 830000, cacheWrite: 41000, output: 9800, reasoning: 0, total: 882000 };
   assert.deepEqual(claude(report).totals.today.tokens, expected);
   assert.equal(claude(report).daily.length, 30);
+  assert.deepEqual(report.programs[1].tokenUsage.totals.today.tokens, { input: 120, cacheRead: 40, cacheWrite: 60, output: 30, reasoning: 10, total: 250 });
   report.generatedAt = report.scan.coveredThrough = "2026-10-23T12:34:56.000Z";
   report.scan.coveredFrom = "2026-10-23";
-  for (const [index, day] of claude(report).daily.entries()) day.date = new Date(Date.parse("2026-10-23T12:00:00Z") - (29 - index) * 86_400_000).toISOString().slice(0, 10);
+  for (const program of report.programs) {
+    for (const [index, day] of program.tokenUsage.daily.entries()) day.date = new Date(Date.parse("2026-10-23T12:00:00Z") - (29 - index) * 86_400_000).toISOString().slice(0, 10);
+  }
   const path = join(plugin, "test-vectors", "usage-v1.json");
   if (process.env.UPDATE_USAGE_VECTOR === "1") writeFileSync(path, JSON.stringify(report, null, 2) + "\n");
   assert.deepEqual(report, JSON.parse(readFileSync(path, "utf8")));
