@@ -16,20 +16,23 @@ JSON document from it with one bounded SSH exec per query
 ([design](../design/agent-usage.md)).
 
 - The app runs `node <plugin_root>/src/usage-query.js` through
-  `runBoundedScript`. The plugin's startup hook writes a `runtime.json` from
-  herdr's environment: the `node` to run, the Agents' data roots, and
-  `HERDR_PLUGIN_STATE_DIR`, under which the cache lives, so a Herdr Endpoint
-  never shares a cache with the user's own herdr. Without that file the query
-  reports that herdr needs a restart instead of guessing.
+  `runBoundedScript`. The plugin's startup and `pane.agent_status_changed`
+  hooks write a `runtime.json` from herdr's environment: the `node`, `codex`
+  and `claude` to run, herdr's `PATH`, the Agents' data roots, and
+  `HERDR_PLUGIN_STATE_DIR`. The cache lives under that directory in a
+  subdirectory keyed by the resolved Transcript roots, so instances share a
+  cache only when they read the same Transcripts. Without the file the query
+  asks the user to use any Agent once or restart herdr instead of guessing.
   No SFTP, no listening port, no herdr plugin action.
 - The query never blocks on work. It returns the cached snapshot and spawns a
   single detached worker that scans Transcripts incrementally and reads Usage
   Limits.
-- Credentials never leave the Host and are never written, refreshed, logged
-  or passed on a command line. Codex limits come from Codex's own
-  `app-server`, which owns its credentials; Claude Code limits are opt-in per
-  Host because they use Claude Code's sign-in against an undocumented
-  endpoint.
+- The plugin never reads a credential. Usage Limits come from the programs
+  themselves, which own their sign-in and its refresh: Codex's `app-server`
+  (`account/rateLimits/read`) and Claude Code's stream-json `get_usage`
+  control request. Claude Code limits are opt-in per Host, because
+  `get_usage` is undocumented and the use is automated use of the
+  subscription.
 - The plugin keeps no history of its own. Token Usage covers at most 30 days,
   bounded by the Transcripts still on the Host, and its cache can always be
   rebuilt from them.
@@ -53,6 +56,20 @@ JSON document from it with one bounded SSH exec per query
 - **Copy credentials to the device and call the services from iOS**:
   rejected. It moves secrets off the Host and is what Anthropic's terms
   forbid most clearly.
+- **Read Claude Code's stored OAuth token on the Host and call
+  `/api/oauth/usage`**: rejected. Claude Code's legal page says developers
+  "may not collect, store, or intermediate Claude.ai credentials or session
+  tokens"; the keychain service name gains a hash suffix under
+  `CLAUDE_CONFIG_DIR` and a plaintext fallback file can be stale; and a
+  community report says requests without Claude Code's User-Agent keep
+  getting 429, while sending it would breach the Usage Policy's ban on
+  misrepresenting "the product or client being used". Claude Code's own
+  `get_usage` answers the same question without the plugin touching the
+  token.
+- **Restart herdr to record the runtime**: rejected as the only path. herdr
+  runs startup hooks only at server start and live handoff, never on plugin
+  install or update, and a restart ends every pane. The status-change hook
+  runs in the same environment, so the first Agent activity records it.
 - **Persist long-term history in the plugin**: rejected for scope. Thirty
   days, as long as the Transcripts last, is enough, and a cache that is never
   authoritative can always be deleted safely.
@@ -66,6 +83,15 @@ JSON document from it with one bounded SSH exec per query
   on native Windows Hosts.
 - The plugin, not herdr, becomes the owner of how Claude Code and Codex
   records are counted. Changes in either program's Transcript format become
-  plugin updates.
+  plugin updates. Codex is counted from its per-response
+  `token_usage_record` (0.153.0 and later) with `token_count` as the
+  fallback for older files.
+- Codex compresses cold rollouts to `.jsonl.zst` (most of the last 30 days
+  on one development machine), so complete Codex totals need Node 22.15.0
+  or 23.8.0 and later, or `zstd` on herdr's `PATH`; otherwise the app reports
+  how many archives were skipped.
+- Claude Code Usage Limits depend on an undocumented control request and on
+  launching the user's `claude` headless with hooks and MCP servers off;
+  either can change with a Claude Code release.
 - This deviates from the Transcript being read only by the app: the plugin now
   reads Transcripts on the Host as well, still read-only.
