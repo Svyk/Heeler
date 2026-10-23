@@ -445,7 +445,7 @@ struct ConsoleDetailPresentationTests {
         let presentation = MissingAgentPresentation(
             agentID: ConsoleAgent.ID(hostID: host.id, paneID: "w1:p1"),
             hostStatuses: status.map { [host.id: $0] } ?? [:],
-            hosts: [host])
+            hosts: status == nil ? [] : [host])
         #expect(presentation.cause == .paneGone)
         #expect(presentation.title == "Agent Gone")
         #expect(presentation.renderingMode == .staticUnavailable)
