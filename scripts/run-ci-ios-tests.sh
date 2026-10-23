@@ -2393,6 +2393,14 @@ assert_behavior "Events" HeelerSSHTransportBehaviorE2ETests \
 assert_behavior "absolute Unix endpoints without HOME probing" \
     HeelerSSHTransportBehaviorE2ETests \
     '"absolute Unix endpoints preserve shell characters for RPC and Events without probing HOME"'
+assert_behavior "Usage quoting and endpoint runtime" HeelerSSHTransportBehaviorE2ETests \
+    '"Usage quotes its runtime and plugin paths through an endpoint exec"'
+assert_behavior "Usage missing runtime" HeelerSSHTransportBehaviorE2ETests \
+    '"Usage reports a missing or obsolete recorded runtime without a PATH fallback"'
+assert_behavior "Usage response cap and framing" HeelerSSHTransportBehaviorE2ETests \
+    '"Usage rejects over-cap output and malformed responses on a real exec"'
+assert_behavior "Usage deadline isolation" HeelerSSHTransportBehaviorE2ETests \
+    '"Usage times out without invalidating the Host connection"'
 assert_behavior "git stdin bytes and fixed command" HeelerSSHTransportBehaviorE2ETests \
     '"git stdin scripts preserve bytes and use only the fixed shell on direct and Jump paths"'
 assert_behavior "git deadline isolation" HeelerSSHTransportBehaviorE2ETests \
