@@ -216,6 +216,10 @@ test("the shared v1 vector comes from the worker's Claude and Codex aggregation"
   const expected = { input: 1200, cacheRead: 830000, cacheWrite: 41000, output: 9800, reasoning: 0, total: 882000 };
   assert.deepEqual(claude(report).totals.today.tokens, expected);
   assert.equal(claude(report).daily.length, 30);
+  assert.deepEqual(claude(report).models.map(model => [model.model, model.priced, model.tokens.total]), [["claude-opus-4-5", true, 882000]]);
+  assert.deepEqual(claude(report).directories.map(directory => [directory.path, directory.tokens.total]), [["/work/project", 882000]]);
+  assert.deepEqual(report.programs[1].tokenUsage.models.map(model => [model.model, model.priced, model.tokens.total]), [["gpt-5.3-codex", true, 250]]);
+  assert.deepEqual(report.programs[1].tokenUsage.directories.map(directory => [directory.path, directory.tokens.total]), [["/work/codex", 250]]);
   assert.ok(Math.abs(claude(report).totals.today.estimatedCostUSD - 0.92225) < 1e-10);
   assert.ok(Math.abs(report.programs[1].tokenUsage.totals.today.estimatedCostUSD - 0.000742) < 1e-12);
   assert.deepEqual(report.programs[1].tokenUsage.totals.today.tokens, { input: 120, cacheRead: 40, cacheWrite: 60, output: 30, reasoning: 10, total: 250 });

@@ -39,12 +39,29 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
         let unpricedTokens: Int64?
     }
 
+    struct Model: Decodable, Equatable, Sendable {
+        let model: String
+        let priced: Bool
+        let tokens: Tokens
+        let estimatedCostUSD: Double?
+        let unpricedTokens: Int64
+    }
+
+    struct Directory: Decodable, Equatable, Sendable {
+        let path: String
+        let tokens: Tokens
+        let estimatedCostUSD: Double?
+        let unpricedTokens: Int64
+    }
+
     struct Program: Decodable, Equatable, Sendable {
         struct TokenUsage: Decodable, Equatable, Sendable {
             let state: String
             let reason: String?
             let totals: Totals?
             let daily: [Daily]?
+            let models: [Model]?
+            let directories: [Directory]?
         }
         struct UsageLimits: Decodable, Equatable, Sendable {
             struct Window: Decodable, Equatable, Sendable, Identifiable {

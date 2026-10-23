@@ -9,16 +9,20 @@ export function contributionBucket(record) {
   return JSON.stringify([record.bucket, record.program, record.model]);
 }
 export function changeBucket(buckets, record, multiplier) {
-  const key = contributionBucket(record);
-  let bucket = buckets.get(key);
-  if (!bucket) {
-    bucket = { timestamp: record.bucket, program: record.program, model: record.model, tokens: zeroTokens(), estimatedCostUSD: 0, unpricedTokens: 0 };
-    buckets.set(key, bucket);
+  // Separate dimensions keep directory attribution out of the overall totals.
+  for (const dimension of [{ model: record.model }, { directory: record.directory || "unknown" }]) {
+    const key = "model" in dimension ? contributionBucket(record)
+      : JSON.stringify([record.bucket, record.program, "directory", dimension.directory]);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { timestamp: record.bucket, program: record.program, ...dimension, tokens: zeroTokens(), estimatedCostUSD: 0, unpricedTokens: 0 };
+      buckets.set(key, bucket);
+    }
+    addTokens(bucket.tokens, record.tokens, multiplier);
+    bucket.estimatedCostUSD += (record.estimatedCostUSD || 0) * multiplier;
+    bucket.unpricedTokens += (record.unpricedTokens || 0) * multiplier;
+    if (bucket.tokens.total === 0) buckets.delete(key);
   }
-  addTokens(bucket.tokens, record.tokens, multiplier);
-  bucket.estimatedCostUSD += (record.estimatedCostUSD || 0) * multiplier;
-  bucket.unpricedTokens += (record.unpricedTokens || 0) * multiplier;
-  if (bucket.tokens.total === 0) buckets.delete(key);
 }
 export function dayInZone(timestamp, timeZone) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
@@ -30,14 +34,26 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
   const programs = ["claude", "codex"].map(program => {
     const daily = dates.map(date => ({ date, tokens: zeroTokens(), estimatedCostUSD: 0, unpricedTokens: 0 }));
     const byDay = new Map(daily.map(day => [day.date, day]));
+    const models = new Map();
+    const directories = new Map();
     let hasData = false;
     for (const bucket of snapshot?.buckets || []) {
       if (bucket.program !== program) continue;
       const day = byDay.get(dayInZone(bucket.timestamp, timeZone));
-      if (day) {
+      if (!day) continue;
+      const unpricedTokens = bucket.unpricedTokens ?? (typeof bucket.estimatedCostUSD === "number" ? 0 : bucket.tokens.total);
+      const isDirectory = "directory" in bucket;
+      const groups = isDirectory ? directories : models;
+      const name = isDirectory ? bucket.directory : bucket.model;
+      if (!groups.has(name)) groups.set(name, { ...(isDirectory ? { path: name } : { model: name }), tokens: zeroTokens(), estimatedCostUSD: 0, unpricedTokens: 0 });
+      const group = groups.get(name);
+      addTokens(group.tokens, bucket.tokens);
+      group.estimatedCostUSD += bucket.estimatedCostUSD || 0;
+      group.unpricedTokens += unpricedTokens;
+      if (!isDirectory) {
         addTokens(day.tokens, bucket.tokens);
         day.estimatedCostUSD += bucket.estimatedCostUSD || 0;
-        day.unpricedTokens += bucket.unpricedTokens ?? (typeof bucket.estimatedCostUSD === "number" ? 0 : bucket.tokens.total);
+        day.unpricedTokens += unpricedTokens;
         hasData = true;
       }
     }
@@ -52,6 +68,8 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
     };
     return { program, tokenUsage: snapshot?.errors?.[program] ? { state: "error", reason: snapshot.errors[program] } : hasData ? {
       state: "ok", totals: { today: sum(daily.slice(-1)), last7Days: sum(daily.slice(-7)), last30Days: sum(daily) }, daily: daily.map(pricedSummary),
+      models: [...models.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.model.localeCompare(b.model)).map(model => ({ ...pricedSummary(model), priced: model.unpricedTokens === 0 })),
+      directories: [...directories.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.path.localeCompare(b.path)).slice(0, 10).map(pricedSummary),
     } : { state: "noData" }, usageLimits: program === "claude" ? { state: "disabled" }
       : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
   });
