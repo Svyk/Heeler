@@ -59,6 +59,8 @@ Entries reference the pull request that made the change.
 
 ### Fixed
 
+- Keep Blocked card answers reachable by scrolling at large text sizes
+  when the keyboard leaves less room, including from sidebar search. (#493)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding

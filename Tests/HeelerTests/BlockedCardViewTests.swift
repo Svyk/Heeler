@@ -7,7 +7,7 @@ import UIKit
 /// The Blocked card as Chat draws it, read through its accessibility
 /// elements and its height.
 @MainActor
-@Suite("Blocked card view", .timeLimit(.minutes(1)))
+@Suite("Blocked card view", .serialized, .timeLimit(.minutes(1)))
 struct BlockedCardViewTests {
     /// Before a subagent starts, Grok Build's card asks `Allow
     /// <description>?`, and the card's title is that question. Where Grok
@@ -62,7 +62,28 @@ struct BlockedCardViewTests {
     /// A keyboard in another field can leave less room than the card's
     /// preferred content budget. Every answer must still scroll into view.
     @Test func permissionAnswersRemainReachableAboveAnotherFieldsKeyboard() async throws {
-        let screen = try GrokCards.screen("grok-37-permission-command-62")
+        try await Self.checkAnswers(
+            stem: "grok-37-permission-command-62", size: CGSize(width: 944, height: 280),
+            textSize: .accessibility3, answers: ["Yes, proceed", "No, reject (type to add feedback)"])
+    }
+
+    @Test(arguments: [DynamicTypeSize.xxxLarge, .accessibility3])
+    func permissionAndForkAnswersRemainReachableInBothOrientations(textSize: DynamicTypeSize) async throws {
+        for size in [CGSize(width: 944, height: 280), CGSize(width: 608, height: 500)] {
+            try await Self.checkAnswers(
+                stem: "grok-37-permission-command-62", size: size, textSize: textSize,
+                answers: ["Yes, proceed", "No, reject (type to add feedback)"])
+            try await Self.checkAnswers(
+                stem: "grok-38-fork-question-62", size: size, textSize: textSize, answers: ["Yes", "No"])
+        }
+    }
+
+    // MARK: Helpers
+
+    private static func checkAnswers(
+        stem: String, size: CGSize, textSize: DynamicTypeSize, answers: [String]
+    ) async throws {
+        let screen = try GrokCards.screen(stem)
         let store = BlockedCardStore(
             program: .grok, io: BlockedScreenIO(readScreen: { screen }, sendKeys: { _ in }, paste: { _ in }),
             clock: ManualClock().clock)
@@ -70,18 +91,26 @@ struct BlockedCardViewTests {
         await store.refresh()
         let controller = UIHostingController(
             rootView: BlockedCardView(store: store, maxHeight: 400, openTerminal: {})
-                .environment(\.dynamicTypeSize, .accessibility3))
+                .environment(\.dynamicTypeSize, textSize))
         controller.safeAreaRegions = []
         try await withTestWindow(
-            frame: CGRect(x: 0, y: 0, width: 944, height: 280), rootViewController: controller
+            frame: CGRect(origin: .zero, size: size), rootViewController: controller
         ) { _ in
             var foundScroll: UIScrollView?
+            var previousGeometry: [CGFloat] = []
+            var stablePasses = 0
             for _ in 0..<40 {
                 controller.view.layoutIfNeeded()
                 foundScroll = Self.scrollView(in: controller.view)
-                if let scroll = foundScroll, scroll.contentSize.height > 400 { break }
+                if let scroll = foundScroll, scroll.contentSize.height > 1, scroll.bounds.height > 1 {
+                    let geometry = [scroll.contentSize.height, scroll.bounds.height, scroll.frame.minY]
+                    stablePasses = geometry == previousGeometry ? stablePasses + 1 : 0
+                    previousGeometry = geometry
+                    if stablePasses >= 2 { break }
+                }
                 try await Task.sleep(for: .milliseconds(50))
             }
+            try #require(stablePasses >= 2, "The card must finish laying out before measuring its answers")
             let scroll = try #require(foundScroll)
             let visible = UIAccessibility.convertToScreenCoordinates(controller.view.bounds, in: controller.view)
             let viewport = UIAccessibility.convertToScreenCoordinates(scroll.bounds, in: scroll)
@@ -93,20 +122,28 @@ struct BlockedCardViewTests {
             try await Task.sleep(for: .milliseconds(100))
             controller.view.layoutIfNeeded()
             let buttons = Self.elements(in: controller.view).filter {
-                $0.accessibilityTraits.contains(.button)
-                    && ($0.accessibilityLabel == "Yes, proceed"
-                        || $0.accessibilityLabel?.hasPrefix("No, reject (type to add feedback)") == true)
+                guard $0.accessibilityTraits.contains(.button), let label = $0.accessibilityLabel else { return false }
+                return answers.contains { label == $0 || label.hasPrefix($0 + ", ") }
             }
-            #expect(buttons.count == 2, "Expected both one-time answers, found \(buttons.map(\.accessibilityLabel))")
+            #expect(buttons.count == answers.count, "Expected \(answers), found \(buttons.map(\.accessibilityLabel))")
             for button in buttons {
-                #expect(!button.accessibilityFrame.isEmpty)
-                #expect(visible.intersection(viewport).insetBy(dx: -1, dy: -1).contains(button.accessibilityFrame),
-                    "\(button.accessibilityLabel ?? "answer") must be fully reachable at the bottom: \(button.accessibilityFrame)")
+                // Long answer captions need not fit together. Each answer
+                // must fit after scrolling to it within the legal range.
+                let label = try #require(button.accessibilityLabel)
+                let offset = scroll.contentOffset.y + button.accessibilityFrame.minY - viewport.minY
+                scroll.setContentOffset(
+                    CGPoint(x: 0, y: min(bottom, max(-scroll.adjustedContentInset.top, offset))), animated: false)
+                try await Task.sleep(for: .milliseconds(50))
+                controller.view.layoutIfNeeded()
+                let shown = try #require(Self.elements(in: controller.view).first {
+                    $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == label
+                })
+                #expect(!shown.accessibilityFrame.isEmpty)
+                #expect(visible.intersection(viewport).insetBy(dx: -1, dy: -1).contains(shown.accessibilityFrame),
+                    "\(stem), \(size), \(textSize): \(label) must be fully reachable: \(shown.accessibilityFrame)")
             }
         }
     }
-
-    // MARK: Helpers
 
     private static func scrollView(in root: UIView) -> UIScrollView? {
         if let scroll = root as? UIScrollView { return scroll }
