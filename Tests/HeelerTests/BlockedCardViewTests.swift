@@ -59,7 +59,59 @@ struct BlockedCardViewTests {
         #expect(abs(long - short - second) < 1, "a tool's title should stop at its second line: \([short, long])")
     }
 
+    /// A keyboard in another field can leave less room than the card's
+    /// preferred content budget. Every answer must still scroll into view.
+    @Test func permissionAnswersRemainReachableAboveAnotherFieldsKeyboard() async throws {
+        let screen = try GrokCards.screen("grok-37-permission-command-62")
+        let store = BlockedCardStore(
+            program: .grok, io: BlockedScreenIO(readScreen: { screen }, sendKeys: { _ in }, paste: { _ in }),
+            clock: ManualClock().clock)
+        store.update(activity: .blocked)
+        await store.refresh()
+        let controller = UIHostingController(
+            rootView: BlockedCardView(store: store, maxHeight: 400, openTerminal: {})
+                .environment(\.dynamicTypeSize, .accessibility3))
+        controller.safeAreaRegions = []
+        try await withTestWindow(
+            frame: CGRect(x: 0, y: 0, width: 944, height: 280), rootViewController: controller
+        ) { _ in
+            var foundScroll: UIScrollView?
+            for _ in 0..<40 {
+                controller.view.layoutIfNeeded()
+                foundScroll = Self.scrollView(in: controller.view)
+                if let scroll = foundScroll, scroll.contentSize.height > 400 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let scroll = try #require(foundScroll)
+            let visible = UIAccessibility.convertToScreenCoordinates(controller.view.bounds, in: controller.view)
+            let viewport = UIAccessibility.convertToScreenCoordinates(scroll.bounds, in: scroll)
+            #expect(visible.insetBy(dx: -1, dy: -1).contains(viewport),
+                "The scroll viewport must fit above the keyboard: visible=\(visible), viewport=\(viewport)")
+            let bottom = max(-scroll.adjustedContentInset.top,
+                scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+            scroll.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+            try await Task.sleep(for: .milliseconds(100))
+            controller.view.layoutIfNeeded()
+            let buttons = Self.elements(in: controller.view).filter {
+                $0.accessibilityTraits.contains(.button)
+                    && ($0.accessibilityLabel == "Yes, proceed"
+                        || $0.accessibilityLabel?.hasPrefix("No, reject (type to add feedback)") == true)
+            }
+            #expect(buttons.count == 2, "Expected both one-time answers, found \(buttons.map(\.accessibilityLabel))")
+            for button in buttons {
+                #expect(!button.accessibilityFrame.isEmpty)
+                #expect(visible.intersection(viewport).insetBy(dx: -1, dy: -1).contains(button.accessibilityFrame),
+                    "\(button.accessibilityLabel ?? "answer") must be fully reachable at the bottom: \(button.accessibilityFrame)")
+            }
+        }
+    }
+
     // MARK: Helpers
+
+    private static func scrollView(in root: UIView) -> UIScrollView? {
+        if let scroll = root as? UIScrollView { return scroll }
+        return root.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
 
     /// The narrowest iPhone's width, where a title wraps to the most lines.
     private static let phoneWidth: CGFloat = 375
@@ -131,11 +183,15 @@ struct BlockedCardViewTests {
     /// expose an empty or incomplete array while their indexed
     /// accessibility API owns the live elements.
     private static func labels(in root: UIView) -> [String] {
+        elements(in: root).compactMap(\.accessibilityLabel).filter { !$0.isEmpty }
+    }
+
+    private static func elements(in root: UIView) -> [NSObject] {
         var visited = Set<ObjectIdentifier>()
-        var labels: [String] = []
+        var elements: [NSObject] = []
         func visit(_ node: NSObject) {
             guard visited.insert(ObjectIdentifier(node)).inserted else { return }
-            if let label = node.accessibilityLabel, !label.isEmpty { labels.append(label) }
+            elements.append(node)
             for element in node.accessibilityElements ?? [] {
                 if let object = element as? NSObject { visit(object) }
             }
@@ -150,6 +206,6 @@ struct BlockedCardViewTests {
             }
         }
         visit(root)
-        return labels
+        return elements
     }
 }
