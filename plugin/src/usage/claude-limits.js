@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { runLimitsRequest } from "./limits-process.js";
 
 const unavailable = reason => ({ state: "unavailable", reason });
 const failed = reason => ({ state: "error", reason });
@@ -39,55 +39,23 @@ function readingFrom(body) {
 /** Ask Claude Code to handle its own sign-in. No prompt or user message is sent. */
 export async function readClaudeLimits(runtime, directory) {
   if (typeof runtime.claude !== "string" || !runtime.claude.startsWith("/")) return unavailable("programMissing");
-  return new Promise(resolve => {
-    const child = spawn(runtime.claude, ["-p", "--input-format", "stream-json", "--output-format", "stream-json",
-      "--verbose", "--no-session-persistence", "--strict-mcp-config", "--settings", '{"disableAllHooks":true}'], {
-      cwd: directory, env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let result;
+  return runLimitsRequest({ executable: runtime.claude,
+    args: ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+      "--no-session-persistence", "--strict-mcp-config", "--settings", '{"disableAllHooks":true}'],
+    env: runtime.env, directory }, ({ send: sendMessage, finish }) => {
     let stage = "init";
-    let buffer = "";
-    let bytes = 0;
-    const finish = value => {
-      if (result) return;
-      result = value;
-      clearTimeout(timer);
-      child.stdin.end();
-      child.kill("SIGKILL");
-    };
-    const timer = setTimeout(() => finish(failed("timeout")), 15_000);
-    const send = (request_id, request) => child.stdin.write(JSON.stringify({ type: "control_request", request_id, request }) + "\n");
-    child.stdin.on("error", () => { /* Exit/error closes the request below. */ });
-    child.stderr.resume();
-    child.on("error", error => finish(error.code === "ENOENT" || error.code === "EACCES"
-      ? unavailable("programMissing") : failed("requestFailed")));
-    child.on("close", code => {
-      clearTimeout(timer);
-      resolve(result || (code === 126 || code === 127 ? unavailable("programMissing") : failed("requestFailed")));
-    });
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", chunk => {
-      if (result) return;
-      bytes += Buffer.byteLength(chunk);
-      if (bytes > 1024 * 1024) { finish(failed("invalidResponse")); return; }
-      buffer += chunk;
-      let end;
-      while (!result && (end = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-        let message;
-        try { message = JSON.parse(line); } catch { finish(failed("invalidResponse")); break; }
-        if (message?.type !== "control_response" || message.response?.request_id !== stage) continue;
-        const response = message.response;
-        if (response.subtype === "error") {
-          finish(typeof response.error === "string" && response.error.startsWith("Unsupported control request subtype")
-            ? unavailable("programTooOld") : failed("requestFailed"));
-        } else if (response.subtype !== "success") finish(failed("invalidResponse"));
-        else if (stage === "init") { stage = "usage"; send(stage, { subtype: "get_usage", skip_behaviors: true }); }
-        else finish(readingFrom(response.response));
-      }
-    });
+    const send = (request_id, request) => sendMessage({ type: "control_request", request_id, request });
     send(stage, { subtype: "initialize" });
+    return message => {
+      if (message?.type !== "control_response" || message.response?.request_id !== stage) return;
+      const response = message.response;
+      if (response.subtype === "error") {
+        finish(typeof response.error === "string" && response.error.startsWith("Unsupported control request subtype")
+          ? unavailable("programTooOld") : failed("requestFailed"));
+      } else if (response.subtype !== "success") finish(failed("invalidResponse"));
+      else if (stage === "init") { stage = "usage"; send(stage, { subtype: "get_usage", skip_behaviors: true }); }
+      else finish(readingFrom(response.response));
+    };
   });
 }
 
