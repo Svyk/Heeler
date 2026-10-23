@@ -22,7 +22,10 @@ struct ConsoleChatCacheTests {
             adapterRevision: CodexRolloutReducer.revision, transcriptPath: "/tmp/transcript.jsonl", head: Data(),
             coverageStart: 0, coverageEnd: 20, reachedStart: true, title: nil, entries: [entry], savedAt: Date()))
         let console = ConsoleStore(chatCache: cache)
+        defer { console.setHosts([]) }
         console.setHosts([host])
+        let composer = console.composerStore(for: agent)
+        composer.replaceDraft(with: "Keep this lime draft while connecting.")
         await console.cachedChats.settled()
         #expect(console.agents.isEmpty)
         let displayed = try #require(console.chatDisplayAgents.first)
@@ -32,8 +35,14 @@ struct ConsoleChatCacheTests {
         let chat = try #require(console.chatStore(for: displayed, program: .codex))
         await chat.step()
         #expect(chat.conversation.transcript.entries == [entry])
+        #expect(console.savedChatEntries[agent.id]?.text == "Connecting…")
+        let banner = ChatBannerLine.lines(
+            hostStatus: console.hostStatuses[host.id], conversation: chat.conversation,
+            hasPendingEchoes: false)
+        #expect(banner.map(\.text) == ["Connecting to the Host… Showing saved messages."])
+        #expect(console.composerStore(for: displayed) === composer)
+        #expect(composer.draft == "Keep this lime draft while connecting.")
         #expect(console.agents.isEmpty)
-        console.setHosts([])
     }
 
     @Test func coldOfflineSavedChatIsListedByWorkspace() async throws {
