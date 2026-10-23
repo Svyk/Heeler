@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The plugin collects Agent usage on the Host

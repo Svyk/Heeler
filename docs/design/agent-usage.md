@@ -1,9 +1,12 @@
 # Agent Usage
 
-Status: Proposed (#494; tickets #495–#503). Not implemented. Decisions are
+Status: Implemented (#494; PR #506; tickets #495–#503). Decisions are
 recorded in [ADR 0026](../adr/0026-plugin-collects-agent-usage-on-the-host.md);
 terms are defined in [CONTEXT.md](../../CONTEXT.md) (**Usage Limits**,
 **Token Usage**, **Transcript**).
+
+Implementation status does not close the real-Host and terms checks under
+[Open questions](#open-questions); those remain pre-release work.
 
 ## Summary
 
@@ -660,7 +663,7 @@ tests and decoded by the Swift tests.
 ## App
 
 - **Feature gate:** `HeelerPluginFeature.usage` with the minimum version of
-  the plugin release that ships it (0.7.0 planned). Older plugins show the
+  the plugin release that ships it (0.7.0). Older plugins show the
   feature's requirement note; native Windows Hosts show "Not supported on
   Windows" as other plugin features do.
 - **Transport:** `Transport.readAgentUsage(timeZone:claudeLimits:)` returning a
