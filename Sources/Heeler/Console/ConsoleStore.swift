@@ -1147,7 +1147,7 @@ final class ConsoleStore {
     /// current connection.
     func agentUsageStore(for hostID: Host.ID) -> AgentUsageStore {
         if let store = agentUsageStores[hostID] { return store }
-        let store = AgentUsageStore { [weak self] timeZone, claudeLimits in
+        let store = AgentUsageStore(hostID: hostID) { [weak self] timeZone, claudeLimits in
             guard let self else { throw TransportError.cancelled }
             return try await self.withNotificationTransport(for: hostID) { transport in
                 try await AgentUsageStore.read(

@@ -17,13 +17,28 @@ final class AgentUsageStore {
         case failed(String)
     }
 
-    private(set) var state: State = .idle
+    private var snapshotState: State = .idle
+    var state: State {
+        guard !claudeLimitsEnabled, case .available(let report) = snapshotState else { return snapshotState }
+        return .available(report.hidingClaudeLimits())
+    }
     private(set) var isLoading = false
+    var claudeLimitsEnabled: Bool {
+        didSet {
+            guard oldValue != claudeLimitsEnabled else { return }
+            defaults.set(claudeLimitsEnabled, forKey: preferenceKey)
+            request = nil
+            isLoading = false
+        }
+    }
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let preferenceKey: String
     @ObservationIgnored private let read: @MainActor (String, Bool) async throws -> State
     @ObservationIgnored private var request: UUID?
 
-    init(hostID: Host.ID, transports: any NotificationTransportProvider) {
-        read = { timeZone, claudeLimits in
+    convenience init(hostID: Host.ID, transports: any NotificationTransportProvider,
+        defaults: UserDefaults = .standard) {
+        self.init(hostID: hostID, defaults: defaults) { timeZone, claudeLimits in
             try await transports.withNotificationTransport(for: hostID) { transport in
                 try await Self.read(over: transport, timeZone: timeZone, claudeLimits: claudeLimits)
             }
@@ -31,16 +46,21 @@ final class AgentUsageStore {
     }
 
     /// Console uses a weak capture here so its retained stores cannot keep it alive.
-    init(read: @escaping @MainActor (String, Bool) async throws -> State) {
+    init(hostID: Host.ID, defaults: UserDefaults = .standard,
+        read: @escaping @MainActor (String, Bool) async throws -> State) {
         self.read = read
+        self.defaults = defaults
+        preferenceKey = "usage.claude-limits.\(hostID.uuidString)"
+        claudeLimitsEnabled = defaults.bool(forKey: preferenceKey)
     }
 
-    func refresh(timeZone: String = TimeZone.current.identifier, claudeLimits: Bool = false) async {
+    func refresh(timeZone: String = TimeZone.current.identifier) async {
+        let claudeLimits = claudeLimitsEnabled
         guard !Task.isCancelled else { return }
         let id = UUID()
         request = id
         isLoading = true
-        if state == .idle { state = .loading }
+        if state == .idle { snapshotState = .loading }
         defer {
             if request == id {
                 isLoading = false
@@ -60,10 +80,10 @@ final class AgentUsageStore {
             }
             guard request == id else { return }
             guard !Task.isCancelled else {
-                if state == .loading { state = .idle }
+                if state == .loading { snapshotState = .idle }
                 return
             }
-            state = next
+            snapshotState = next
             guard case .available(let report) = next, report.refreshing == true else { return }
             do {
                 try await Task.sleep(for: .seconds(3))
@@ -76,7 +96,7 @@ final class AgentUsageStore {
     func invalidate() {
         request = nil
         isLoading = false
-        state = .idle
+        snapshotState = .idle
     }
 
     nonisolated static func read(

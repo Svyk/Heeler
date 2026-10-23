@@ -77,12 +77,13 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
             let reason: String?
             let source: String?
             let observedAt: String?
+            let retryAt: String?
             let plan: String?
             let windows: [Window]?
         }
         let program: String
         let tokenUsage: TokenUsage
-        let usageLimits: UsageLimits
+        var usageLimits: UsageLimits
     }
 
     let version: Int
@@ -92,7 +93,20 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
     let refreshing: Bool?
     let pricingVersion: String?
     let scan: Scan?
-    let programs: [Program]?
+    var programs: [Program]?
+
+    /// A device that opted out must never show a reading cached by another query.
+    func hidingClaudeLimits() -> Self {
+        var report = self
+        report.programs = programs?.map { program in
+            guard program.program == "claude" else { return program }
+            var hidden = program
+            hidden.usageLimits = .init(state: "disabled", reason: nil, source: nil,
+                observedAt: nil, retryAt: nil, plan: nil, windows: nil)
+            return hidden
+        }
+        return report
+    }
 
     static func decode(_ data: Data) throws -> Self {
         // Check the envelope before interpreting any version-specific fields.

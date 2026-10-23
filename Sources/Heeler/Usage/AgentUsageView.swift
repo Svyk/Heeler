@@ -6,6 +6,7 @@ struct AgentUsageView: View {
 
     var body: some View {
         List {
+            Section { ClaudeUsageSettings(store: store) }
             if case .available(let report) = store.state {
                 if report.refreshing == true {
                     ProgressView("Refreshing")
@@ -26,7 +27,7 @@ struct AgentUsageView: View {
         }
         .readableColumnPage()
         .navigationTitle("Usage")
-        .task { await store.refresh() }
+        .task(id: store.claudeLimitsEnabled) { await store.refresh() }
         .refreshable { await store.refresh() }
     }
 }

@@ -90,11 +90,28 @@ struct AgentUsageSection: View {
 
     var body: some View {
         Section("Usage") {
-            AgentUsageContent(state: store.state)
+            ClaudeUsageSettings(store: store)
             NavigationLink("View Usage Details") {
                 AgentUsageView(store: store)
             }
+            AgentUsageContent(state: store.state)
         }
-        .task { await store.refresh() }
+        .task(id: store.claudeLimitsEnabled) { await store.refresh() }
+    }
+}
+
+
+struct ClaudeUsageSettings: View {
+    @Bindable var store: AgentUsageStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Claude Code limits", isOn: $store.claudeLimitsEnabled)
+                .accessibilityIdentifier("usage.claude-limits")
+            Text("The plugin asks Claude Code on this computer for your plan limits. Neither the plugin nor Heeler handles your sign-in. This automated use is not officially supported.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
