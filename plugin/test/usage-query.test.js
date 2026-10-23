@@ -1,0 +1,167 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+
+const plugin = fileURLToPath(new URL("..", import.meta.url));
+
+function fixture(t) {
+  const root = mkdtempSync(join(tmpdir(), "heeler-usage-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const configDir = join(root, "config with ' quotes");
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  for (const name of ["codex", "claude"]) {
+    writeFileSync(join(bin, name), "#!/bin/sh\nexit 99\n", { mode: 0o700 });
+  }
+  const env = {
+    PATH: bin,
+    HOME: join(root, "home"),
+    CLAUDE_CONFIG_DIR: join(root, "claude,one"),
+    CODEX_HOME: join(root, "codex"),
+    XDG_CONFIG_HOME: join(root, "xdg"),
+    HERDR_PLUGIN_CONFIG_DIR: configDir,
+    HERDR_PLUGIN_STATE_DIR: join(root, "state"),
+    HERDR_BIN_PATH: "/missing-herdr-not-needed",
+    HERDR_PLUGIN_EVENT_JSON: JSON.stringify({ data: { pane_id: "pane:1", agent_status: "working" } }),
+    ANTHROPIC_API_KEY: "must-not-be-recorded",
+  };
+  function run(entry, args = [], overrides = {}) {
+    return spawnSync(process.execPath, [join(plugin, "src", entry), ...args], {
+      env: { ...env, ...overrides }, encoding: "utf8", timeout: 10_000,
+    });
+  }
+  return { root, configDir, bin, env, run };
+}
+
+test("startup records only the runtime environment in private atomic files", (t) => {
+  const f = fixture(t);
+  const result = f.run("sidebar-hook.js");
+  assert.equal(result.status, 0, result.stderr);
+  const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
+  assert.equal(runtime.version, 1);
+  assert.ok(Number.isFinite(Date.parse(runtime.recordedAt)));
+  assert.equal(runtime.node, process.execPath);
+  assert.equal(runtime.codex, join(f.bin, "codex"));
+  assert.equal(runtime.claude, join(f.bin, "claude"));
+  assert.deepEqual(runtime.env, Object.fromEntries(["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"].map(key => [key, f.env[key]])));
+  assert.equal(runtime.stateDir, f.env.HERDR_PLUGIN_STATE_DIR);
+  assert.equal(JSON.stringify(runtime).includes("must-not-be-recorded"), false);
+  assert.equal(readFileSync(join(f.configDir, "runtime-node"), "utf8"), process.execPath + "\n");
+  for (const name of ["runtime.json", "runtime-node"]) {
+    assert.equal(statSync(join(f.configDir, name)).mode & 0o777, 0o600);
+  }
+});
+
+test("status hooks bootstrap and repair runtime files without rewriting unchanged records", (t) => {
+  const f = fixture(t);
+  let result = f.run("activity-hook.js");
+  assert.equal(result.status, 0, result.stderr);
+  const runtimePath = join(f.configDir, "runtime.json");
+  const nodePath = join(f.configDir, "runtime-node");
+  const before = [runtimePath, nodePath].map(path => statSync(path));
+  result = f.run("activity-hook.js");
+  assert.equal(result.status, 0, result.stderr);
+  for (const [index, path] of [runtimePath, nodePath].entries()) {
+    const after = statSync(path);
+    assert.equal(after.ino, before[index].ino);
+    assert.equal(after.mtimeMs, before[index].mtimeMs);
+  }
+  rmSync(nodePath);
+  result = f.run("activity-hook.js");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(nodePath, "utf8"), process.execPath + "\n");
+  assert.equal(statSync(runtimePath).ino, before[0].ino);
+  result = f.run("activity-hook.js", [], { CODEX_HOME: join(f.root, "new account") });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(readFileSync(runtimePath, "utf8")).env.CODEX_HOME, join(f.root, "new account"));
+});
+
+test("query emits only a versioned missing-runtime state before the first hook", (t) => {
+  const f = fixture(t);
+  const result = f.run("usage-query.js", ["--tz", "Asia/Shanghai"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
+});
+
+test("query produces the shared usage v1 skeleton without exposing runtime paths", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run("sidebar-hook.js").status, 0);
+  const result = f.run("usage-query.js", ["--tz", "Asia/Shanghai", "--claude-limits"]);
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.ok(Number.isFinite(Date.parse(report.generatedAt)));
+  report.generatedAt = "2026-10-23T12:34:56.000Z";
+  const expected = {
+    version: 1,
+    generatedAt: "2026-10-23T12:34:56.000Z",
+    timeZone: "Asia/Shanghai",
+    runtime: "recorded",
+    refreshing: false,
+    scan: { state: "complete", coveredFrom: null, coveredThrough: null, skippedArchives: 0 },
+    programs: [
+      { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "disabled" } },
+      { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "unavailable", reason: "programMissing" } },
+    ],
+  };
+  assert.deepEqual(report, expected);
+  assert.equal(result.stdout.includes(f.root), false);
+  const vectorPath = join(plugin, "test-vectors", "usage-v1.json");
+  if (process.env.UPDATE_USAGE_VECTOR === "1") writeFileSync(vectorPath, JSON.stringify(report, null, 2) + "\n");
+  assert.deepEqual(report, JSON.parse(readFileSync(vectorPath, "utf8")));
+});
+
+test("query treats missing bootstrap, corrupt and incomplete records as runtime missing", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run("sidebar-hook.js").status, 0);
+  rmSync(join(f.configDir, "runtime-node"));
+  let result = f.run("usage-query.js", ["--tz", "UTC"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
+  for (const contents of ["not json", '{"version":1}', '{"version":2}']) {
+    writeFileSync(join(f.configDir, "runtime.json"), contents);
+    result = f.run("usage-query.js", ["--tz", "UTC"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
+  }
+});
+
+test("query rejects invalid arguments without reflecting them into output", (t) => {
+  const f = fixture(t);
+  for (const args of [[], ["--tz", "Not/A_Zone"], ["--tz", "UTC; secret"], ["--tz", "UTC", "--other"]]) {
+    const result = f.run("usage-query.js", args);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "usage-query: invalid query\n");
+  }
+});
+
+test("missing programs and optional root variables are recorded as null", (t) => {
+  const f = fixture(t);
+  const result = f.run("sidebar-hook.js", [], {
+    PATH: join(f.root, "empty-bin"), CLAUDE_CONFIG_DIR: undefined,
+    CODEX_HOME: undefined, XDG_CONFIG_HOME: undefined,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
+  assert.equal(runtime.codex, null);
+  assert.equal(runtime.claude, null);
+  assert.equal(runtime.env.CLAUDE_CONFIG_DIR, null);
+  assert.equal(runtime.env.CODEX_HOME, null);
+  assert.equal(runtime.env.XDG_CONFIG_HOME, null);
+});
+
+test("an absent PATH does not discover programs in the hook working directory", (t) => {
+  const f = fixture(t);
+  const result = spawnSync(process.execPath, [join(plugin, "src", "sidebar-hook.js")], {
+    cwd: f.bin, env: { ...f.env, PATH: undefined }, encoding: "utf8", timeout: 10_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
+  assert.equal(runtime.env.PATH, null);
+  assert.equal(runtime.codex, null);
+  assert.equal(runtime.claude, null);
+});

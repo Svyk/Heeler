@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-23T12:34:56.000Z",
+  "timeZone": "Asia/Shanghai",
+  "runtime": "recorded",
+  "refreshing": false,
+  "scan": {
+    "state": "complete",
+    "coveredFrom": null,
+    "coveredThrough": null,
+    "skippedArchives": 0
+  },
+  "programs": [
+    {
+      "program": "claude",
+      "tokenUsage": {
+        "state": "noData"
+      },
+      "usageLimits": {
+        "state": "disabled"
+      }
+    },
+    {
+      "program": "codex",
+      "tokenUsage": {
+        "state": "noData"
+      },
+      "usageLimits": {
+        "state": "unavailable",
+        "reason": "programMissing"
+      }
+    }
+  ]
+}
