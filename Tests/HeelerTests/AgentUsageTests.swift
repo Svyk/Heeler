@@ -37,16 +37,29 @@ struct AgentUsageStoreTests {
         #expect(await transport.agentUsageReads == 1)
     }
 
-    @Test func theSharedNodeVectorIncludesClaudeTokenUsage() async throws {
+    @Test func theSharedNodeVectorIncludesBothProgramsTokenUsage() async throws {
         let report = try AgentUsageFixture.report()
         let (store, transport) = await readyStore()
         await transport.setAgentUsage(.success(report))
         await store.refresh(timeZone: "Asia/Shanghai")
         #expect(store.state == .available(report))
         #expect(report.programs?.map(\.program) == ["claude", "codex"])
-        #expect(report.programs?.map { $0.tokenUsage.state } == ["ok", "noData"])
+        #expect(report.programs?.map { $0.tokenUsage.state } == ["ok", "ok"])
         #expect(report.programs?.first?.tokenUsage.totals?.today.tokens.total == 882_000)
         #expect(report.programs?.first?.tokenUsage.daily?.count == 30)
+        let codex = try #require(report.programs?.first { $0.program == "codex" }?.tokenUsage)
+        let today = try #require(codex.totals?.today.tokens)
+        #expect(today.input == 120)
+        #expect(today.cacheRead == 40)
+        #expect(today.cacheWrite == 60)
+        #expect(today.output == 30)
+        #expect(today.reasoning == 10)
+        #expect(today.total == 250)
+        #expect(codex.totals?.last7Days.tokens.total == 250)
+        #expect(codex.totals?.last30Days.tokens.total == 250)
+        #expect(codex.daily?.count == 30)
+        #expect(codex.daily?.last?.tokens.total == 250)
+        #expect(report.scan?.skippedArchives == 0)
         #expect(report.scan?.state == "complete")
         #expect(report.refreshing == false)
     }

@@ -42,5 +42,5 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
   });
   const covered = (snapshot?.buckets || []).map(bucket => dayInZone(bucket.timestamp, timeZone)).filter(date => date >= dates[0] && date <= today).sort()[0] || null;
   return { version: 1, generatedAt: new Date(now).toISOString(), timeZone, runtime: "recorded", refreshing,
-    scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: 0 }, programs };
+    scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: snapshot?.skippedArchives || 0 }, programs };
 }
