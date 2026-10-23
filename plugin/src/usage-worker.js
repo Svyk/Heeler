@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { setPriority } from "node:os";
 import { readUsageRuntime } from "./usage-runtime.js";
-import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, RETENTION } from "./usage/cache.js";
-import { claudeFiles, transcriptLines, claudeContribution } from "./usage/claude-scanner.js";
+import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeLock, RETENTION } from "./usage/cache.js";
+import { claudeFiles, transcriptEntries, claudeContribution } from "./usage/claude-scanner.js";
+import { loadCheckpoint, startLog, saveCheckpoint, matchFiles } from "./usage/checkpoint.js";
 import { changeBucket } from "./usage/buckets.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
 import { createCodexState, consumeCodexLine, finishCodexRead, codexTotalSignature } from "./usage/codex-scanner.js";
@@ -38,36 +39,51 @@ async function run() {
     for (const name of readdirSync(join(runtime.stateDir, "usage"))) {
       const sibling = join(runtime.stateDir, "usage", name);
       if (sibling === directory) continue;
-      try { if (statSync(join(sibling, "buckets.json")).mtimeMs < cutoff) rmSync(sibling, { recursive: true, force: true }); }
+      try { if (statSync(join(sibling, "buckets.json")).mtimeMs < cutoff && !activeLock(sibling)) rmSync(sibling, { recursive: true, force: true }); }
       catch { /* Incomplete sibling caches are left for their owner. */ }
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const buckets = new Map();
-    const keys = new Map();
-    const groups = new Map();
-    const keysPath = join(directory, "keys.log");
-    writeFileSync(keysPath, "", { mode: 0o600 });
+    const previousSnapshot = readJSON(join(directory, "buckets.json"));
+    const maintainHeartbeat = () => { if (Date.now() - lock.heartbeat >= 1000) heartbeat(); };
+    const previous = await loadCheckpoint(directory, previousSnapshot, maintainHeartbeat);
     const errors = {};
-    let skippedArchives = 0;
-    const snapshot = complete => {
-      heartbeat();
-      writeJSON(join(directory, "buckets.json"), { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(), complete, buckets: [...buckets.values()], errors, skippedArchives });
-    };
-    snapshot(false);
     let files = [];
     try { files = (await claudeFiles(roots.claude, cutoff)).map(file => ({ ...file, program: "claude" })); }
     catch { errors.claude = "Could not read the Claude Code Transcripts."; }
     try { files.push(...(await codexFiles(roots.codex, cutoff)).map(file => ({ ...file, program: "codex" }))); }
     catch { errors.codex = "Could not read the Codex Transcripts."; }
     files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
+    const match = matchFiles(files, previous?.files || {}, now);
+    const rebuilding = !previous || match.rebuild;
+    const preserveSnapshot = previousSnapshot !== null && (rebuilding || previousSnapshot.rebuilding);
+    const buckets = rebuilding ? new Map() : previous.buckets;
+    const keys = rebuilding ? new Map() : previous.keys;
+    const groups = rebuilding ? new Map() : previous.groups;
+    const keysPath = join(directory, "keys.log");
+    const generation = rebuilding || previous.expired ? startLog(keysPath, keys, groups) : previous.generation;
+    const fileStates = rebuilding ? {} : match.states;
+    const snapshot = complete => {
+      heartbeat();
+      // Commit parser progress even when a rebuild is still resolving a burst.
+      // The query keeps the old aggregates; the next worker resumes the new log.
+      const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
+        complete, buckets: [...buckets.values()], errors,
+        skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
+      saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
+        ? { ...previousSnapshot, complete: false, rebuilding: true }
+        : { ...progress, rebuilding: false });
+    };
     const threads = new Map();
     const parentTotals = new Map();
-    const fileStates = {};
     let pendingPrefix = false;
-    const maintainHeartbeat = () => { if (Date.now() - lock.heartbeat >= 1000) heartbeat(); };
     // Old copied forks may be read before their parent in newest-first order.
     // Index headers without loading Transcript content into the query snapshot.
     for (const file of files.filter(file => file.program === "codex")) {
+      const saved = fileStates[file.logicalPath];
+      if (saved?.carry.threadId || saved?.finished) {
+        if (saved.carry.threadId && !threads.has(saved.carry.threadId)) threads.set(saved.carry.threadId, file);
+        continue;
+      }
       try {
         for await (const { line } of codexLines(file, runtime, maintainHeartbeat)) {
           if (line?.type === "session_meta" && typeof line.payload?.id === "string" && !threads.has(line.payload.id)) threads.set(line.payload.id, file);
@@ -90,10 +106,14 @@ async function run() {
     };
     let processed = 0;
     for (const file of files) {
+      const logicalPath = file.logicalPath || file.path;
+      const state = fileStates[logicalPath] ||= { dev: file.dev, ino: file.ino, size: file.size, mtimeMs: file.mtimeMs,
+        program: file.program, compressed: Boolean(file.compressed), offset: 0, finished: false,
+        carry: file.program === "codex" ? createCodexState(logicalPath) : {} };
+      if (state.finished && !state.carry.pending?.length) continue;
       if (file.program === "codex") {
-        const carry = createCodexState(file.logicalPath);
-        let offset = 0;
-        let parent = null;
+        const carry = state.carry;
+        let parent = carry.parentId && !carry.inheritedEnded ? await totalsForParent(carry.parentId) : null;
         const countContributions = contributions => {
           for (const candidate of contributions) {
             if (keys.has(candidate.key)) continue;
@@ -105,29 +125,27 @@ async function run() {
           }
         };
         try {
-          for await (const entry of codexLines(file, runtime, maintainHeartbeat)) {
-            offset = entry.offset;
-            countContributions(consumeCodexLine(carry, entry.line, offset, cutoff, parent));
+          if (!state.finished) for await (const entry of codexLines(file, runtime, maintainHeartbeat, state.offset)) {
+            state.offset = entry.offset;
+            countContributions(consumeCodexLine(carry, entry.line, state.offset, cutoff, parent));
             if (carry.parentId && parent === null) parent = await totalsForParent(carry.parentId);
           }
           countContributions(finishCodexRead(carry, Date.now(), parent));
           pendingPrefix ||= carry.pending.length > 0;
-          fileStates[file.logicalPath] = { dev: file.dev, ino: file.ino, size: file.size, mtimeMs: file.mtimeMs, offset, carry };
-          writeJSON(join(directory, "files.json"), fileStates);
+          state.finished = true;
+          state.skipped = false;
         } catch (error) {
-          if (error instanceof ArchiveUnavailableError) skippedArchives++;
+          if (error instanceof ArchiveUnavailableError) state.skipped = true;
           else errors.codex = "Could not read the Codex Transcripts.";
         }
         snapshot(false);
         continue;
       }
-      let sessionDirectory;
       try {
-        for await (const line of transcriptLines(file.path, () => {
-          if (Date.now() - lock.heartbeat >= 1000) heartbeat();
-        })) {
-          if (typeof line?.cwd === "string") sessionDirectory = line.cwd;
-          const candidate = claudeContribution(line, file.path, cutoff, sessionDirectory);
+        if (!state.finished) for await (const { line, offset } of transcriptEntries(file.path, maintainHeartbeat, state.offset)) {
+          state.offset = offset;
+          if (typeof line?.cwd === "string") state.carry.directory = line.cwd;
+          const candidate = claudeContribution(line, file.path, cutoff, state.carry.directory);
           if (!candidate) continue;
           const peers = groups.get(candidate.group) || new Set();
           groups.set(candidate.group, peers);
@@ -157,6 +175,7 @@ async function run() {
           processed++;
           if (processed % 1000 === 0) snapshot(false);
         }
+        state.finished = true;
       } catch {
         errors.claude = "Could not read the Claude Code Transcripts.";
       }

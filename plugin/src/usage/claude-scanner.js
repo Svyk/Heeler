@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
+import { jsonLines } from "./json-lines.js";
 
 export async function claudeFiles(roots, cutoff) {
   const files = [];
@@ -26,19 +27,8 @@ export async function claudeFiles(roots, cutoff) {
   for (const root of roots) await visit(join(root, "projects"));
   return files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
 }
-export async function* transcriptLines(path, onChunk = () => {}) {
-  let carry = "";
-  for await (const chunk of createReadStream(path, { encoding: "utf8" })) {
-    onChunk();
-    carry += chunk;
-    let newline;
-    while ((newline = carry.indexOf("\n")) >= 0) {
-      const line = carry.slice(0, newline);
-      carry = carry.slice(newline + 1);
-      try { yield JSON.parse(line); } catch { /* Torn or unrelated malformed records are skipped. */ }
-    }
-  }
-  // An incomplete final line belongs to the next refresh.
+export async function* transcriptEntries(path, onChunk = () => {}, start = 0) {
+  yield* jsonLines(createReadStream(path, { start }), start, 0, onChunk);
 }
 const count = value => Number.isFinite(value) && value >= 0 ? value : 0;
 export function claudeContribution(line, path, cutoff, sessionDirectory) {
