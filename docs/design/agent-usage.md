@@ -1,9 +1,9 @@
 # Agent Usage
 
-Status: Proposed. Not implemented. Decisions are recorded in
-[ADR 0026](../adr/0026-plugin-collects-agent-usage-on-the-host.md); terms are
-defined in [CONTEXT.md](../../CONTEXT.md) (**Usage Limits**, **Token Usage**,
-**Transcript**).
+Status: Proposed (#494; tickets #495–#503). Not implemented. Decisions are
+recorded in [ADR 0026](../adr/0026-plugin-collects-agent-usage-on-the-host.md);
+terms are defined in [CONTEXT.md](../../CONTEXT.md) (**Usage Limits**,
+**Token Usage**, **Transcript**).
 
 ## Summary
 
@@ -531,9 +531,11 @@ tests and decoded by the Swift tests.
   files where the counted copy's file is deleted; bucket folding into +5:45
   and DST days; per-request long-context pricing just below and above a
   threshold, flat-priced models and unpriced models; limit readers against a
-  stub app-server (no params sent) and a stub HTTP server, including 429,
-  expired tokens and readings past their reset time; `refreshing` staying true
-  until the limit requests finish; the shared `usage-v1.json` vector.
+  stub app-server (no params sent) and an in-test fake HTTP server (reached
+  through a single test-only environment variable that overrides the Anthropic
+  endpoint base URL), including 429, expired tokens and readings past their
+  reset time; `refreshing` staying true until the limit requests finish; the
+  shared `usage-v1.json` vector.
 - **App:** decoding the shared vector, unknown fields and window ids, feature
   gating, store re-query loop, toggle plumbing, and the bounded script's
   quoting.
@@ -542,12 +544,27 @@ tests and decoded by the Swift tests.
 
 ## Rollout
 
-1. Plugin: runtime recorder, scanners, worker, query, pricing generator,
-   tests; bump the plugin version and the shared plugin version vector.
-2. App: decoder (`plugin_root`), transport method, store, Host detail section,
-   Usage page; regenerate `Heeler.xcodeproj` for new sources.
-3. Docs: `CHANGELOG.md` Unreleased entry; plugin README section on Usage and
-   the Claude toggle; source map row in `docs/agents/navigation.md`.
+Tracked under #494 as vertical slices:
+
+1. #495 — Plugin channel tracer bullet (`runtime.json`, `usage` v1 skeleton and
+   shared vector, `plugin_root` decoder, `HeelerPluginFeature.usage`, bounded
+   script Transport call, `AgentUsageStore`, Host detail section states).
+2. #496 — Claude Code Token Usage via the background worker (`<stateDir>/usage`
+   cache, lockfile, `refreshing` loop, 15-minute UTC buckets and time-zone day
+   folding).
+3. #497 — Codex Token Usage (deltas, fork and multi-agent replay exclusion,
+   compaction deduplication, archives and `.zst` skip count).
+4. #498 — Incremental Transcript scanning from saved offsets with background
+   rebuilds on deletion, truncation or replacement.
+5. #499 — Estimated API cost from the bundled, versioned price table.
+6. #500 — Full Usage page (daily chart, per-model split, top 10 directories,
+   coverage and price-table notes).
+7. #501 — Codex Usage Limits via `codex app-server` with rollout-snapshot
+   fallback and expired-window handling.
+8. #502 — Opt-in per-Host Claude Code Usage Limits (`--claude-limits`,
+   read-only credential lookup, 60-second throttle and `Retry-After`).
+9. #503 — `CHANGELOG.md` Unreleased entry, plugin README section, and
+   `docs/agents/navigation.md` source map row.
 
 ## Open questions
 
