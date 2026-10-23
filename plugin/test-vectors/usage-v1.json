@@ -887,8 +887,26 @@
         ]
       },
       "usageLimits": {
-        "state": "unavailable",
-        "reason": "programMissing"
+        "state": "ok",
+        "source": "lastSession",
+        "observedAt": "2026-10-23T12:34:50.000Z",
+        "plan": "plus",
+        "windows": [
+          {
+            "id": "primary",
+            "durationMinutes": 10080,
+            "usedPercent": 18,
+            "resetsAt": "2026-10-28T00:00:00.000Z",
+            "expired": false
+          },
+          {
+            "id": "secondary",
+            "durationMinutes": 300,
+            "usedPercent": null,
+            "resetsAt": "2026-10-22T00:00:00.000Z",
+            "expired": true
+          }
+        ]
       }
     }
   ]

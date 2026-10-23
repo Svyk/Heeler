@@ -1,3 +1,4 @@
+import { expireLimitWindows } from "./codex-limits.js";
 import { pricingVersion } from "./pricing.js";
 
 export const zeroTokens = () => ({ input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0 });
@@ -51,7 +52,8 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
     };
     return { program, tokenUsage: snapshot?.errors?.[program] ? { state: "error", reason: snapshot.errors[program] } : hasData ? {
       state: "ok", totals: { today: sum(daily.slice(-1)), last7Days: sum(daily.slice(-7)), last30Days: sum(daily) }, daily: daily.map(pricedSummary),
-    } : { state: "noData" }, usageLimits: program === "claude" ? { state: "disabled" } : { state: "unavailable", reason: "programMissing" } };
+    } : { state: "noData" }, usageLimits: program === "claude" ? { state: "disabled" }
+      : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
   });
   const covered = (snapshot?.buckets || []).map(bucket => dayInZone(bucket.timestamp, timeZone)).filter(date => date >= dates[0] && date <= today).sort()[0] || null;
   return { version: 1, pricingVersion: snapshot?.pricingVersion || pricingVersion, generatedAt: new Date(now).toISOString(), timeZone, runtime: "recorded", refreshing,

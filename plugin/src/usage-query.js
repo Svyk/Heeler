@@ -24,7 +24,9 @@ try {
     const directory = cacheDirectory(runtime);
     const snapshot = readJSON(join(directory, "buckets.json"));
     let refreshing = Boolean(activeLock(directory));
-    if (!refreshing && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint || Date.now() - Date.parse(snapshot.generatedAt) > 60_000)) {
+    if (!refreshing && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint
+        || Date.now() - Date.parse(snapshot.generatedAt) > 60_000
+        || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt)) {
       const lock = reserveWorker(directory);
       if (lock) {
         try {

@@ -114,7 +114,7 @@ test("query returns the empty cache without exposing runtime paths", async (t) =
     scan: { state: "complete", coveredFrom: null, coveredThrough: "2026-10-23T12:34:56.000Z", skippedArchives: 0 },
     programs: [
       { program: "claude", tokenUsage: { state: "noData" }, usageLimits: { state: "disabled" } },
-      { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "unavailable", reason: "programMissing" } },
+      { program: "codex", tokenUsage: { state: "noData" }, usageLimits: { state: "error", reason: "requestFailed" } },
     ],
   };
   assert.deepEqual(report, expected);

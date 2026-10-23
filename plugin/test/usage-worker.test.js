@@ -206,6 +206,11 @@ test("the shared v1 vector comes from the worker's Claude and Codex aggregation"
     { type: "session_meta", timestamp, payload: { id: "vector-codex", cwd: "/work/codex" } },
     { type: "turn_context", timestamp, payload: { model: "gpt-5.3-codex" } },
     { type: "token_usage_record", timestamp, payload: { thread_id: "vector-codex", response_id: "vector-response", usage: { input_tokens: 220, cached_input_tokens: 40, cache_write_input_tokens: 60, output_tokens: 30, reasoning_output_tokens: 10 } } },
+    { type: "event_msg", timestamp, payload: { type: "token_count", info: null, rate_limits: {
+      limit_id: "codex", plan_type: "plus",
+      primary: { used_percent: 18, window_minutes: 10080, resets_at: Math.floor(Date.now() / 1000) + 3600 },
+      secondary: { used_percent: 60, window_minutes: 300, resets_at: Math.floor(Date.now() / 1000) - 3600 },
+    } } },
   ].map(line => JSON.stringify(line)).join("\n") + "\n");
   const report = await f.finish("Asia/Shanghai");
   const expected = { input: 1200, cacheRead: 830000, cacheWrite: 41000, output: 9800, reasoning: 0, total: 882000 };
@@ -214,6 +219,13 @@ test("the shared v1 vector comes from the worker's Claude and Codex aggregation"
   assert.ok(Math.abs(claude(report).totals.today.estimatedCostUSD - 0.92225) < 1e-10);
   assert.ok(Math.abs(report.programs[1].tokenUsage.totals.today.estimatedCostUSD - 0.000742) < 1e-12);
   assert.deepEqual(report.programs[1].tokenUsage.totals.today.tokens, { input: 120, cacheRead: 40, cacheWrite: 60, output: 30, reasoning: 10, total: 250 });
+  const limits = report.programs[1].usageLimits;
+  assert.equal(limits.source, "lastSession");
+  assert.deepEqual(limits.windows.map(window => [window.id, window.durationMinutes, window.usedPercent, window.expired]),
+    [["primary", 10080, 18, false], ["secondary", 300, null, true]]);
+  limits.observedAt = "2026-10-23T12:34:50.000Z";
+  limits.windows[0].resetsAt = "2026-10-28T00:00:00.000Z";
+  limits.windows[1].resetsAt = "2026-10-22T00:00:00.000Z";
   report.generatedAt = report.scan.coveredThrough = "2026-10-23T12:34:56.000Z";
   report.scan.coveredFrom = "2026-10-23";
   for (const program of report.programs) {
