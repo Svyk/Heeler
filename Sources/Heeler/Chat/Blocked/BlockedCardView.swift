@@ -938,19 +938,21 @@ private struct BlockedPlanBox: View {
     }
 }
 
-/// Grows with its content up to `maxHeight`, then scrolls.
+/// Grows with its content up to `maxHeight`, then scrolls. A smaller parent
+/// proposal, such as the room above a keyboard, also limits the viewport.
 struct BlockedScrollingContent<Content: View>: View {
     let maxHeight: CGFloat
     @ViewBuilder let content: Content
     @State private var contentHeight: CGFloat = 0
 
     var body: some View {
+        let height = min(max(contentHeight, 1), maxHeight)
         ScrollView {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
-        .frame(height: min(max(contentHeight, 1), maxHeight))
+        .frame(minHeight: 0, idealHeight: height, maxHeight: height)
         .scrollBounceBehavior(.basedOnSize)
     }
 }

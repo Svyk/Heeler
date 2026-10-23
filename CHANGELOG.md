@@ -62,6 +62,8 @@ Entries reference the pull request that made the change.
 - Show Connecting and saved Chats on cold launch while configured Hosts
   start connecting, instead of briefly showing Agent Gone or No Agents.
   (#504)
+- Keep Blocked card answers reachable by scrolling at large text sizes
+  when the keyboard leaves less room, including from sidebar search. (#505)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
