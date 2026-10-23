@@ -91,6 +91,9 @@ struct AgentUsageSection: View {
     var body: some View {
         Section("Usage") {
             AgentUsageContent(state: store.state)
+            NavigationLink("View Usage Details") {
+                AgentUsageView(store: store)
+            }
         }
         .task { await store.refresh() }
     }
