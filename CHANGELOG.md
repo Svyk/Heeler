@@ -9,6 +9,10 @@ Entries reference the pull request that made the change.
 
 ### Added
 
+- See per-Host Usage Limits and Token Usage for Claude Code and Codex,
+  including limit reset times, up to 30 days of local token totals, daily
+  charts, model and directory breakdowns, and estimated API cost. Claude
+  Code limits are opt-in per Host. Requires Heeler plugin 0.7.0. (#506)
 - Pairing Codes can advertise addresses the plugin cannot see on the
   machine's interfaces, such as a NAS address for herdr running in a Docker
   container behind a published port, via `addresses` in the plugin's
