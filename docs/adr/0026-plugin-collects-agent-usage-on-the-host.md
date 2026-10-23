@@ -18,11 +18,12 @@ JSON document from it with one bounded SSH exec per query
 - The app runs `node <plugin_root>/src/usage-query.js` through
   `runBoundedScript`. The plugin's startup and `pane.agent_status_changed`
   hooks write a `runtime.json` from herdr's environment: the `node`, `codex`
-  and `claude` to run, herdr's `PATH`, the Agents' data roots, and
-  `HERDR_PLUGIN_STATE_DIR`. The cache lives under that directory in a
-  subdirectory keyed by the resolved Transcript roots, so instances share a
-  cache only when they read the same Transcripts. Without the file the query
-  asks the user to use any Agent once or restart herdr instead of guessing.
+  and `claude` to run, herdr's `PATH` and `HOME`, the variables that locate
+  the Agents' data roots, and `HERDR_PLUGIN_STATE_DIR`. The cache lives
+  under that directory in a subdirectory keyed by the Transcript roots that
+  environment names, whether or not they exist yet, so instances share a
+  cache when they read the same Transcripts. Without the file the query asks
+  the user to use any Agent once or restart herdr instead of guessing.
   No SFTP, no listening port, no herdr plugin action.
 - The query never blocks on work. It returns the cached snapshot and spawns a
   single detached worker that scans Transcripts incrementally and reads Usage
@@ -85,7 +86,8 @@ JSON document from it with one bounded SSH exec per query
   records are counted. Changes in either program's Transcript format become
   plugin updates. Codex is counted from its per-response
   `token_usage_record` (0.153.0 and later) with `token_count` as the
-  fallback for older files.
+  fallback for older files. Codex writes no usage for background remote
+  compaction, so that usage is not counted.
 - Codex compresses cold rollouts to `.jsonl.zst` (most of the last 30 days
   on one development machine), so complete Codex totals need Node 22.15.0
   or 23.8.0 and later, or `zstd` on herdr's `PATH`; otherwise the app reports
