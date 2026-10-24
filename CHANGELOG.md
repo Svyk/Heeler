@@ -71,7 +71,7 @@ Entries reference the pull request that made the change.
 
 - On iPad, Show Chat and the More menu at the top of an Agent or Shell
   Terminal respond to taps again; they now sit in the bar beside Show
-  Sidebar.
+  Sidebar, and Chat's buttons sit in the same place.
 - Show Connecting and saved Chats on cold launch while configured Hosts
   start connecting, instead of briefly showing Agent Gone or No Agents.
   (#504)

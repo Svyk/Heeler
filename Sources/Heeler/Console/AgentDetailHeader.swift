@@ -28,7 +28,7 @@ struct AgentDetailHeader: View {
     /// How much of the glass shows, the rest letting output through.
     static let glassOpacity: Double = 0.8
     /// Buttons sharing a capsule sit closer than standalone ones.
-    private static let capsuleButtonWidth: CGFloat = 36
+    static let capsuleButtonWidth: CGFloat = 36
     private static let capsuleInset: CGFloat = (controlSize - capsuleButtonWidth) / 2
 
     /// Where the header's top edge sits. Beside an iPad's sidebar it lines
@@ -235,7 +235,7 @@ struct AgentDetailHeader: View {
 
     /// The two-bubble glyph draws wider than the terminal's at one size, so
     /// it gets a smaller one to sit evenly beside the More menu.
-    private static func surfacePointSize(_ surface: AgentDetailSurface) -> CGFloat {
+    static func surfacePointSize(_ surface: AgentDetailSurface) -> CGFloat {
         switch surface {
         case .chat: 15
         case .terminal: 17
@@ -270,9 +270,17 @@ struct AgentDetailHeaderBarControls: ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             if let surfaceSwitch {
                 let target = surfaceSwitch.other
-                Button(target.showTitle, systemImage: target.showSystemImage) {
+                // One width for both glyphs, so swapping surfaces leaves the
+                // button where it was.
+                Button {
                     surfaceSwitch.select(target)
+                } label: {
+                    Image(systemName: target.showSystemImage)
+                        .font(.system(
+                            size: AgentDetailHeader.surfacePointSize(target), weight: .semibold))
+                        .frame(width: AgentDetailHeader.capsuleButtonWidth)
                 }
+                .accessibilityLabel(target.showTitle)
                 .accessibilityHint(target.showAccessibilityHint)
             }
             Menu("More", systemImage: "ellipsis") {
