@@ -35,6 +35,13 @@
         "zh": "Host"
       },
       "guides": ["host-routes", "windows-setup", "selinux"]
+    },
+    {
+      "title": {
+        "en": "Chat",
+        "zh": "Chat"
+      },
+      "guides": ["chat", "chat-troubleshooting"]
     }
   ],
   "sidebarTitles": {
@@ -50,7 +57,9 @@
       "vps-jump-host": "Jump Host in depth",
       "host-routes": "Multiple routes",
       "windows-setup": "Windows setup",
-      "selinux": "Fedora/RHEL SELinux"
+      "selinux": "Fedora/RHEL SELinux",
+      "chat": "Chat with an Agent",
+      "chat-troubleshooting": "Troubleshooting"
     },
     "zh": {
       "index": "简介",
@@ -64,7 +73,9 @@
       "vps-jump-host": "Jump Host 详解",
       "host-routes": "多条路由",
       "windows-setup": "Windows 配置",
-      "selinux": "SELinux（Fedora/RHEL）"
+      "selinux": "SELinux（Fedora/RHEL）",
+      "chat": "在 Chat 中使用 Agent",
+      "chat-troubleshooting": "疑难排解"
     }
   },
   "icons": {
@@ -79,6 +90,8 @@
     "vps-jump-host": "ShieldCheck",
     "host-routes": "Route",
     "windows-setup": "MonitorCog",
-    "selinux": "ShieldAlert"
+    "selinux": "ShieldAlert",
+    "chat": "MessagesSquare",
+    "chat-troubleshooting": "MessageSquareWarning"
   }
 }
