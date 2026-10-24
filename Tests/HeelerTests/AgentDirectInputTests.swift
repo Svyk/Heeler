@@ -125,7 +125,7 @@ struct AgentDirectInputTests {
             (.addImage, "Add Image", "photo", false, true),
             (.addFile, "Add File", "doc", false, true),
             (.showChat, "Show Chat", "text.bubble", false, false),
-            (.showAgentTerminal, "Show Agent Terminal", "terminal", false, false),
+            (.showAgentTerminal, "Show Agent Terminal", "apple.terminal.circle", false, false),
             (.openTerminal, "Open Terminal", "macwindow.badge.plus", false, false),
             (.changes, "Changes", "plus.forwardslash.minus", false, false),
             (.newAgent, "New Agent", "plus", false, false),
