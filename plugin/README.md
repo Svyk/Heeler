@@ -134,13 +134,25 @@ herdr plugin action invoke heeler.pair
 | Field      | Type    | Meaning |
 | ---------- | ------- | ------- |
 | `ssh_port` | integer | SSH port advertised in the Pairing Code, `1..65535`. Default 22. An absent `pair.json` means 22; a file that cannot be read or parsed, or an `ssh_port` outside that range, also falls back to 22 and says so in the checklist. |
+| `addresses` | string[] | Addresses (IPs or host names) the phone reaches this machine on but its interfaces do not show: a container behind a published port, a NAT, a DNS name. Listed first in the checklist and pre-checked; the enumerated addresses follow unchecked. Default none. A value that is not a list of non-empty strings without whitespace is ignored and says so in the checklist. |
+
+`addresses` (plugin 0.6.2 and later; older plugins ignore it) is what a
+machine behind a port mapping needs, for example
+herdr in a Docker container whose sshd is published as port 2222 on a NAS
+at `192.168.1.10`. Inside the container the plugin only sees the bridge
+address (`172.17.x.x`), which the phone cannot reach:
+
+```json
+{"ssh_port": 2222, "addresses": ["192.168.1.10", "nas.example.com"]}
+```
 
 The Pairing Code pins the host key found under `/etc/ssh` (`src/host-key.js`),
 so the alternate port must be served by **the same sshd** — another `Port`
 line in `sshd_config`, not a second instance with its own `HostKey`, whose
 fingerprint the code would not match. `pair.json` is re-read on every
 checklist repaint, so an edit made in another pane lands on the next keypress
-without reopening the popup.
+without reopening the popup. `addresses` builds the checklist, so it is read
+once when the popup opens.
 
 The checklist and QR screen both show the advertised port, and the checklist
 names an override it could not honor rather than quietly handing back 22 —
@@ -551,6 +563,13 @@ behavior under an unchanged number, as 0.3.0 and 0.4.0 did.
   snapshot without a config edit.
 - A Host whose rows Sync from plugin replaced while 0.6.0 rejected its
   settings keeps the default fields it saved; sync it again.
+
+### Updating to 0.6.2
+
+- Plugin 0.6.2 reads `addresses` from `pair.json` and offers them first in
+  the pairing checklist. Older plugins ignore the field and list only the
+  machine's own interfaces, so a Host behind a port mapping needs 0.6.2 to
+  pair. Without `addresses` the checklist is unchanged.
 
 ## Sidebar layout snapshot (v1)
 

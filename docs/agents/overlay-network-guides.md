@@ -17,6 +17,7 @@ The tutorials were written on **2026-10-09** against PR #426 at `eb52bf0c`. The 
 | Tailscale | Userspace daemon on a Mac, real tailnet, Simulator SSH, herdr, terminal, background recovery | Standard macOS app, physical phone on cellular |
 | ZeroTier | Controller-less IPv6 ad-hoc network, Simulator SSH, herdr, terminal, recovery | Central enrollment, custom Planet and Moons, private controller, overlapping IPv4 |
 | EasyTier | Network and encrypted Config Server, Simulator SSH, herdr, terminal, peer restart | Physical phone, eight-network limit, overlapping assignments, WSS failures |
+| Cloudflare Tunnel | Physical iPhone over cellular: connector **Healthy**, a **Tunnel CIDR** route, Cloudflare One Agent with Split Tunnels in **Include** mode, a **Direct** Host route, herdr inventory and a terminal, background recovery | The VPS appendix, Gateway network policies, a route wider than one `/32`, two Hosts on one phone, the iPad, Cloudflare One Agent release drift |
 
 Tailscale commands were checked against official documentation and **1.104.1** CLI help on **2026-10-09**. ZeroTier's guide was checked against Heeler's source and its linked official documentation on the same date.
 
@@ -44,6 +45,50 @@ The relay documentation update on base `4395595d` was checked with the official 
 - The CLI's flag-only `--check-config` invocation exited with code 1 and no diagnostics; the checks above used actual process startup instead.
 - Not tested: a Linux VPS, public firewall rules, cellular access, SSH authentication, or Heeler through this relay. This local check does not replace the tutorial's cellular acceptance step.
 
+### Cloudflare Tunnel guide (2026-10-21)
+
+The [Cloudflare Tunnel guide](../guides/cloudflare-tunnel.md) is adjacent to these
+ones but not an Overlay Network: nothing in it is configured under **Settings >
+Overlay Networks**, and Heeler gains no in-process node. Cloudflare's own app on
+the phone is a system VPN (a Network Extension), which is what ADR 0021 avoids
+running itself. Two shapes are documented:
+
+- **Private network route.** `cloudflared` on the Mac as an outbound-only
+  connector, a tunnel CIDR route in **Networking > Routes**, and the Cloudflare
+  One Agent app on the phone enrolled in the same Zero Trust organization. The
+  Host route is **Direct** with the Mac's private address. No domain is needed.
+- **VPS appendix.** A published TCP hostname behind an Access application with a
+  Service Auth policy, client-side `cloudflared access tcp` on a VPS holding its
+  loopback listener, and a **Jump Host** route in Heeler. Requires a domain on
+  Cloudflare, because a published hostname needs a zone, and non-HTTP service
+  types require the client-side `cloudflared` or the VPN app.
+
+Verification state: the **private network route** ran end to end on **2026-10-23
+on a physical iPhone**: `cloudflared` on the Mac as the connector with the tunnel
+**Healthy**, a **Tunnel CIDR** route for the Mac's address, Cloudflare One Agent
+enrolled in the same team with Split Tunnels in **Include** mode, a **Direct** Host
+route that connected, herdr inventory and a terminal, the same over cellular, and
+a Host and terminal that reconnected after more than 20 seconds in the
+background.
+
+Also checked on 2026-10-21, without a Cloudflare account: the command surface
+against `cloudflared 2026.9.0` (`tunnel route ip add`, `service install`,
+`access tcp --hostname/--listener/--service-token-id/--service-token-secret`, and
+the absence of `--hostname` on `tunnel run`), and the dashboard paths and Split
+Tunnels behaviour against Cloudflare's pages of that date.
+
+Not covered:
+
+- The **VPS appendix**: published TCP hostname, Access application, Service Auth,
+  and a **Jump Host** route. `cloudflared access tcp` ignored service tokens in
+  2026.6.0 ([cloudflared#1674](https://github.com/cloudflare/cloudflared/issues/1674)),
+  so read that ticket before relying on the appendix.
+- Gateway network policies beyond the default allow, and a route wider than one
+  `/32`.
+- Two Hosts through the same VPN app at once, and the iPad.
+- Cloudflare One Agent releases: one device, and no version number recorded, so
+  treat the guide as a 2026-10-23 snapshot of that app's UI.
+
 ## Screenshots
 
 The guides' screenshots are unedited Add Network forms from build `137a4aa3`, except the EasyTier Config Server form, recaptured in `f5f35846` after its Server prompt and footer changed. All were captured on **2026-10-10** on an iPhone 17 Pro Simulator (iOS 26.5), in dark appearance at the default text size. Names, addresses, and the server URL are examples. Credentials are blank, and the Machine ID belongs to a disposable Simulator.
@@ -53,6 +98,11 @@ When labels or behavior change, update the tutorial and its screenshot together.
 ## Source references
 
 - Shared UI: [network form](../../Sources/Heeler/Settings/OverlayNetworkFormView.swift), [network screen](../../Sources/Heeler/Settings/OverlayNetworkDetailView.swift), and [Host form](../../Sources/Heeler/Hosts/HostFormView.swift).
+- Cloudflare Tunnel: [guide](../guides/cloudflare-tunnel.md), its pair page
+  entry in [guides.json](../../docs-site/src/guides.json), and Cloudflare's
+  [private network routes](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/private-net/cloudflared/connect-cidr/),
+  [Split Tunnels](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/route-traffic/split-tunnels/),
+  and [arbitrary TCP](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/non-http/cloudflared-authentication/arbitrary-tcp/) pages.
 - ZeroTier: [ZeroTierNetworkNode](../../Packages/HeelerOverlay/Sources/HeelerOverlay/ZeroTierNetworkNode.swift) and [ZeroTierRuntime](../../Packages/HeelerOverlay/Sources/HeelerOverlay/ZeroTierRuntime.swift). Recheck the guide's custom-root startup limitation when they change.
 - EasyTier: [configuration URL contract](../../Packages/HeelerOverlay/Sources/HeelerOverlay/OverlayNode.swift) and [overlay package documentation](../../Packages/HeelerOverlay/README.md).
 - Architecture and ownership: [ADR 0021](../adr/0021-in-process-overlay-networks.md) and [source map](navigation.md).

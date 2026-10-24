@@ -262,13 +262,13 @@
         /// One Host per plugin state, named for it. Only with
         /// `DemoScreenshotMode.pluginStatesArgument`.
         static let pluginStates: [(name: String, plugin: Result<HeelerPluginInstallation?, TransportError>)] = [
-            ("Plugin current (0.6.1)", .success(HeelerPluginInstallation(version: "0.6.1"))),
+            ("Plugin current (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2"))),
             ("Plugin newer than app (0.7.0)", .success(HeelerPluginInstallation(version: "0.7.0"))),
             ("Plugin outdated (0.5.0)", .success(HeelerPluginInstallation(version: "0.5.0"))),
             ("Plugin outdated (0.4.0)", .success(HeelerPluginInstallation(version: "0.4.0"))),
             ("Plugin outdated (0.3.0)", .success(HeelerPluginInstallation(version: "0.3.0"))),
             ("Plugin not installed", .success(nil)),
-            ("Plugin disabled (0.6.1)", .success(HeelerPluginInstallation(version: "0.6.1", isEnabled: false))),
+            ("Plugin disabled (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2", isEnabled: false))),
             ("Plugin disabled + outdated (0.5.0)",
              .success(HeelerPluginInstallation(version: "0.5.0", isEnabled: false))),
             ("Plugin under legacy name + current disabled (0.3.0)",
@@ -276,12 +276,12 @@
                 pluginID: "herdr-mobile.pairing", version: "0.3.0", disabledCurrentIDSource: .github))),
             ("Plugin under legacy name (0.3.0)",
              .success(HeelerPluginInstallation(pluginID: "herdr-mobile.pairing", version: "0.3.0"))),
-            ("Plugin with legacy leftover (0.6.1)",
-             .success(HeelerPluginInstallation(version: "0.6.1", leftoverLegacyIDs: ["herdr-mobile.pairing"]))),
+            ("Plugin with legacy leftover (0.6.2)",
+             .success(HeelerPluginInstallation(version: "0.6.2", leftoverLegacyIDs: ["herdr-mobile.pairing"]))),
             ("Plugin linked locally (0.5.0)", .success(HeelerPluginInstallation(version: "0.5.0", source: .local))),
-            ("Plugin linked locally (0.6.1)", .success(HeelerPluginInstallation(version: "0.6.1", source: .local))),
+            ("Plugin linked locally (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2", source: .local))),
             ("Plugin manifest unreadable",
-             .success(HeelerPluginInstallation(version: "0.6.1", hasManifestWarning: true))),
+             .success(HeelerPluginInstallation(version: "0.6.2", hasManifestWarning: true))),
             ("Plugin on Windows", .failure(.hostFeatureUnavailable(feature: "The Heeler plugin"))),
             ("Plugin read failed", .failure(.timedOut)),
         ]

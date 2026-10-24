@@ -98,7 +98,10 @@ struct AgentDetailView: View {
         self.terminal = terminal
         self.inputMode = inputMode
         self.detailSurface = detailSurface
-        _surface = State(initialValue: detailSurface.preferred)
+        // A saved Chat entry's Host is not connected, so its terminal cannot
+        // attach: it opens on Chat without changing the preference.
+        _surface = State(
+            initialValue: console.savedChatEntries[agent.id] != nil ? .chat : detailSurface.preferred)
         self.hosts = hosts
         self.activity = activity
         self.keyboardHandoff = keyboardHandoff

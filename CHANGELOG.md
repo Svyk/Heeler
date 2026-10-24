@@ -9,6 +9,11 @@ Entries reference the pull request that made the change.
 
 ### Added
 
+- Pairing Codes can advertise addresses the plugin cannot see on the
+  machine's interfaces, such as a NAS address for herdr running in a Docker
+  container behind a published port, via `addresses` in the plugin's
+  `pair.json`. They are listed first in the checklist and pre-checked.
+  Update the Heeler plugin to 0.6.2 on the Host. (#489)
 - Read a guide on why SELinux blocks Heeler's herdr socket on Fedora, RHEL,
   CentOS Stream, AlmaLinux and Rocky Linux, how to confirm it from the audit
   log, and the small policy module that allows it, in English or Simplified
@@ -29,6 +34,10 @@ Entries reference the pull request that made the change.
   OpenCode's own database with a short read-only query on the Host, which
   needs sqlite3 or python3, and says when OpenCode has left the
   conversation it shows. (#483)
+- Reach a Mac through Cloudflare Tunnel instead of an overlay network: a
+  Cloudflare client on the phone carries the connection, so the Mac opens no
+  port, and a Host connects through either a private network route or a VPS
+  running the tunnel client. English or Simplified Chinese. (#487)
 
 ### Changed
 
@@ -42,11 +51,33 @@ Entries reference the pull request that made the change.
   Collapse, so the header covers less output. (#480)
 - Chat's Collapse Steps and Jump to Latest buttons are glass icons like the
   detail header's, and Collapse Steps uses a clearer collapse glyph. (#480)
+- Saved Chats from a Host that is not connected read as saved in the
+  Agents list: a Saved badge instead of a status, a quieter title, and the
+  Host's name marked with its connection state, and they open on Chat. By
+  Host headers say when their Host is connecting, reconnecting or
+  unavailable. (#486)
+- Chat loads earlier messages when you pull down past the top of a
+  conversation and let go, instead of as soon as you scroll near the top.
+  The top of the list says Pull, then Release with a tap of haptic
+  feedback once the pull goes far enough, then shows a spinner while they
+  load. Pushing back before you let go cancels it. A conversation too short
+  to fill the screen still loads them by itself. (#507)
+- Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
+  cover less of the conversation; they are as easy to tap. (#507)
 - The expanded Agent title centres on the screen, and a grip under it
   resizes it, so a long task title can wrap into the room you give it. (#485)
 
 ### Fixed
 
+- Show Connecting and saved Chats on cold launch while configured Hosts
+  start connecting, instead of briefly showing Agent Gone or No Agents.
+  (#504)
+- Keep Blocked card answers reachable by scrolling at large text sizes
+  when the keyboard leaves less room, including from sidebar search. (#505)
+- Line up a running tool's spinner in Chat with the first line of its
+  title, instead of below it. (#507)
+- Stop Chat from jittering when you pull past the newest message in a
+  conversation you just opened. (#507)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
@@ -63,8 +94,8 @@ Entries reference the pull request that made the change.
 - Move the Agents and Terminals filter, presentation and new-item controls
   to the bottom right of the sidebar, on an iPhone Duo's inner display and in
   landscape on large iPhones, so they are within reach and the sidebar title
-  stays whole. The sidebar can also be dragged wider, up to 600 points, on
-  regular-width layouts, including iPad. (#485)
+  stays whole. On those layouts, the sidebar can also be dragged wider, up
+  to 600 points. (#485)
 
 ## [0.1.15] - 2026-10-19
 

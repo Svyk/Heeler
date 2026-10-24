@@ -17,6 +17,13 @@
     },
     {
       "title": {
+        "en": "Cloudflare Tunnel",
+        "zh": "Cloudflare Tunnel"
+      },
+      "guides": ["cloudflare-tunnel"]
+    },
+    {
+      "title": {
         "en": "Jump Host",
         "zh": "Jump Host"
       },
@@ -38,6 +45,7 @@
       "tailscale": "Tailscale",
       "zerotier": "ZeroTier",
       "easytier": "EasyTier",
+      "cloudflare-tunnel": "Cloudflare Tunnel",
       "vps-jump-host-setup": "Set up a Jump Host",
       "vps-jump-host": "Jump Host in depth",
       "host-routes": "Multiple routes",
@@ -51,6 +59,7 @@
       "tailscale": "Tailscale",
       "zerotier": "ZeroTier",
       "easytier": "EasyTier",
+      "cloudflare-tunnel": "Cloudflare Tunnel",
       "vps-jump-host-setup": "配置 Jump Host",
       "vps-jump-host": "Jump Host 详解",
       "host-routes": "多条路由",
@@ -65,6 +74,7 @@
     "tailscale": "Waypoints",
     "zerotier": "Orbit",
     "easytier": "Network",
+    "cloudflare-tunnel": "Cloud",
     "vps-jump-host-setup": "ListChecks",
     "vps-jump-host": "ShieldCheck",
     "host-routes": "Route",

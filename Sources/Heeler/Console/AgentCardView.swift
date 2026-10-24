@@ -19,6 +19,9 @@ struct AgentCardView: View {
     /// The program name after Row 1 when another row reads the same; see
     /// `AgentTitleQualifier`.
     var qualifier: String? = nil
+    /// Set for a saved Chat entry point, which lists in an unproven Host's
+    /// place: its Host's readiness, since the entry has no status of its own.
+    var saved: HostReadiness? = nil
 
     private var totalsSource: ChangesRowTotals.Source? {
         if let changes { .store(changes) } else { sampleChanges.map { .sample($0) } }
@@ -33,7 +36,8 @@ struct AgentCardView: View {
             // Centered, not baseline-aligned: the status capsule is smaller
             // type with padding, so baseline alignment drops it below Row 1.
             HStack(alignment: .center) {
-                AgentCardTitle(tokens: presentation.rows.first ?? [], qualifier: qualifier)
+                AgentCardTitle(
+                    tokens: presentation.rows.first ?? [], qualifier: qualifier, isSaved: saved != nil)
                 if isPinned {
                     Image(systemName: "pin.fill")
                         .font(.caption2)
@@ -42,7 +46,9 @@ struct AgentCardView: View {
                         .accessibilityLabel("Pinned")
                 }
                 Spacer(minLength: 8)
-                if agent.agent.status.displayTitle != nil {
+                if saved != nil {
+                    SavedChatBadge()
+                } else if agent.agent.status.displayTitle != nil {
                     AgentStatusBadge(status: agent.agent.status)
                 }
             }
@@ -95,11 +101,27 @@ struct AgentCardView: View {
         }
     }
 
+    @ViewBuilder
     private var hostText: some View {
-        Text(verbatim: agent.hostName)
+        if let saved {
+            // The Host's state beside its name, in its tone, so a saved row
+            // says which machine it waits for and how that is going.
+            HStack(spacing: 4) {
+                HostToneBadge(tone: saved.tone)
+                    .frame(width: 7, height: 7)
+                Text(verbatim: agent.hostName)
+                    .foregroundStyle(saved.tone.tint)
+            }
             .font(.caption)
-            .foregroundStyle(.secondary)
             .lineLimit(1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "\(agent.hostName), \(saved.text)"))
+        } else {
+            Text(verbatim: agent.hostName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -108,10 +130,12 @@ struct AgentCardView: View {
 private struct AgentCardTitle: View {
     let tokens: [RenderedToken]
     let qualifier: String?
+    /// A saved entry's title recedes, so it never reads as a running Agent.
+    var isSaved = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            AgentRowText(tokens: tokens)
+            AgentRowText(tokens: tokens, isSecondary: isSaved)
                 .lineLimit(1)
             if let qualifier {
                 Text(verbatim: "· \(qualifier)")
@@ -121,7 +145,7 @@ private struct AgentCardTitle: View {
                     .accessibilityLabel(Text(verbatim: qualifier))
             }
         }
-        .font(.headline)
+        .font(isSaved ? .body.weight(.medium) : .headline)
     }
 }
 
@@ -212,6 +236,19 @@ enum AgentTitleQualifier {
             qualifiers[entry.id] = entry.program
         }
         return qualifiers
+    }
+}
+
+/// In the status capsule's place on a saved Chat entry: outlined where every
+/// status is filled, so it never reads as one.
+private struct SavedChatBadge: View {
+    var body: some View {
+        Text("Saved")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .overlay(Capsule().strokeBorder(.tertiary, lineWidth: 1))
     }
 }
 

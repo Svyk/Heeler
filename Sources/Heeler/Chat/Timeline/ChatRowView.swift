@@ -68,7 +68,7 @@ struct ChatRowView: View {
         case .pending(let echo):
             ChatPendingBubble(echo: echo)
         case .olderHistory(let older):
-            ChatOlderHistoryRow(older: older, loadOlder: actions.loadOlder)
+            ChatOlderHistoryRow(older: older, pull: actions.olderPull?.phase ?? .idle, loadOlder: actions.loadOlder)
         case .turnHeader(let header):
             ChatTurnHeaderRow(header: header) { actions.toggle(row.id) }
         case .toolGroup(let group):
@@ -391,8 +391,7 @@ private struct ChatToolGroupRow: View {
                     ChatDiffBadge(diff: ChatDiffStats(added: added, removed: removed))
                 }
                 if group.isRunning {
-                    ProgressView()
-                        .controlSize(.mini)
+                    ChatRunningSpinner()
                 } else if group.failed > 0 {
                     Label("\(group.failed) failed", systemImage: "xmark.circle")
                         .font(.caption)
@@ -858,6 +857,21 @@ struct ChatDiffBadge: View {
     }
 }
 
+/// A spinner over a hidden subheadline glyph, so a first-text-baseline row
+/// aligns it with the title's first line. The spinner's own baseline drops
+/// it below that line.
+private struct ChatRunningSpinner: View {
+    var body: some View {
+        Text(Image(systemName: "circle"))
+            .font(.subheadline)
+            .hidden()
+            .overlay {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+    }
+}
+
 private struct ChatToolStatusBadge: View {
     let status: ChatToolActivity.Status
     let exitCode: Int?
@@ -875,8 +889,7 @@ private struct ChatToolStatusBadge: View {
                 .foregroundStyle(.secondary)
                 .labelStyle(.titleAndIcon)
         case .running:
-            ProgressView()
-                .controlSize(.mini)
+            ChatRunningSpinner()
                 .accessibilityLabel("Running")
         case .succeeded where cardAnswer != .allowed:
             Image(systemName: "checkmark")
@@ -1109,22 +1122,32 @@ private struct ChatDividerRow: View {
 
 private struct ChatOlderHistoryRow: View {
     let older: ChatOlderHistory
+    let pull: ChatOlderPull.Phase
     let loadOlder: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             switch older {
+            case .available where pull == .requested, .loading:
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Loading earlier messages")
+            case .available where pull != .idle:
+                // Pulling flips the arrow once letting go would load.
+                Label {
+                    Text(pull == .armed ? "Release to load earlier messages" : "Pull to load earlier messages")
+                } icon: {
+                    Image(systemName: "arrow.down")
+                        .rotationEffect(.degrees(pull == .armed ? 180 : 0))
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: pull)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             case .available:
                 Button("Load Earlier Messages", action: loadOlder)
                     .font(.footnote)
-            case .loading:
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading earlier messages…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
             case .failed(let message):
                 VStack(spacing: 6) {
                     Text(message)

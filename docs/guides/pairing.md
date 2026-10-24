@@ -52,7 +52,7 @@ herdr plugin action invoke heeler.pair
 
 The Pairing Code opens in a popup over the herdr window.
 
-1. The popup lists the machine's network addresses. Check each one your iPhone or iPad can reach, usually the machine's Wi-Fi or Ethernet address: use the arrow keys to move and Space to check or uncheck. Each checked address becomes a route of the Host, so checking more than one is fine.
+1. The popup lists the machine's network addresses. Check each one your iPhone or iPad can reach, usually the machine's Wi-Fi or Ethernet address: use the arrow keys to move and Space to check or uncheck. Each checked address becomes a route of the Host, so checking more than one is fine. If none of them is one your iPhone or iPad can reach, see [Pair through a port mapping](#pair-through-a-port-mapping).
 2. Press Enter. A QR code appears, along with the time it stops working.
 
 Leave the popup open and don't press any keys while you scan. Any key except `c` closes it and cancels the code.
@@ -86,6 +86,28 @@ The popup shows **Device paired** and the key that was just added. If you didn't
 
 A paired Host has only the addresses you checked, so it connects on the networks where those addresses answer. To reach it from cellular, set up an [Overlay Network](overlay-networks.md) or a [Jump Host](vps-jump-host-setup.md), then add the Host's address there as another route: see [Reach a Host on several routes](host-routes.md#add-a-route). Heeler uses whichever route answers first.
 
+## Pair through a port mapping
+
+**Run on: Mac or Linux**
+
+The popup lists only the addresses on the machine's own network interfaces. When your iPhone or iPad reaches herdr some other way, for example herdr runs in a Docker container whose SSH is published on a port of a NAS, or the machine sits behind NAT, tell the plugin which address and port to put in the code. This needs Heeler plugin 0.6.2 or later; to update it, run the install command from [step 2](#2-install-the-heeler-plugin) again.
+
+1. Find the plugin's config directory:
+
+   ```sh
+   herdr plugin config-dir heeler
+   ```
+
+2. In that directory, create `pair.json` with the addresses (IPs or host names) and the SSH port your iPhone or iPad reaches. For a container published as port 2222 of a NAS at 192.168.1.10:
+
+   ```json
+   {"ssh_port": 2222, "addresses": ["192.168.1.10", "nas.example.com"]}
+   ```
+
+3. Run `herdr plugin action invoke heeler.pair` again. The addresses from `pair.json` come first in the popup and are already checked. The machine's own addresses follow, unchecked.
+
+The port must lead to the OpenSSH server of the machine that runs herdr, because the code carries the fingerprint of its host key under `/etc/ssh`. If the popup says it could not use `pair.json`, fix the file, press `q`, and run the command again. The [plugin README](../../plugin/README.md#install) describes every field.
+
 ## Troubleshooting
 
 | What you see | What to do |
@@ -94,6 +116,7 @@ A paired Host has only the addresses you checked, so it connects on the networks
 | The bottom of the QR code is cut off | Make the herdr window larger, or zoom out the terminal, then press `q` and run the command again. |
 | **No SSH host key found under /etc/ssh.** (popup) | Turn on Remote Login, or run `sudo ssh-keygen -A`, then run the command again. |
 | **No routable network address found.** (popup) | Connect the machine to Wi-Fi, Ethernet, or a VPN, then run the command again. |
+| The popup lists no address your iPhone or iPad can reach, for example only a `172.17.x.x` container address | herdr is behind a port mapping or NAT. Add the address your iPhone or iPad reaches to `pair.json`, as [Pair through a port mapping](#pair-through-a-port-mapping) describes, then run the command again. |
 | **The Host did not answer at any of its addresses.** | Put your iPhone or iPad on the same network or VPN as the machine, check that Heeler is allowed in iOS **Settings > Privacy & Security > Local Network** and that Remote Login is on, then tap **Try Again**. |
 | **This Pairing Code has expired.**, **The Host rejected this Pairing Code.**, or **The Host has no pairing in progress for this code.** | Codes work once, for two minutes, and stop working when the popup closes. Press Enter in the popup for a new code, or run the command again, then tap **Scan Again**. |
 | **Enrollment did not complete, likely a network hiccup.** or **This device was enrolled, but the verifying reconnect did not get through.** | Tap **Try Again**. |

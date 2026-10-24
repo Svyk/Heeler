@@ -436,7 +436,9 @@ struct AgentChatSurfaceView: View {
     /// Over the list's bottom edge, which keeps Collapse Steps' band clear
     /// of rows while it shows.
     private var floatingTimelineControls: some View {
-        HStack {
+        // The buttons' hit areas reach past their circles, which already
+        // leaves a gap between them.
+        HStack(spacing: 0) {
             Spacer(minLength: 0)
             ChatCollapseTrajectoryButton(
                 isVisible: presentation == .timeline && timeline.state.isReady && canCollapseTrajectory

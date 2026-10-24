@@ -22,7 +22,10 @@ struct ConsoleChatCacheTests {
             adapterRevision: CodexRolloutReducer.revision, transcriptPath: "/tmp/transcript.jsonl", head: Data(),
             coverageStart: 0, coverageEnd: 20, reachedStart: true, title: nil, entries: [entry], savedAt: Date()))
         let console = ConsoleStore(chatCache: cache)
+        defer { console.setHosts([]) }
         console.setHosts([host])
+        let composer = console.composerStore(for: agent)
+        composer.replaceDraft(with: "Keep this lime draft while connecting.")
         await console.cachedChats.settled()
         #expect(console.agents.isEmpty)
         let displayed = try #require(console.chatDisplayAgents.first)
@@ -32,8 +35,14 @@ struct ConsoleChatCacheTests {
         let chat = try #require(console.chatStore(for: displayed, program: .codex))
         await chat.step()
         #expect(chat.conversation.transcript.entries == [entry])
+        #expect(console.savedChatEntries[agent.id]?.text == "Connecting…")
+        let banner = ChatBannerLine.lines(
+            hostStatus: console.hostStatuses[host.id], conversation: chat.conversation,
+            hasPendingEchoes: false)
+        #expect(banner.map(\.text) == ["Connecting to the Host… Showing saved messages."])
+        #expect(console.composerStore(for: displayed) === composer)
+        #expect(composer.draft == "Keep this lime draft while connecting.")
         #expect(console.agents.isEmpty)
-        console.setHosts([])
     }
 
     @Test func coldOfflineSavedChatIsListedByWorkspace() async throws {
@@ -55,6 +64,28 @@ struct ConsoleChatCacheTests {
         #expect(console.agents.isEmpty)
         #expect(sections.map(\.id.workspaceID) == ["w1"])
         #expect(sections.flatMap(\.agents).map(\.id) == [agent.id])
+    }
+
+    @Test func coldOfflineSavedChatReadsAsItsHostsHeader() async throws {
+        let host = Host(address: "offline.invalid", username: "reader")
+        let cache = VolatileChatTranscriptCache()
+        let agent = Self.agent(host: host, session: Self.sessionA)
+        await cache.saveAgentDirectory([ChatCachedAgent(agent)], for: host)
+        let console = ConsoleStore(chatCache: cache)
+        defer { console.setHosts([]) }
+        console.setHosts([host])
+        await console.cachedChats.settled()
+        let suiteName = "hm-console-chat-cache-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let presentation = ConsoleListPresentationStore(defaults: defaults)
+
+        let section = try #require(presentation.sections(hosts: [host], console: console).first)
+        let readiness = try #require(console.savedChatEntries[agent.id])
+
+        #expect(console.savedChatEntries.count == 1)
+        #expect(readiness == ConsoleHostSectionHeaderPresentation(section: section).readiness)
+        #expect(readiness.tone != .connected)
     }
 
     @Test func liveAgentWithoutSessionOpensItsExactSavedConversation() async throws {

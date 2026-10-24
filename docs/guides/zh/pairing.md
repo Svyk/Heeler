@@ -54,7 +54,7 @@ herdr plugin action invoke heeler.pair
 
 配对码会以弹窗形式显示在 herdr 窗口之上。
 
-1. 弹窗会列出这台机器的网络地址。勾选 iPhone 或 iPad 能够访问到的每个地址，通常是机器的 Wi-Fi 或以太网地址：用方向键移动，按空格键勾选或取消勾选。每个勾选的地址都会成为该 Host 的一条路由，因此可以勾选多个。
+1. 弹窗会列出这台机器的网络地址。勾选 iPhone 或 iPad 能够访问到的每个地址，通常是机器的 Wi-Fi 或以太网地址：用方向键移动，按空格键勾选或取消勾选。每个勾选的地址都会成为该 Host 的一条路由，因此可以勾选多个。如果其中没有 iPhone 或 iPad 能访问到的地址，请参见[通过端口映射配对](#通过端口映射配对)。
 2. 按 Enter。弹窗会显示二维码及其失效时间。
 
 扫码期间请保持弹窗打开，不要按任何键。除 `c` 以外的任何按键都会关闭弹窗并作废配对码。
@@ -88,6 +88,28 @@ herdr plugin action invoke heeler.pair
 
 配对得到的 Host 只包含你勾选的地址，因此只能在这些地址可达的网络中连接。如需通过蜂窝网络访问，请先配置 [Overlay Network](overlay-networks.md) 或 [Jump Host](vps-jump-host-setup.md)，再把通过它访问 Host 所用的地址添加为另一条路由，参见[通过多条路由访问 Host](host-routes.md#添加路由)。Heeler 会使用最先连通的那条路由。
 
+## 通过端口映射配对
+
+**运行位置：Mac 或 Linux**
+
+弹窗只会列出这台机器自身网络接口上的地址。如果 iPhone 或 iPad 需要通过其他方式访问 herdr，例如 herdr 运行在 Docker 容器中、其 SSH 通过 NAS 上的某个端口对外发布，或者机器位于 NAT 之后，请告诉插件要写入配对码的地址和端口。此功能需要 Heeler 插件 0.6.2 或更高版本；如需更新，请重新运行[第 2 步](#2-安装-heeler-插件)中的安装命令。
+
+1. 找到插件的配置目录：
+
+   ```sh
+   herdr plugin config-dir heeler
+   ```
+
+2. 在该目录中创建 `pair.json`，写入 iPhone 或 iPad 能访问到的地址（IP 或主机名）和 SSH 端口。例如容器发布在 NAS（192.168.1.10）的 2222 端口上：
+
+   ```json
+   {"ssh_port": 2222, "addresses": ["192.168.1.10", "nas.example.com"]}
+   ```
+
+3. 重新运行 `herdr plugin action invoke heeler.pair`。`pair.json` 中的地址会排在弹窗最前面并已勾选，机器自身的地址排在其后，默认不勾选。
+
+该端口必须通向运行 herdr 的那台机器上的 OpenSSH 服务器，因为配对码携带的是它在 `/etc/ssh` 下的主机密钥指纹。如果弹窗提示无法使用 `pair.json`，请修正该文件，按 `q` 后重新运行命令。各字段的完整说明见[插件 README](../../../plugin/README.md#install)。
+
 ## 故障排查
 
 | 现象 | 处理方法 |
@@ -96,6 +118,7 @@ herdr plugin action invoke heeler.pair
 | 二维码底部显示不全 | 调大 herdr 窗口或缩小终端字号，然后按 `q` 并重新运行该命令。 |
 | **No SSH host key found under /etc/ssh.**（弹窗） | 开启“远程登录”（Remote Login），或运行 `sudo ssh-keygen -A`，然后重新运行该命令。 |
 | **No routable network address found.**（弹窗） | 将机器连接到 Wi-Fi、以太网或 VPN，然后重新运行该命令。 |
+| 弹窗中没有 iPhone 或 iPad 能访问到的地址，例如只有 `172.17.x.x` 这样的容器地址 | herdr 位于端口映射或 NAT 之后。按[通过端口映射配对](#通过端口映射配对)的说明，把 iPhone 或 iPad 能访问到的地址写入 `pair.json`，然后重新运行该命令。 |
 | **The Host did not answer at any of its addresses.** | 让 iPhone 或 iPad 与机器处于同一网络或 VPN，确认 iOS 的 **Settings > Privacy & Security > Local Network**（设置 > 隐私与安全性 > 本地网络）中已允许 Heeler，并确认已开启“远程登录”，然后轻点 **Try Again**。 |
 | **This Pairing Code has expired.**、**The Host rejected this Pairing Code.** 或 **The Host has no pairing in progress for this code.** | 配对码只能使用一次，有效期两分钟，弹窗关闭后也会失效。在弹窗中按 Enter 生成新的配对码，或重新运行该命令，然后轻点 **Scan Again**。 |
 | **Enrollment did not complete, likely a network hiccup.** 或 **This device was enrolled, but the verifying reconnect did not get through.** | 轻点 **Try Again**。 |

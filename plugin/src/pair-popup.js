@@ -10,7 +10,7 @@ import os from "node:os";
 import { emitKeypressEvents } from "node:readline";
 import QRCode from "qrcode";
 
-import { candidateAddresses } from "./addresses.js";
+import { candidateAddresses, withConfiguredAddresses } from "./addresses.js";
 import { readHostKeyFingerprint } from "./host-key.js";
 import { encodePairingCode } from "./envelope.js";
 import { commentOf, removeKeyLine, sweepExpiredBootstrapLines } from "./authorized-keys.js";
@@ -104,6 +104,9 @@ function renderChecklist(state, config, warning) {
   // the transient warning below is spent on checklist mistakes instead.
   if (config.warning) {
     lines.push(`${BOLD}${config.warning} Advertising ${config.sshPort}.${RESET}`);
+  }
+  if (config.addressesWarning) {
+    lines.push(`${BOLD}${config.addressesWarning}${RESET}`);
   }
   // Follows the selection: checking a tailnet address raises it, unchecking
   // it again takes it away.
@@ -253,7 +256,11 @@ async function main() {
     await holdFatal(MISSING_HOST_KEY);
     return;
   }
-  const candidates = candidateAddresses();
+  // Configured addresses are read once: the checklist is built from them.
+  const candidates = withConfiguredAddresses(
+    candidateAddresses(),
+    readPairingConfig(configDir).addresses,
+  );
   if (candidates.length === 0) {
     await holdFatal(MISSING_ADDRESS);
     return;
