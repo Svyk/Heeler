@@ -120,28 +120,38 @@ struct AgentDirectInputTests {
             AgentActionMenuItem.allCases
                 == AgentActionMenuSection.allCases.flatMap(\.items))
 
-        let metadata: [(AgentActionMenuItem, String, String, Bool, Bool)] = [
-            (.backToConsole, "Back to Console", "chevron.left", false, false),
-            (.addImage, "Add Image", "photo", false, true),
-            (.addFile, "Add File", "doc", false, true),
-            (.showChat, "Show Chat", "text.bubble", false, false),
-            (.showAgentTerminal, "Show Agent Terminal", "apple.terminal.circle", false, false),
-            (.openTerminal, "Open Terminal", "macwindow.badge.plus", false, false),
-            (.changes, "Changes", "plus.forwardslash.minus", false, false),
-            (.newAgent, "New Agent", "plus", false, false),
-            (.skills, "Skills", "sparkles", false, true),
-            (.snippets, "Snippets", "quote.bubble", false, true),
-            (.worktreeDetails, "Worktree Details", "arrow.triangle.branch", false, false),
-            (.renameAgent, "Rename Agent", "pencil", false, false),
-            (.renameWorkspace, "Rename Workspace", "pencil.line", false, false),
-            (.closeAgent, "Close Agent", "trash", true, false),
+        let metadata: [(AgentActionMenuItem, String, AgentGlyph, Bool, Bool)] = [
+            (.backToConsole, "Back to Console", .symbol("chevron.left"), false, false),
+            (.addImage, "Add Image", .symbol("photo"), false, true),
+            (.addFile, "Add File", .symbol("doc"), false, true),
+            (.showChat, "Show Chat", .symbol("text.bubble"), false, false),
+            (.showAgentTerminal, "Show Agent Terminal", .codeBubble, false, false),
+            (.openTerminal, "Open Terminal", .symbol("macwindow.badge.plus"), false, false),
+            (.changes, "Changes", .symbol("plus.forwardslash.minus"), false, false),
+            (.newAgent, "New Agent", .symbol("plus"), false, false),
+            (.skills, "Skills", .symbol("sparkles"), false, true),
+            (.snippets, "Snippets", .symbol("quote.bubble"), false, true),
+            (.worktreeDetails, "Worktree Details", .symbol("arrow.triangle.branch"), false, false),
+            (.renameAgent, "Rename Agent", .symbol("pencil"), false, false),
+            (.renameWorkspace, "Rename Workspace", .symbol("pencil.line"), false, false),
+            (.closeAgent, "Close Agent", .symbol("trash"), true, false),
         ]
-        for (item, title, systemImage, isDestructive, isDraftOwned) in metadata {
+        for (item, title, glyph, isDestructive, isDraftOwned) in metadata {
             #expect(item.title == title)
-            #expect(item.systemImage == systemImage)
+            #expect(item.glyph == glyph)
             #expect((item.role == .destructive) == isDestructive)
             #expect(item.isDraftOwned == isDraftOwned)
         }
+    }
+
+    @MainActor
+    @Test func codeBubbleGlyphSharesTextBubbleCanvas() throws {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 17, weight: .regular, scale: .medium)
+        let textBubble = try #require(UIImage(systemName: "text.bubble", withConfiguration: configuration))
+        let glyph = CodeBubbleGlyph.image(pointSize: 17)
+
+        #expect(glyph.size == textBubble.size)
+        #expect(glyph.renderingMode == .alwaysTemplate)
     }
 
     @Test func sharedActionMenuAvailabilityAndDispatchCoverAllGates() {

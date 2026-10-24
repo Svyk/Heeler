@@ -252,14 +252,23 @@ struct AgentDetailHeaderTrailingControls: View {
         }
     }
 
+    @ViewBuilder
+    private func glyph(_ glyph: AgentGlyph) -> some View {
+        switch glyph {
+        case .symbol(let name):
+            Image(systemName: name).font(Self.glyphFont)
+        case .codeBubble:
+            Image(uiImage: CodeBubbleGlyph.image(pointSize: 17))
+        }
+    }
+
     /// Swaps to the surface not showing, drawn with that surface's glyph.
     private func surfaceButton(_ control: AgentDetailSurfaceSwitch) -> some View {
         let target = control.other
         return Button {
             control.select(target)
         } label: {
-            Image(systemName: target.showSystemImage)
-                .font(Self.glyphFont)
+            glyph(target.showGlyph)
                 .frame(
                     width: AgentDetailHeader.capsuleButtonWidth,
                     height: AgentDetailHeader.controlSize)

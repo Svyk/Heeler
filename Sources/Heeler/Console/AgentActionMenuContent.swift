@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Shared Agent action-menu items for Composer and Direct Input. Ordering and
 /// sectioning stay identical across both surfaces; Direct Input only adds a
@@ -38,22 +39,22 @@ enum AgentActionMenuItem: Equatable, Hashable, Sendable, CaseIterable {
         }
     }
 
-    var systemImage: String {
+    var glyph: AgentGlyph {
         switch self {
-        case .backToConsole: "chevron.left"
-        case .addImage: "photo"
-        case .addFile: "doc"
-        case .showChat: AgentDetailSurface.chat.showSystemImage
-        case .showAgentTerminal: AgentDetailSurface.terminal.showSystemImage
-        case .openTerminal: "macwindow.badge.plus"
-        case .changes: "plus.forwardslash.minus"
-        case .newAgent: "plus"
-        case .skills: "sparkles"
-        case .snippets: "quote.bubble"
-        case .worktreeDetails: "arrow.triangle.branch"
-        case .renameAgent: "pencil"
-        case .renameWorkspace: "pencil.line"
-        case .closeAgent: "trash"
+        case .backToConsole: .symbol("chevron.left")
+        case .addImage: .symbol("photo")
+        case .addFile: .symbol("doc")
+        case .showChat: AgentDetailSurface.chat.showGlyph
+        case .showAgentTerminal: AgentDetailSurface.terminal.showGlyph
+        case .openTerminal: .symbol("macwindow.badge.plus")
+        case .changes: .symbol("plus.forwardslash.minus")
+        case .newAgent: .symbol("plus")
+        case .skills: .symbol("sparkles")
+        case .snippets: .symbol("quote.bubble")
+        case .worktreeDetails: .symbol("arrow.triangle.branch")
+        case .renameAgent: .symbol("pencil")
+        case .renameWorkspace: .symbol("pencil.line")
+        case .closeAgent: .symbol("trash")
         }
     }
 
@@ -226,12 +227,70 @@ struct AgentActionMenuContent: View {
     }
 
     private func button(for item: AgentActionMenuItem) -> some View {
-        Button(item.title, systemImage: item.systemImage, role: item.role) {
+        Button(role: item.role) {
             AgentActionMenuPolicy.dispatch(
                 item,
                 actions: actions,
                 restoreComposerThen: restoreComposerThen)
+        } label: {
+            Label(item.title, glyph: item.glyph)
         }
         .disabled(!AgentActionMenuPolicy.isEnabled(item, actions: actions))
+    }
+}
+
+extension Label where Title == Text, Icon == Image {
+    @MainActor
+    init(_ title: String, glyph: AgentGlyph) {
+        switch glyph {
+        case .symbol(let name):
+            self.init(title, systemImage: name)
+        case .codeBubble:
+            self.init {
+                Text(title)
+            } icon: {
+                Image(uiImage: CodeBubbleGlyph.image(pointSize: 17))
+            }
+        }
+    }
+}
+
+/// `bubble`, which is `text.bubble` without its lines, with `<>` drawn
+/// where the lines sit, so it matches Show Chat's glyph at any size.
+@MainActor
+enum CodeBubbleGlyph {
+    private static var cache: [CGFloat: UIImage] = [:]
+
+    static func image(pointSize: CGFloat) -> UIImage {
+        if let image = cache[pointSize] { return image }
+        let configuration = UIImage.SymbolConfiguration(
+            pointSize: pointSize, weight: .regular, scale: .medium)
+        guard
+            let bubble = UIImage(systemName: "bubble", withConfiguration: configuration)?
+                .withTintColor(.black, renderingMode: .alwaysOriginal)
+        else { return UIImage() }
+        let size = bubble.size
+        let drawn = UIGraphicsImageRenderer(size: size).image { _ in
+            bubble.draw(at: .zero)
+            // Measured on `text.bubble` at 17 pt (a 23 x 21 canvas): its
+            // lines centre at (11.44, 8.75) and its outline is 1.4 wide.
+            let unit = size.width / 23
+            let center = CGPoint(x: 11.44 * unit, y: 8.75 * unit)
+            let halfHeight = 2.9 * unit, arm = 2.9 * unit, gap = 1.4 * unit
+            let marks = UIBezierPath()
+            for side: CGFloat in [-1, 1] {
+                marks.move(to: CGPoint(x: center.x + side * gap, y: center.y - halfHeight))
+                marks.addLine(to: CGPoint(x: center.x + side * (gap + arm), y: center.y))
+                marks.addLine(to: CGPoint(x: center.x + side * gap, y: center.y + halfHeight))
+            }
+            marks.lineWidth = 1.4 * unit
+            marks.lineCapStyle = .round
+            marks.lineJoinStyle = .round
+            UIColor.black.setStroke()
+            marks.stroke()
+        }
+        let image = drawn.withRenderingMode(.alwaysTemplate)
+        cache[pointSize] = image
+        return image
     }
 }
