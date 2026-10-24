@@ -976,10 +976,14 @@ struct ChatTimelineControllerTests {
             controller.apply(Self.foldState(rows, turns: running, activity: .working))
             await Self.settle(controller)
             let view = controller.timeline
-            // Among the last turn's steps, its answer out of sight.
-            let answer = try #require(controller.cellFrame(of: .entry(ChatEntryID("a2"))))
-            Self.drag(controller, to: answer.minY - view.bounds.height - 600)
-            await Self.settle(controller)
+            // Among the last turn's steps, its answer out of sight. Steps
+            // measure shorter than their estimates as they come on screen and
+            // can pull the answer back up, so drag again from where it lands.
+            for _ in 0..<3 {
+                guard let answer = controller.cellFrame(of: .entry(ChatEntryID("a2"))) else { break }
+                Self.drag(controller, to: answer.minY - view.bounds.height - 600)
+                await Self.settle(controller)
+            }
             #expect(!controller.visibleRowIDs.contains(.entry(ChatEntryID("a2"))))
             let top = view.contentOffset.y + view.adjustedContentInset.top
             let first = try #require(controller.visibleRowIDs.first)
