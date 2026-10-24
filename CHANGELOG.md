@@ -20,7 +20,7 @@ Entries reference the pull request that made the change.
   Chinese. (#477)
 - Read how to use Chat, including setting up the Host for each program,
   sending messages, and answering a Blocked Agent, and look up what each Chat
-  message means, in English or Simplified Chinese.
+  message means, in English or Simplified Chinese. (#511)
 - See the Agent's task title in the detail header, with its harness and
   working directory on a second line. (#480)
 - Chat shows Grok Build conversations on macOS and Linux Hosts: messages,
