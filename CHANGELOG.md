@@ -61,9 +61,9 @@ Entries reference the pull request that made the change.
   The top of the list says Pull, then Release with a tap of haptic
   feedback once the pull goes far enough, then shows a spinner while they
   load. Pushing back before you let go cancels it. A conversation too short
-  to fill the screen still loads them by itself.
+  to fill the screen still loads them by itself. (#507)
 - Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
-  cover less of the conversation; they are as easy to tap.
+  cover less of the conversation; they are as easy to tap. (#507)
 
 ### Fixed
 
@@ -73,9 +73,9 @@ Entries reference the pull request that made the change.
 - Keep Blocked card answers reachable by scrolling at large text sizes
   when the keyboard leaves less room, including from sidebar search. (#505)
 - Line up a running tool's spinner in Chat with the first line of its
-  title, instead of below it.
+  title, instead of below it. (#507)
 - Stop Chat from jittering when you pull past the newest message in a
-  conversation you just opened.
+  conversation you just opened. (#507)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
