@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// A menu or bar glyph: an SF Symbol, or one drawn from SF Symbols where
+/// none fits.
+enum AgentGlyph: Equatable, Sendable {
+    case symbol(String)
+    /// `text.bubble`'s outline with `<>` in place of its lines.
+    case codeBubble
+}
+
 /// What an Agent detail shows in its body: the live Agent terminal, or Chat,
 /// the native conversation read from the Agent's own transcript (ADR 0024).
 enum AgentDetailSurface: String, CaseIterable, Sendable {
@@ -9,10 +17,10 @@ enum AgentDetailSurface: String, CaseIterable, Sendable {
 
     /// The glyph for this surface, on the detail header's button that
     /// brings it up and in the More menu.
-    var showSystemImage: String {
+    var showGlyph: AgentGlyph {
         switch self {
-        case .terminal: "chevron.left.forwardslash.chevron.right"
-        case .chat: "bubble.left.and.text.bubble.right"
+        case .terminal: .codeBubble
+        case .chat: .symbol("text.bubble")
         }
     }
 

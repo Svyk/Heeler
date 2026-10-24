@@ -64,11 +64,16 @@ Entries reference the pull request that made the change.
   to fill the screen still loads them by itself. (#507)
 - Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
   cover less of the conversation; they are as easy to tap. (#507)
-- The expanded Agent title centres on the screen, and a grip under it
-  resizes it, so a long task title can wrap into the room you give it. (#485)
+- The expanded Agent title centres on the screen. (#485, #510)
 
 ### Fixed
 
+- On iPad, Show Chat and the More menu at the top of an Agent or Shell
+  Terminal respond to taps again; they now sit in the bar beside Show
+  Sidebar, and Chat's buttons sit in the same place. Show Chat uses a
+  single text bubble drawn at the bar's own icon size and weight, and
+  Show Agent Terminal a chat bubble with code; Open Terminal now shows a
+  window with a plus so the two stay apart in the More menu. (#510)
 - Show Connecting and saved Chats on cold launch while configured Hosts
   start connecting, instead of briefly showing Agent Gone or No Agents.
   (#504)
@@ -76,8 +81,9 @@ Entries reference the pull request that made the change.
   when the keyboard leaves less room, including from sidebar search. (#505)
 - Line up a running tool's spinner in Chat with the first line of its
   title, instead of below it. (#507)
-- Stop Chat from jittering when you pull past the newest message in a
-  conversation you just opened. (#507)
+- Stop Chat from jumping when you pull past the newest message, the list
+  bounces back from it, or you catch it mid-bounce, such as while the Agent
+  is working. (#507, #510)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding

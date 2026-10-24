@@ -93,6 +93,7 @@ struct AgentChatSurfaceView: View {
     @Environment(\.revealDetailSidebar) private var revealDetailSidebar
     @Environment(\.showsDetailBackButton) private var showsBackButton
     @Environment(\.detailTopChromeInset) private var topChromeInset
+    @Environment(\.detailBarRow) private var barRow
     @Environment(\.detailSurfaceEdges) private var surfaceEdges
 
     init(
@@ -400,8 +401,9 @@ struct AgentChatSurfaceView: View {
                 isExpanded: $isBackHeaderExpanded,
                 onBack: showsBackButton ? { dismiss() } : nil,
                 actions: backHeaderActions,
-                surfaceSwitch: AgentDetailSurfaceSwitch(current: .chat) { _ in showAgentTerminal() },
-                title: AgentDetailHeaderTitle(agent))
+                surfaceSwitch: terminalSurfaceSwitch,
+                title: AgentDetailHeaderTitle(agent),
+                trailingInBar: headerSharesBar)
             .padding(.horizontal, 12)
             .padding(.top, backHeaderTop)
             .onChange(of: isBackHeaderExpanded) { _, expanded in
@@ -431,6 +433,12 @@ struct AgentChatSurfaceView: View {
         .toolbarBackground(Color.clear, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.visible, for: .navigationBar)
+        .detailHeaderBarControls(
+            headerSharesBar,
+            palette: .system,
+            isExpanded: $isBackHeaderExpanded,
+            actions: backHeaderActions,
+            surfaceSwitch: terminalSurfaceSwitch)
     }
 
     /// Over the list's bottom edge, which keeps Collapse Steps' band clear
@@ -531,9 +539,10 @@ struct AgentChatSurfaceView: View {
     /// How far rows fade into the bottom chrome's edge before they blur.
     private static let bottomEdgeFadeLength: CGFloat = 24
 
-    /// The back header's band over the conversation's top edge.
+    /// The back header's band over the conversation's top edge. Level with
+    /// the bar, the header can sit wholly above that edge.
     private var headerObstruction: CGFloat {
-        4 + AgentDetailHeader.controlSize + 4
+        max(0, backHeaderTop + AgentDetailHeader.controlSize + 4 - topInset)
     }
 
     @ViewBuilder
@@ -1000,7 +1009,17 @@ struct AgentChatSurfaceView: View {
         max(statusBarInset, topChromeInset, windowControlsHeight)
     }
 
-    private var backHeaderTop: CGFloat { topInset + 4 }
+    /// At the same height as the terminal's, so swapping surfaces leaves
+    /// the header's controls in place.
+    private var backHeaderTop: CGFloat {
+        AgentDetailHeader.top(outputTop: topInset, barRow: barRow)
+    }
+
+    private var headerSharesBar: Bool { AgentDetailHeader.levelsWithBar(barRow) }
+
+    private var terminalSurfaceSwitch: AgentDetailSurfaceSwitch {
+        AgentDetailSurfaceSwitch(current: .chat) { _ in showAgentTerminal() }
+    }
 
     private var backHeaderActions: [AgentDetailHeaderAction] {
         var actions: [AgentDetailHeaderAction] = []
