@@ -5,8 +5,8 @@ import UIKit
 struct ChatTimelineActions {
     /// The user asked for earlier history: Load Earlier Messages or Retry.
     var loadOlder: @MainActor () -> Void = {}
-    /// The list asks for earlier history by itself within a screen of its
-    /// top.
+    /// The list asks for earlier history by itself while its rows do not
+    /// fill the screen.
     var loadOlderAutomatically: @MainActor () -> Void = {}
     /// Whether the list follows its newest row; drives Jump to Latest.
     var followingChanged: @MainActor (Bool) -> Void = { _ in }
@@ -99,8 +99,16 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     private var isJumpAnimating = false
     private var hasReportedFirstLayout = false
     /// The older-history state the last automatic request was made in, so
-    /// one approach to the top asks once.
+    /// one short list asks once.
     private var requestedOlderAtRowCount: Int?
+    /// From a drag's start until the finger lifts.
+    private var isPulling = false
+    /// The drag pulled the list past its top far enough to load earlier
+    /// history when the finger lifts.
+    private var isPullArmed = false
+
+    /// How far past its top the list is pulled to load earlier history.
+    static let pullToLoadDistance: CGFloat = 80
 
     /// Whether the list follows its end, for tests.
     var isFollowing: Bool { latch.isFollowing }
@@ -212,6 +220,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         super.viewDidLayoutSubviews()
         updateBottomObstruction()
         liftEndClearOfCollapseControl()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
@@ -246,6 +255,8 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             disclosures = [:]
             openHeaders = []
             requestedOlderAtRowCount = nil
+            isPulling = false
+            isPullArmed = false
             disclosureAnchor = nil
             latch.reset()
             noteFollowing()
@@ -257,6 +268,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             }
             forgetMeasurements()
             reportFirstLayoutIfReady()
+            requestOlderIfShort()
             noteCollapseAvailability()
             return
         }
@@ -293,6 +305,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         redrawResizedRows(changed, heightsBefore: heightsBefore)
         forgetMeasurements()
         reportFirstLayoutIfReady()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
@@ -839,6 +852,8 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         disclosureAnchor = nil
         isJumpAnimating = false
+        isPulling = true
+        isPullArmed = false
         latch.userScrollBegan()
         noteFollowing()
     }
@@ -846,11 +861,17 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if disclosureAnchor == nil { latch.scrolled(isAtEnd: isAtEnd) }
         noteFollowing()
-        requestOlderIfNear()
+        notePull()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        isPulling = false
+        if isPullArmed {
+            isPullArmed = false
+            actions.loadOlder()
+        }
         guard !decelerate else { return }
         latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd)
         noteFollowing()
@@ -882,16 +903,31 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         noteFollowing()
     }
 
-    /// Within a screen of the top, earlier history loads by itself.
-    private func requestOlderIfNear() {
+    /// Pulling the list past its top by `pullToLoadDistance` arms a request
+    /// for earlier history, with a tap of feedback; lifting the finger then
+    /// makes it, as Load Earlier Messages or Retry does. Reaching the top
+    /// alone loads nothing, so a scroll that bounces there can't by accident.
+    private func notePull() {
+        guard isPulling, !isPullArmed else { return }
+        switch rowsByID[.olderHistory]?.content {
+        case .olderHistory(.available)?, .olderHistory(.failed)?: break
+        default: return
+        }
+        guard collectionView.minOffsetY - collectionView.contentOffset.y >= Self.pullToLoadDistance else { return }
+        isPullArmed = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// Rows that do not fill the screen leave it partly empty, so earlier
+    /// history loads by itself, without a pull.
+    private func requestOlderIfShort() {
         guard case .olderHistory(.available)? = rowsByID[.olderHistory]?.content else {
             requestedOlderAtRowCount = nil
             return
         }
         // Built rows, so opening or closing a fold does not ask again.
         let count = allRows.count
-        guard requestedOlderAtRowCount != count,
-            collectionView.contentOffset.y - collectionView.minOffsetY < collectionView.bounds.height
+        guard requestedOlderAtRowCount != count, layout.geometry.contentHeight < layout.geometry.visibleHeight
         else { return }
         requestedOlderAtRowCount = count
         // An apply's offset restore scrolls too, inside a SwiftUI update.

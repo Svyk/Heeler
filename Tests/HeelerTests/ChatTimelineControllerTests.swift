@@ -256,9 +256,9 @@ struct ChatTimelineControllerTests {
         }
     }
 
-    /// Near its top the list asks for earlier history by itself, which Chat
-    /// bounds for Grok Build; only Load Earlier Messages asks for the user.
-    @Test func theListAsksForEarlierHistoryByItselfNearItsTop() async throws {
+    /// Scrolling to the top loads nothing by itself; a pull past it loads
+    /// earlier history for the user once the finger lifts.
+    @Test func pullingPastTheTopLoadsEarlierHistoryWhenReleased() async throws {
         var automatic = 0
         var user = 0
         let controller = ChatTimelineController(
@@ -268,9 +268,35 @@ struct ChatTimelineControllerTests {
         try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
             controller.apply(Self.state(rows))
             await Self.settle(controller)
+            let view = controller.timeline
+            Self.drag(controller, to: view.minOffsetY)
+            await Self.settle(controller)
             #expect(automatic == 0)
+            #expect(user == 0)
 
-            Self.drag(controller, to: controller.timeline.minOffsetY)
+            Self.pull(controller, by: ChatTimelineController.pullToLoadDistance - 20)
+            #expect(user == 0)
+
+            controller.scrollViewWillBeginDragging(view)
+            view.contentOffset.y = view.minOffsetY - ChatTimelineController.pullToLoadDistance - 10
+            #expect(user == 0)
+            controller.scrollViewDidEndDragging(view, willDecelerate: true)
+            #expect(user == 1)
+            #expect(automatic == 0)
+        }
+    }
+
+    /// Rows that don't fill the screen ask for earlier history by
+    /// themselves, which Chat bounds for Grok Build.
+    @Test func aShortListAsksForEarlierHistoryByItself() async throws {
+        var automatic = 0
+        var user = 0
+        let controller = ChatTimelineController(
+            actions: ChatTimelineActions(loadOlder: { user += 1 }, loadOlderAutomatically: { automatic += 1 }))
+        let rows = await ChatRowBuilder().rows(
+            for: ChatTimelineInput(entries: Self.entries(200..<202), older: .available))
+        try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
+            controller.apply(Self.state(rows))
             await Self.settle(controller)
             #expect(automatic == 1)
             #expect(user == 0)
@@ -1441,6 +1467,15 @@ struct ChatTimelineControllerTests {
         controller.scrollViewWillBeginDragging(view)
         view.contentOffset.y = min(max(offset, view.minOffsetY), view.maxOffsetY)
         controller.scrollViewDidEndDragging(view, willDecelerate: false)
+    }
+
+    /// A user drag that pulls the list `distance` points past its top and
+    /// lets go there.
+    private static func pull(_ controller: ChatTimelineController, by distance: CGFloat) {
+        let view = controller.timeline
+        controller.scrollViewWillBeginDragging(view)
+        view.contentOffset.y = view.minOffsetY - distance
+        controller.scrollViewDidEndDragging(view, willDecelerate: true)
     }
 
     /// Lays out until the content size and offset hold still: measuring a
