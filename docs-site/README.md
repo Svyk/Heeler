@@ -187,7 +187,8 @@ repository root.
 ### Published guides
 
 `pairing`, `overlay-networks`, `tailscale`, `zerotier`, `easytier`,
-`vps-jump-host-setup`, `vps-jump-host`, `host-routes`, and `windows-setup`.
+`cloudflare-tunnel`, `vps-jump-host-setup`, `vps-jump-host`, `host-routes`,
+`windows-setup`, `selinux`, `chat`, and `chat-troubleshooting`.
 Maintainer documents in `docs/guides/` (`releasing.md`,
 `native-windows-testing.md`), ADRs, and everything else under `docs/` stay
 GitHub-only; links to them point at GitHub.
