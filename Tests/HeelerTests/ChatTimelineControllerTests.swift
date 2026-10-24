@@ -201,6 +201,37 @@ struct ChatTimelineControllerTests {
         }
     }
 
+    @Test func aRowMeasuredAboveKeepsADragPulledPastTheEnd() async throws {
+        let controller = ChatTimelineController(actions: ChatTimelineActions())
+        let rows = await ChatRowBuilder().rows(for: ChatTimelineInput(entries: Self.entries(0..<60)))
+        try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
+            controller.apply(Self.state(rows))
+            await Self.settle(controller)
+            let view = controller.timeline
+            let layout = view.collectionViewLayout
+            let top = try #require(view.indexPathsForVisibleItems.map(\.item).min())
+            let above = IndexPath(item: top - 3, section: 0)
+            let original = try #require(layout.layoutAttributesForItem(at: above))
+            let measured = try #require(original.copy() as? UICollectionViewLayoutAttributes)
+            measured.size.height += 40
+
+            // A drag pulls the list 20 points past its end, and a row
+            // above the screen is measured, as one is when a scroll starts.
+            controller.scrollViewWillBeginDragging(view)
+            view.contentOffset.y = view.maxOffsetY + 20
+            let anchor = try #require(controller.visibleRowIDs.last)
+            let before = try #require(Self.screenY(of: anchor, in: controller))
+            layout.invalidateLayout(
+                with: layout.invalidationContext(
+                    forPreferredLayoutAttributes: measured, withOriginalAttributes: original))
+            view.layoutIfNeeded()
+
+            #expect(abs(view.contentOffset.y - (view.maxOffsetY + 20)) <= 0.5)
+            let after = try #require(Self.screenY(of: anchor, in: controller))
+            #expect(abs(after - before) <= 0.5)
+        }
+    }
+
     @Test func olderRowsLoadedUnderTheLoadEarlierRowKeepTheReadersRowInPlace() async throws {
         let controller = ChatTimelineController(actions: ChatTimelineActions())
         let builder = ChatRowBuilder()

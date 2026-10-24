@@ -167,6 +167,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             guard let self else { return false }
             return latch.isFollowing && !isJumpAnimating
         }
+        collectionView.isUserScrolling = { [weak self] in self?.latch.isUserScrolling ?? false }
         layout.itemIDs = { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] }
         layout.rowInfo = { [weak self] id in
             guard let self, let row = rowsByID[id] else { return nil }
@@ -958,6 +959,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
 /// rotation in one place.
 final class ChatCollectionView: UICollectionView {
     var shouldPin: () -> Bool = { false }
+    /// Whether a user scroll is underway, from a drag's start through its
+    /// momentum. Only then does a bounce bring a kept overscroll back.
+    var isUserScrolling: () -> Bool = { false }
 
     var minOffsetY: CGFloat { -adjustedContentInset.top }
 
@@ -965,8 +969,27 @@ final class ChatCollectionView: UICollectionView {
         max(minOffsetY, contentSize.height + adjustedContentInset.bottom - bounds.height)
     }
 
+    /// How far a drag or its bounce had pulled the list past its end when a
+    /// row above was measured. The layout's offset adjustment clamps to the
+    /// new end, which drops the overscroll for a frame; the pan puts it back
+    /// on the next touch, so the rows jump down and up again.
+    private var overscrollToRestore: CGFloat = 0
+
+    /// Keeps the current overscroll past the end through the layout pass
+    /// that applies an offset adjustment.
+    func preserveEndOverscroll() {
+        overscrollToRestore = max(overscrollToRestore, contentOffset.y - maxOffsetY)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        if overscrollToRestore > 0 {
+            let overscrolled = maxOffsetY + overscrollToRestore
+            overscrollToRestore = 0
+            if isUserScrolling(), contentOffset.y < overscrolled {
+                contentOffset.y = overscrolled
+            }
+        }
         guard shouldPin() else { return }
         let end = maxOffsetY
         if abs(contentOffset.y - end) > 0.25 {

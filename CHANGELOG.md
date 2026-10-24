@@ -66,6 +66,8 @@ Entries reference the pull request that made the change.
   when the keyboard leaves less room, including from sidebar search. (#505)
 - Line up a running tool's spinner in Chat with the first line of its
   title, instead of below it.
+- Stop Chat from jittering when you pull past the newest message in a
+  conversation you just opened.
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
