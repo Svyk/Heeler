@@ -64,8 +64,7 @@ Entries reference the pull request that made the change.
   to fill the screen still loads them by itself. (#507)
 - Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
   cover less of the conversation; they are as easy to tap. (#507)
-- The expanded Agent title centres on the screen, and a grip under it
-  resizes it, so a long task title can wrap into the room you give it. (#485)
+- The expanded Agent title centres on the screen. (#485)
 
 ### Fixed
 

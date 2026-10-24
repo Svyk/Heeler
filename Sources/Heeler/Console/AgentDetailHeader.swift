@@ -62,18 +62,11 @@ struct AgentDetailHeader: View {
     /// clear so the expanded title stays centred.
     var trailingInBar = false
 
-    /// The expanded title's height, which the grip under it resizes.
-    @State private var titleHeight: CGFloat = AgentDetailHeader.controlSize
-    /// Set while a grip drag is under way, so the drag measures from where it began.
-    @State private var titleHeightAtDragStart: CGFloat?
     /// The width of the trailing controls, measured so the leading slot can match it.
     @State private var trailingWidth: CGFloat = 0
     /// The trailing safe inset, which a floating tab bar takes. The row starts
     /// this far in too, so the title centres on the content, not the row.
     @State private var trailingSafeInset: CGFloat = 0
-
-    /// How tall the expanded title may grow, so it never covers most of the output.
-    static let titleHeightRange: ClosedRange<CGFloat> = controlSize...240
 
     /// Both side slots are this wide while expanded, so the title sits at the
     /// header's centre rather than between controls of different widths.
@@ -143,11 +136,9 @@ struct AgentDetailHeader: View {
     /// start, so the folder the Agent works in stays readable.
     private func titlePill(_ title: AgentDetailHeaderTitle) -> some View {
         VStack(spacing: 1) {
-            // One line at rest; the task title wraps into the room a resize adds.
             Text(title.title)
                 .font(.system(size: 15, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .lineLimit(titleHeight > Self.controlSize ? nil : 1)
+                .lineLimit(1)
             HStack(spacing: 4) {
                 Text(title.harness)
                     .layoutPriority(1)
@@ -163,44 +154,10 @@ struct AgentDetailHeader: View {
             .lineLimit(1)
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: Self.controlSize)
-        .frame(height: titleHeight)
+        .frame(maxWidth: .infinity, minHeight: Self.controlSize, maxHeight: Self.controlSize)
         .headerGlass(in: .capsule)
-        .overlay(alignment: .bottom) { resizeGrip }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
-    }
-
-    /// A grip under the expanded title. Dragging it resizes the title, and
-    /// VoiceOver adjusts it up or down.
-    private var resizeGrip: some View {
-        Capsule()
-            .fill(palette.foreground.opacity(0.35))
-            .frame(width: 36, height: 4)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 24)
-            .contentShape(.rect)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        let start = titleHeightAtDragStart ?? titleHeight
-                        titleHeightAtDragStart = start
-                        titleHeight = Self.clampedTitleHeight(start + value.translation.height)
-                    }
-                    .onEnded { _ in titleHeightAtDragStart = nil })
-            .accessibilityLabel("Resize title")
-            .accessibilityAdjustableAction { direction in
-                switch direction {
-                case .increment: titleHeight = Self.clampedTitleHeight(titleHeight + 24)
-                case .decrement: titleHeight = Self.clampedTitleHeight(titleHeight - 24)
-                @unknown default: break
-                }
-            }
-    }
-
-    private static func clampedTitleHeight(_ height: CGFloat) -> CGFloat {
-        min(max(height, titleHeightRange.lowerBound), titleHeightRange.upperBound)
     }
 }
 
