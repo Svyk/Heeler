@@ -258,7 +258,10 @@ struct AgentDetailHeaderTrailingControls: View {
         case .symbol(let name):
             Image(systemName: name).font(Self.glyphFont)
         case .codeBubble:
-            Image(uiImage: CodeBubbleGlyph.image(pointSize: 17))
+            // Drawn the way `text.bubble` is, so the bar sizes both alike.
+            Image(systemName: "bubble")
+                .font(Self.glyphFont)
+                .overlay { CodeBubbleMarks() }
         }
     }
 

@@ -255,8 +255,29 @@ extension Label where Title == Text, Icon == Image {
     }
 }
 
-/// `bubble`, which is `text.bubble` without its lines, with `<>` drawn
-/// where the lines sit, so it matches Show Chat's glyph at any size.
+/// The `<>` that replaces `text.bubble`'s lines, laid over `bubble` (the
+/// same outline without them) in the bubble image's own frame, so it
+/// scales with whatever size the symbol is drawn at.
+struct CodeBubbleMarks: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Measured on `text.bubble` at 17 pt (a 23 x 21 canvas): its
+        // lines centre at (11.44, 8.75) and are 1.15 thick.
+        let unit = rect.width / 23
+        let center = CGPoint(x: rect.minX + 11.44 * unit, y: rect.minY + 8.75 * unit)
+        let halfHeight = 2.9 * unit, arm = 2.9 * unit, gap = 1.4 * unit
+        var marks = Path()
+        for side: CGFloat in [-1, 1] {
+            marks.move(to: CGPoint(x: center.x + side * gap, y: center.y - halfHeight))
+            marks.addLine(to: CGPoint(x: center.x + side * (gap + arm), y: center.y))
+            marks.addLine(to: CGPoint(x: center.x + side * gap, y: center.y + halfHeight))
+        }
+        return marks.strokedPath(
+            StrokeStyle(lineWidth: 1.15 * unit, lineCap: .round, lineJoin: .round))
+    }
+}
+
+/// `bubble` with `CodeBubbleMarks`, flattened for menus, which take only an
+/// image.
 @MainActor
 enum CodeBubbleGlyph {
     private static var cache: [CGFloat: UIImage] = [:]
@@ -272,22 +293,9 @@ enum CodeBubbleGlyph {
         let size = bubble.size
         let drawn = UIGraphicsImageRenderer(size: size).image { _ in
             bubble.draw(at: .zero)
-            // Measured on `text.bubble` at 17 pt (a 23 x 21 canvas): its
-            // lines centre at (11.44, 8.75) and its outline is 1.4 wide.
-            let unit = size.width / 23
-            let center = CGPoint(x: 11.44 * unit, y: 8.75 * unit)
-            let halfHeight = 2.9 * unit, arm = 2.9 * unit, gap = 1.4 * unit
-            let marks = UIBezierPath()
-            for side: CGFloat in [-1, 1] {
-                marks.move(to: CGPoint(x: center.x + side * gap, y: center.y - halfHeight))
-                marks.addLine(to: CGPoint(x: center.x + side * (gap + arm), y: center.y))
-                marks.addLine(to: CGPoint(x: center.x + side * gap, y: center.y + halfHeight))
-            }
-            marks.lineWidth = 1.4 * unit
-            marks.lineCapStyle = .round
-            marks.lineJoinStyle = .round
-            UIColor.black.setStroke()
-            marks.stroke()
+            UIColor.black.setFill()
+            UIBezierPath(cgPath: CodeBubbleMarks().path(in: CGRect(origin: .zero, size: size)).cgPath)
+                .fill()
         }
         let image = drawn.withRenderingMode(.alwaysTemplate)
         cache[pointSize] = image
