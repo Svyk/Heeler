@@ -391,8 +391,7 @@ private struct ChatToolGroupRow: View {
                     ChatDiffBadge(diff: ChatDiffStats(added: added, removed: removed))
                 }
                 if group.isRunning {
-                    ProgressView()
-                        .controlSize(.mini)
+                    ChatRunningSpinner()
                 } else if group.failed > 0 {
                     Label("\(group.failed) failed", systemImage: "xmark.circle")
                         .font(.caption)
@@ -858,6 +857,21 @@ struct ChatDiffBadge: View {
     }
 }
 
+/// A spinner over a hidden subheadline glyph, so a first-text-baseline row
+/// aligns it with the title's first line. The spinner's own baseline drops
+/// it below that line.
+private struct ChatRunningSpinner: View {
+    var body: some View {
+        Text(Image(systemName: "circle"))
+            .font(.subheadline)
+            .hidden()
+            .overlay {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+    }
+}
+
 private struct ChatToolStatusBadge: View {
     let status: ChatToolActivity.Status
     let exitCode: Int?
@@ -875,8 +889,7 @@ private struct ChatToolStatusBadge: View {
                 .foregroundStyle(.secondary)
                 .labelStyle(.titleAndIcon)
         case .running:
-            ProgressView()
-                .controlSize(.mini)
+            ChatRunningSpinner()
                 .accessibilityLabel("Running")
         case .succeeded where cardAnswer != .allowed:
             Image(systemName: "checkmark")
