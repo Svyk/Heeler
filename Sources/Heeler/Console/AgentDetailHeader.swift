@@ -202,16 +202,6 @@ struct AgentDetailHeader: View {
     private static func clampedTitleHeight(_ height: CGFloat) -> CGFloat {
         min(max(height, titleHeightRange.lowerBound), titleHeightRange.upperBound)
     }
-
-    /// The two-bubble glyph draws taller and denser than the terminal's at
-    /// one size, so it gets a smaller one that matches the terminal glyph's
-    /// height and reads the same size when the surfaces swap.
-    static func surfacePointSize(_ surface: AgentDetailSurface) -> CGFloat {
-        switch surface {
-        case .chat: 14
-        case .terminal: 17
-        }
-    }
 }
 
 /// `AgentDetailHeader`'s trailing controls as an item of the detail
@@ -242,6 +232,10 @@ struct AgentDetailHeaderTrailingControls: View {
     let actions: [AgentDetailHeaderAction]
     let surfaceSwitch: AgentDetailSurfaceSwitch?
 
+    /// A bar button's glyph size and weight, as Show Sidebar beside these
+    /// draws it, so the symbols keep the balance SF Symbols gives them.
+    static let glyphFont = Font.system(size: 17)
+
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -271,8 +265,7 @@ struct AgentDetailHeaderTrailingControls: View {
             control.select(target)
         } label: {
             Image(systemName: target.showSystemImage)
-                .font(.system(
-                    size: AgentDetailHeader.surfacePointSize(target), weight: .semibold))
+                .font(Self.glyphFont)
                 .frame(
                     width: AgentDetailHeader.capsuleButtonWidth,
                     height: AgentDetailHeader.controlSize)
@@ -290,7 +283,7 @@ struct AgentDetailHeaderTrailingControls: View {
             AgentDetailHeaderMenuItems(actions: actions, isExpanded: $isExpanded)
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 17, weight: .semibold))
+                .font(Self.glyphFont)
                 .foregroundStyle(palette.foreground)
                 .frame(width: width, height: AgentDetailHeader.controlSize)
                 .contentShape(.rect)

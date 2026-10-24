@@ -12,7 +12,7 @@ enum AgentDetailSurface: String, CaseIterable, Sendable {
     var showSystemImage: String {
         switch self {
         case .terminal: "chevron.left.forwardslash.chevron.right"
-        case .chat: "bubble.left.and.text.bubble.right"
+        case .chat: "text.bubble"
         }
     }
 
