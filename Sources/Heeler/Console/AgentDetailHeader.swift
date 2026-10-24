@@ -49,49 +49,94 @@ struct AgentDetailHeader: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
+    /// The expanded title's height, which the grip under it resizes.
+    @State private var titleHeight: CGFloat = AgentDetailHeader.controlSize
+    /// Set while a grip drag is under way, so the drag measures from where it began.
+    @State private var titleHeightAtDragStart: CGFloat?
+    /// The width of the trailing controls, measured so the leading slot can match it.
+    @State private var trailingWidth: CGFloat = 0
+    /// The trailing safe inset, which a floating tab bar takes. The row starts
+    /// this far in too, so the title centres on the content, not the row.
+    @State private var trailingSafeInset: CGFloat = 0
+
+    /// How tall the expanded title may grow, so it never covers most of the output.
+    static let titleHeightRange: ClosedRange<CGFloat> = controlSize...240
+
+    /// Both side slots are this wide while expanded, so the title sits at the
+    /// header's centre rather than between controls of different widths.
+    private var slotWidth: CGFloat { max(trailingWidth, Self.controlSize) }
 
     var body: some View {
-        HStack(spacing: 8) {
-            if isExpanded, let onBack {
-                AgentDetailHeaderButton("Back", systemImage: "chevron.left", action: onBack)
-                    .headerGlass(in: .circle)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
-            }
+        HStack(alignment: .top, spacing: 8) {
+            leadingSlot
             if isExpanded, let title {
                 titlePill(title)
-                    .transition(
-                        .scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
             } else {
                 Spacer(minLength: 0)
             }
-            if let surfaceSwitch {
-                HStack(spacing: 0) {
-                    surfaceButton(surfaceSwitch)
-                    Rectangle()
-                        .fill(palette.foreground.opacity(0.25))
-                        .frame(width: 1 / max(displayScale, 1), height: 20)
-                        .padding(.horizontal, 2)
-                    moreMenu(width: Self.capsuleButtonWidth)
-                }
-                .padding(.horizontal, Self.capsuleInset)
-                .fixedSize()
-                .headerGlass(in: .capsule)
-            } else {
-                moreMenu(width: Self.controlSize)
+            trailingControls
+                .frame(width: isExpanded ? slotWidth : nil, alignment: .trailing)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.trailing } action: {
+            trailingSafeInset = $0
+        }
+        .padding(.leading, trailingSafeInset)
+        .foregroundStyle(palette.foreground)
+    }
+
+    /// Back while expanded, on a slot as wide as the trailing controls. Empty
+    /// and absent while folded, so the folded header is unchanged.
+    @ViewBuilder
+    private var leadingSlot: some View {
+        if isExpanded {
+            if let onBack {
+                AgentDetailHeaderButton("Back", systemImage: "chevron.left", action: onBack)
                     .headerGlass(in: .circle)
+                    .frame(width: slotWidth, alignment: .leading)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            } else {
+                Color.clear.frame(width: slotWidth)
             }
         }
-        .foregroundStyle(palette.foreground)
+    }
+
+    @ViewBuilder
+    private var trailingControls: some View {
+        if let surfaceSwitch {
+            HStack(spacing: 0) {
+                surfaceButton(surfaceSwitch)
+                Rectangle()
+                    .fill(palette.foreground.opacity(0.25))
+                    .frame(width: 1 / max(displayScale, 1), height: 20)
+                    .padding(.horizontal, 2)
+                moreMenu(width: Self.capsuleButtonWidth)
+            }
+            .padding(.horizontal, Self.capsuleInset)
+            .fixedSize()
+            .headerGlass(in: .capsule)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                trailingWidth = $0
+            }
+        } else {
+            moreMenu(width: Self.controlSize)
+                .headerGlass(in: .circle)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                    trailingWidth = $0
+                }
+        }
     }
 
     /// Fills the room up to the trailing capsule, so the gaps on either side
     /// match, truncating the title at its end and the directory at its
     /// start, so the folder the Agent works in stays readable.
     private func titlePill(_ title: AgentDetailHeaderTitle) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(spacing: 1) {
+            // One line at rest; the task title wraps into the room a resize adds.
             Text(title.title)
                 .font(.system(size: 15, weight: .semibold))
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
+                .lineLimit(titleHeight > Self.controlSize ? nil : 1)
             HStack(spacing: 4) {
                 Text(title.harness)
                     .layoutPriority(1)
@@ -107,10 +152,44 @@ struct AgentDetailHeader: View {
             .lineLimit(1)
         }
         .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: Self.controlSize, maxHeight: Self.controlSize, alignment: .leading)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, minHeight: Self.controlSize)
+        .frame(height: titleHeight)
         .headerGlass(in: .capsule)
+        .overlay(alignment: .bottom) { resizeGrip }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
+    }
+
+    /// A grip under the expanded title. Dragging it resizes the title, and
+    /// VoiceOver adjusts it up or down.
+    private var resizeGrip: some View {
+        Capsule()
+            .fill(palette.foreground.opacity(0.35))
+            .frame(width: 36, height: 4)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 24)
+            .contentShape(.rect)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        let start = titleHeightAtDragStart ?? titleHeight
+                        titleHeightAtDragStart = start
+                        titleHeight = Self.clampedTitleHeight(start + value.translation.height)
+                    }
+                    .onEnded { _ in titleHeightAtDragStart = nil })
+            .accessibilityLabel("Resize title")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: titleHeight = Self.clampedTitleHeight(titleHeight + 24)
+                case .decrement: titleHeight = Self.clampedTitleHeight(titleHeight - 24)
+                @unknown default: break
+                }
+            }
+    }
+
+    private static func clampedTitleHeight(_ height: CGFloat) -> CGFloat {
+        min(max(height, titleHeightRange.lowerBound), titleHeightRange.upperBound)
     }
 
     /// Swaps to the surface not showing, drawn with that surface's glyph.
