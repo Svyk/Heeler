@@ -277,6 +277,13 @@ struct ChatTimelineControllerTests {
             Self.pull(controller, by: ChatTimelineController.pullToLoadDistance - 20)
             #expect(user == 0)
 
+            // Pushed back inside the distance before letting go: no request.
+            controller.scrollViewWillBeginDragging(view)
+            view.contentOffset.y = view.minOffsetY - ChatTimelineController.pullToLoadDistance - 10
+            view.contentOffset.y = view.minOffsetY - 30
+            controller.scrollViewDidEndDragging(view, willDecelerate: true)
+            #expect(user == 0)
+
             controller.scrollViewWillBeginDragging(view)
             view.contentOffset.y = view.minOffsetY - ChatTimelineController.pullToLoadDistance - 10
             #expect(user == 0)
@@ -287,7 +294,7 @@ struct ChatTimelineControllerTests {
     }
 
     /// The Load Earlier row follows a pull: a hint while pulling, Release
-    /// once letting go would load, then loading until the row shows it. A
+    /// while letting go would load, then loading until the row shows it. A
     /// pull let go short of that keeps its hint until it bounces back.
     @Test func theLoadEarlierRowFollowsAPull() async throws {
         let controller = ChatTimelineController(actions: ChatTimelineActions())
@@ -314,6 +321,8 @@ struct ChatTimelineControllerTests {
             view.contentOffset.y = view.minOffsetY - distance - 10
             #expect(controller.olderPullPhase == .armed)
             view.contentOffset.y = view.minOffsetY - 30
+            #expect(controller.olderPullPhase == .pulling)
+            view.contentOffset.y = view.minOffsetY - distance - 10
             #expect(controller.olderPullPhase == .armed)
             controller.scrollViewDidEndDragging(view, willDecelerate: true)
             #expect(controller.olderPullPhase == .requested)

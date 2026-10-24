@@ -60,8 +60,8 @@ Entries reference the pull request that made the change.
   conversation and let go, instead of as soon as you scroll near the top.
   The top of the list says Pull, then Release with a tap of haptic
   feedback once the pull goes far enough, then shows a spinner while they
-  load. A conversation too short to fill the screen still loads them by
-  itself.
+  load. Pushing back before you let go cancels it. A conversation too short
+  to fill the screen still loads them by itself.
 
 ### Fixed
 

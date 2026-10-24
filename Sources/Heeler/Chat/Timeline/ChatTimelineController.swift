@@ -934,8 +934,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
 
     /// Pulling the list past its top by `pullToLoadDistance` arms a request
     /// for earlier history, with a tap of feedback; lifting the finger then
-    /// makes it, as Load Earlier Messages or Retry does. Reaching the top
-    /// alone loads nothing, so a scroll that bounces there can't by accident.
+    /// makes it, as Load Earlier Messages or Retry does, unless the finger
+    /// pushed back inside that distance first. Reaching the top alone loads
+    /// nothing, so a scroll that bounces there can't by accident.
     private func notePull() {
         let pulled = collectionView.minOffsetY - collectionView.contentOffset.y
         switch rowsByID[.olderHistory]?.content {
@@ -952,8 +953,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             isPullArmed = true
             olderPull.phase = .armed
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        } else if !isPullArmed, pulled > 0 {
-            olderPull.phase = .pulling
+        } else {
+            isPullArmed = false
+            olderPull.phase = pulled > 0 ? .pulling : .idle
         }
     }
 
