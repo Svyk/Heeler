@@ -11,7 +11,7 @@ enum AgentDetailSurface: String, CaseIterable, Sendable {
     /// brings it up and in the More menu.
     var showSystemImage: String {
         switch self {
-        case .terminal: "chevron.left.forwardslash.chevron.right"
+        case .terminal: "terminal"
         case .chat: "text.bubble"
         }
     }

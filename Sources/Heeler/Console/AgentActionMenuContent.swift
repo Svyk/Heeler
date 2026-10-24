@@ -45,7 +45,7 @@ enum AgentActionMenuItem: Equatable, Hashable, Sendable, CaseIterable {
         case .addFile: "doc"
         case .showChat: AgentDetailSurface.chat.showSystemImage
         case .showAgentTerminal: AgentDetailSurface.terminal.showSystemImage
-        case .openTerminal: "apple.terminal"
+        case .openTerminal: "macwindow.badge.plus"
         case .changes: "plus.forwardslash.minus"
         case .newAgent: "plus"
         case .skills: "sparkles"
