@@ -24,12 +24,22 @@ export function changeBucket(buckets, record, multiplier) {
     if (bucket.tokens.total === 0) buckets.delete(key);
   }
 }
-export function dayInZone(timestamp, timeZone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}`;
+function calendarDays(timeZone) {
+  const formatter = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+  const dates = new Map();
+  // Keep the formatter and timestamp cache local to one report: devices may
+  // query the same snapshot in different time zones.
+  return timestamp => {
+    if (!dates.has(timestamp)) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
+      dates.set(timestamp, `${parts.year}-${parts.month}-${parts.day}`);
+    }
+    return dates.get(timestamp);
+  };
 }
 export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.now(), claudeLimits = false) {
-  const today = dayInZone(now, timeZone);
+  const dayInZone = calendarDays(timeZone);
+  const today = dayInZone(now);
   const dates = Array.from({ length: 30 }, (_, index) => new Date(Date.parse(today + "T12:00:00Z") - (29 - index) * 86_400_000).toISOString().slice(0, 10));
   const programs = ["claude", "codex"].map(program => {
     const daily = dates.map(date => ({ date, tokens: zeroTokens(), estimatedCostUSD: 0, unpricedTokens: 0 }));
@@ -39,7 +49,7 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
     let hasData = false;
     for (const bucket of snapshot?.buckets || []) {
       if (bucket.program !== program) continue;
-      const day = byDay.get(dayInZone(bucket.timestamp, timeZone));
+      const day = byDay.get(dayInZone(bucket.timestamp));
       if (!day) continue;
       const unpricedTokens = bucket.unpricedTokens ?? (typeof bucket.estimatedCostUSD === "number" ? 0 : bucket.tokens.total);
       const isDirectory = "directory" in bucket;
@@ -75,7 +85,11 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
       : { state: "disabled" })
       : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
   });
-  const covered = (snapshot?.buckets || []).map(bucket => dayInZone(bucket.timestamp, timeZone)).filter(date => date >= dates[0] && date <= today).sort()[0] || null;
+  let covered = null;
+  for (const bucket of snapshot?.buckets || []) {
+    const date = dayInZone(bucket.timestamp);
+    if (date >= dates[0] && date <= today && (covered === null || date < covered)) covered = date;
+  }
   return { version: 1, pricingVersion: snapshot?.pricingVersion || pricingVersion, generatedAt: new Date(now).toISOString(), timeZone, runtime: "recorded", refreshing,
     scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: snapshot?.skippedArchives || 0 }, programs };
 }

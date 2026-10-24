@@ -5,6 +5,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync }
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { cacheDirectory } from "../src/usage/cache.js";
+import { pricingFingerprint } from "../src/usage/pricing.js";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 
@@ -189,4 +191,60 @@ test("an absent PATH does not discover programs in the hook working directory", 
   assert.equal(runtime.env.PATH, null);
   assert.equal(runtime.codex, null);
   assert.equal(runtime.claude, null);
+});
+
+test("a cached 30-day report with 60480 buckets completes within the SSH deadline", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run("sidebar-hook.js").status, 0);
+  const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
+  const directory = cacheDirectory(runtime);
+  mkdirSync(directory, { recursive: true });
+  const now = Date.now();
+  const today = new Date(now).toISOString().slice(0, 10);
+  const start = Date.parse(today + "T00:00:00Z") - 29 * 86_400_000;
+  const buckets = [];
+  for (let hour = 0; hour < 30 * 24; hour++) {
+    const timestamp = new Date(start + hour * 3_600_000).toISOString();
+    for (const [program, input] of [["claude", 1], ["codex", 2]]) {
+      for (let index = 0; index < 21; index++) {
+        for (const dimension of [{ model: `model-${index}` }, { directory: `/project-${index}` }]) {
+          buckets.push({ timestamp, program, ...dimension,
+            tokens: { input, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: input },
+            estimatedCostUSD: input * 0.25, unpricedTokens: 0 });
+        }
+      }
+    }
+  }
+  assert.equal(buckets.length, 60480);
+  writeFileSync(join(directory, "buckets.json"), JSON.stringify({
+    complete: true, generatedAt: new Date(now).toISOString(), coveredThrough: new Date(now).toISOString(),
+    checkpoint: { pricingFingerprint }, breakdownsVersion: 1, limitsVersion: 1,
+    nextLimitsAt: now + 60_000, buckets,
+  }));
+  // Exercise the real query process, including JSON decoding and encoding, under
+  // the same eight-second budget as the app's remote watchdog.
+  const started = performance.now();
+  const result = spawnSync(process.execPath, [join(plugin, "src", "usage-query.js"), "--tz", "UTC"], {
+    env: f.env, encoding: "utf8", timeout: 8000,
+  });
+  t.diagnostic(`60480-bucket cached query: ${(performance.now() - started).toFixed(1)} ms`);
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.refreshing, false);
+  assert.equal(report.scan.coveredFrom, new Date(start).toISOString().slice(0, 10));
+  for (const [index, { tokenUsage }] of report.programs.entries()) {
+    const hourly = 21 * (index + 1);
+    assert.equal(tokenUsage.state, "ok");
+    assert.equal(tokenUsage.totals.today.tokens.total, hourly * 24);
+    assert.equal(tokenUsage.totals.last7Days.tokens.total, hourly * 24 * 7);
+    assert.equal(tokenUsage.totals.last30Days.tokens.total, hourly * 24 * 30);
+    assert.equal(tokenUsage.totals.last30Days.estimatedCostUSD, hourly * 24 * 30 * 0.25);
+    assert.equal(tokenUsage.daily.length, 30);
+    assert.ok(tokenUsage.daily.every(day => day.tokens.total === hourly * 24));
+    assert.equal(tokenUsage.models.length, 21);
+    assert.ok(tokenUsage.models.every(model => model.tokens.total === (index + 1) * 24 * 30));
+    assert.equal(tokenUsage.directories.length, 10);
+    assert.ok(tokenUsage.directories.every(entry => entry.tokens.total === (index + 1) * 24 * 30));
+  }
 });
