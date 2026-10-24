@@ -233,11 +233,12 @@ struct AgentDetailHeader: View {
         .accessibilityHint(target.showAccessibilityHint)
     }
 
-    /// The two-bubble glyph draws wider than the terminal's at one size, so
-    /// it gets a smaller one to sit evenly beside the More menu.
+    /// The two-bubble glyph draws taller and denser than the terminal's at
+    /// one size, so it gets a smaller one that matches the terminal glyph's
+    /// height and reads the same size when the surfaces swap.
     static func surfacePointSize(_ surface: AgentDetailSurface) -> CGFloat {
         switch surface {
-        case .chat: 15
+        case .chat: 14
         case .terminal: 17
         }
     }
