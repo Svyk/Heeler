@@ -20,6 +20,7 @@ function fixture(t) {
   const env = {
     PATH: bin,
     HOME: join(root, "home"),
+    USER: "herdr-account",
     CLAUDE_CONFIG_DIR: join(root, "claude,one"),
     CODEX_HOME: join(root, "codex"),
     XDG_CONFIG_HOME: join(root, "xdg"),
@@ -47,7 +48,7 @@ test("startup records only the runtime environment in private atomic files", (t)
   assert.equal(runtime.node, process.execPath);
   assert.equal(runtime.codex, join(f.bin, "codex"));
   assert.equal(runtime.claude, join(f.bin, "claude"));
-  assert.deepEqual(runtime.env, Object.fromEntries(["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"].map(key => [key, f.env[key]])));
+  assert.deepEqual(runtime.env, Object.fromEntries(["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"].map(key => [key, f.env[key]])));
   assert.equal(runtime.stateDir, f.env.HERDR_PLUGIN_STATE_DIR);
   assert.equal(JSON.stringify(runtime).includes("must-not-be-recorded"), false);
   assert.equal(readFileSync(join(f.configDir, "runtime-node"), "utf8"), process.execPath + "\n");
@@ -85,6 +86,21 @@ test("query emits only a versioned missing-runtime state before the first hook",
   const result = f.run("usage-query.js", ["--tz", "Asia/Shanghai"]);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
+});
+
+test("an activity hook upgrades a runtime recorded before USER was included", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run("sidebar-hook.js").status, 0);
+  const path = join(f.configDir, "runtime.json");
+  const previous = JSON.parse(readFileSync(path, "utf8"));
+  delete previous.env.USER;
+  writeFileSync(path, JSON.stringify(previous));
+  const result = f.run("activity-hook.js");
+  assert.equal(result.status, 0, result.stderr);
+  const current = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(current.env.USER, f.env.USER);
+  assert.equal(current.version, previous.version);
+  assert.equal(current.stateDir, previous.stateDir);
 });
 
 test("query returns the empty cache without exposing runtime paths", async (t) => {
@@ -147,16 +163,17 @@ test("query rejects invalid arguments without reflecting them into output", (t) 
   }
 });
 
-test("missing programs and optional root variables are recorded as null", (t) => {
+test("missing programs and optional environment variables are recorded as null", (t) => {
   const f = fixture(t);
   const result = f.run("sidebar-hook.js", [], {
-    PATH: join(f.root, "empty-bin"), CLAUDE_CONFIG_DIR: undefined,
+    PATH: join(f.root, "empty-bin"), USER: undefined, CLAUDE_CONFIG_DIR: undefined,
     CODEX_HOME: undefined, XDG_CONFIG_HOME: undefined,
   });
   assert.equal(result.status, 0, result.stderr);
   const runtime = JSON.parse(readFileSync(join(f.configDir, "runtime.json"), "utf8"));
   assert.equal(runtime.codex, null);
   assert.equal(runtime.claude, null);
+  assert.equal(runtime.env.USER, null);
   assert.equal(runtime.env.CLAUDE_CONFIG_DIR, null);
   assert.equal(runtime.env.CODEX_HOME, null);
   assert.equal(runtime.env.XDG_CONFIG_HOME, null);

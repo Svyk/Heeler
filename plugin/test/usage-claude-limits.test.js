@@ -12,7 +12,7 @@ const reading = report => report.programs.find(program => program.program === "c
 function fixture(t, initialMode = "success") {
   const root = mkdtempSync(join(tmpdir(), "heeler-claude-limits-"));
   const bin = join(root, "bin");
-  const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: join(root, "home"), CLAUDE_CONFIG_DIR: join(root, "claude-home"),
+  const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: join(root, "home"), USER: "herdr-account", CLAUDE_CONFIG_DIR: join(root, "claude-home"),
     CODEX_HOME: join(root, "codex-home"), HERDR_PLUGIN_CONFIG_DIR: join(root, "config"),
     HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing" };
   mkdirSync(bin, { recursive: true });
@@ -31,6 +31,7 @@ const root=${JSON.stringify(root)};
 assert.deepEqual(process.argv.slice(2), ['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--strict-mcp-config','--settings','{"disableAllHooks":true}']);
 assert.equal(process.env.CLAUDE_CONFIG_DIR,${JSON.stringify(env.CLAUDE_CONFIG_DIR)});
 assert.equal(process.env.HOME,${JSON.stringify(env.HOME)});
+assert.equal(process.env.USER,${JSON.stringify(env.USER)}, 'Claude must receive the recorded keychain account');
 assert.ok(fs.realpathSync(process.cwd()).startsWith(fs.realpathSync(${JSON.stringify(join(env.HERDR_PLUGIN_STATE_DIR, "usage"))})));
 fs.appendFileSync(root+'/starts',String(process.pid)+'\\n');
 const send=response=>process.stdout.write(JSON.stringify({type:'control_response',response})+'\\n');
@@ -72,7 +73,7 @@ const read=fs.readFileSync;fs.readFileSync=function(path,...args){if(String(path
   writeFileSync(join(env.HERDR_PLUGIN_CONFIG_DIR, "runtime-node"), node + "\n");
   const query = (enabled = true) => {
     const result = spawnSync(node, [join(plugin, "src/usage-query.js"), "--tz", "UTC", ...(enabled ? ["--claude-limits"] : [])], {
-      env: { HERDR_PLUGIN_CONFIG_DIR: env.HERDR_PLUGIN_CONFIG_DIR, HOME: join(root, "wrong-home"), PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 10_000 });
+      env: { HERDR_PLUGIN_CONFIG_DIR: env.HERDR_PLUGIN_CONFIG_DIR, HOME: join(root, "wrong-home"), USER: "ssh-account", PATH: "/usr/bin:/bin" }, encoding: "utf8", timeout: 10_000 });
     assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout);
   };
   const cache = () => join(env.HERDR_PLUGIN_STATE_DIR, "usage", readdirSync(join(env.HERDR_PLUGIN_STATE_DIR, "usage"))[0]);

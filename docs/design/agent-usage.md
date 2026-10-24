@@ -101,6 +101,7 @@ no `PATH` at all). Plugin hooks run in herdr's environment, so they record:
   "env": {
     "PATH": "/Users/u/.nvm/versions/node/v22.11.0/bin:/opt/homebrew/bin:/usr/bin:/bin",
     "HOME": "/Users/u",
+    "USER": "u",
     "CLAUDE_CONFIG_DIR": null,
     "CODEX_HOME": null,
     "XDG_CONFIG_HOME": null
@@ -114,7 +115,10 @@ no `PATH` at all). Plugin hooks run in herdr's environment, so they record:
 - `env` is herdr's environment for these names. The worker runs `codex` and
   `claude` with it: an npm-installed `codex` is a `#!/usr/bin/env node`
   script, which exits 127 under sshd's minimal `PATH`, and a `codex` started
-  without the recorded `CODEX_HOME` reads another account.
+  without the recorded `CODEX_HOME` reads another account. Claude Code uses
+  `USER` to locate its macOS keychain account; omitting it can make an
+  authenticated subscription appear unavailable. Record herdr's value, not
+  the SSH exec's user, and leave it `null` when absent.
 - `stateDir` is `HERDR_PLUGIN_STATE_DIR`, which herdr gives every plugin
   command, startup hooks included, since 0.7.5. herdr derives it only from
   `XDG_STATE_HOME`, so named sessions share it, and a Herdr Endpoint shares it

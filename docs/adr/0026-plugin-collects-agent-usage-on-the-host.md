@@ -18,7 +18,8 @@ JSON document from it with one bounded SSH exec per query
 - The app runs `node <plugin_root>/src/usage-query.js` through
   `runBoundedScript`. The plugin's startup and `pane.agent_status_changed`
   hooks write a `runtime.json` from herdr's environment: the `node`, `codex`
-  and `claude` to run, herdr's `PATH` and `HOME`, the variables that locate
+  and `claude` to run, herdr's `PATH`, `HOME` and `USER` (for Claude Code's
+  macOS keychain account), the variables that locate
   the Agents' data roots, and `HERDR_PLUGIN_STATE_DIR`. The cache lives
   under that directory in a subdirectory keyed by the Transcript roots that
   environment names, whether or not they exist yet, so instances share a

@@ -3,7 +3,8 @@ import { accessSync, constants, mkdirSync, readFileSync, renameSync, rmSync, sta
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-const ENVIRONMENT_NAMES = ["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"];
+// Claude Code uses USER to locate its macOS keychain account.
+const ENVIRONMENT_NAMES = ["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"];
 
 function executableOnPath(name, path) {
   if (typeof path !== "string") return null;
@@ -30,7 +31,7 @@ function writeAtomic(path, contents) {
   }
 }
 
-/** Record only the environment that locates programs and Transcripts. */
+/** Record only the environment that locates programs, accounts and Transcripts. */
 export function recordUsageRuntime(configDir) {
   const stateDir = process.env.HERDR_PLUGIN_STATE_DIR;
   // Older callers can still refresh sidebar state, without inventing Usage roots.
