@@ -18,6 +18,11 @@ import SwiftUI
 /// An Agent that has Chat also shows a button for the surface it is not
 /// showing, Chat or its terminal, sharing the menu's capsule in both states,
 /// so the other surface stays one tap away while the header is folded.
+///
+/// Level with a detail column's bar, the menu and surface button move into
+/// the bar as `AgentDetailHeaderBarControls`: the bar sits above the screen
+/// and takes every touch across its row, so controls drawn under it could
+/// not be pressed.
 struct AgentDetailHeader: View {
     static let controlSize: CGFloat = 44
     /// How much of the glass shows, the rest letting output through.
@@ -33,8 +38,15 @@ struct AgentDetailHeader: View {
     /// height from its top edge, with the bar's remaining height below
     /// them, so the header starts at that edge rather than centering.
     static func top(outputTop: CGFloat, barRow: NavigationBarBand?) -> CGFloat {
-        guard let barRow, barRow.bottom - barRow.top >= controlSize else { return outputTop + 4 }
+        guard let barRow, levelsWithBar(barRow) else { return outputTop + 4 }
         return barRow.top
+    }
+
+    /// Whether the header shares the bar's row, which then holds the
+    /// header's trailing controls.
+    static func levelsWithBar(_ barRow: NavigationBarBand?) -> Bool {
+        guard let barRow else { return false }
+        return barRow.bottom - barRow.top >= controlSize
     }
 
     let palette: TerminalThemePalette
@@ -46,8 +58,10 @@ struct AgentDetailHeader: View {
     var surfaceSwitch: AgentDetailSurfaceSwitch?
     /// Nil for a screen that names nothing, such as a shell terminal.
     var title: AgentDetailHeaderTitle?
+    /// The bar holds the trailing controls; the header keeps their room
+    /// clear so the expanded title stays centred.
+    var trailingInBar = false
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
     /// The expanded title's height, which the grip under it resizes.
     @State private var titleHeight: CGFloat = AgentDetailHeader.controlSize
@@ -64,7 +78,14 @@ struct AgentDetailHeader: View {
 
     /// Both side slots are this wide while expanded, so the title sits at the
     /// header's centre rather than between controls of different widths.
-    private var slotWidth: CGFloat { max(trailingWidth, Self.controlSize) }
+    private var slotWidth: CGFloat {
+        trailingInBar ? barControlsWidth : max(trailingWidth, Self.controlSize)
+    }
+
+    /// About as wide as the bar's own glass around the moved controls.
+    private var barControlsWidth: CGFloat {
+        surfaceSwitch == nil ? Self.controlSize : 2 * Self.controlSize + 8
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -103,7 +124,11 @@ struct AgentDetailHeader: View {
 
     @ViewBuilder
     private var trailingControls: some View {
-        if let surfaceSwitch {
+        if trailingInBar {
+            if isExpanded {
+                Color.clear.frame(width: slotWidth, height: Self.controlSize)
+            }
+        } else if let surfaceSwitch {
             HStack(spacing: 0) {
                 surfaceButton(surfaceSwitch)
                 Rectangle()
@@ -221,22 +246,7 @@ struct AgentDetailHeader: View {
     /// item that folds or unfolds the header.
     private func moreMenu(width: CGFloat) -> some View {
         Menu {
-            ForEach(actions) { @Sendable action in
-                MainActorContent {
-                    Button(action.title, systemImage: action.systemImage, action: action.perform)
-                }
-            }
-            Button(
-                isExpanded ? "Collapse" : "Expand",
-                // A window's top bar, which is what this shows and hides: put
-                // away while it is out, filled in while it is folded.
-                systemImage: isExpanded
-                    ? "menubar.arrow.up.rectangle" : "inset.filled.topthird.rectangle"
-            ) {
-                withAnimation(reduceMotion ? nil : .snappy) {
-                    isExpanded.toggle()
-                }
-            }
+            AgentDetailHeaderMenuItems(actions: actions, isExpanded: $isExpanded)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
@@ -246,6 +256,58 @@ struct AgentDetailHeader: View {
         }
         .menuIndicator(.hidden)
         .accessibilityLabel("More")
+    }
+}
+
+/// `AgentDetailHeader`'s trailing controls as items of the detail column's
+/// bar, beside Show Sidebar, for a header that shares the bar's row.
+struct AgentDetailHeaderBarControls: ToolbarContent {
+    @Binding var isExpanded: Bool
+    var actions: [AgentDetailHeaderAction] = []
+    var surfaceSwitch: AgentDetailSurfaceSwitch?
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if let surfaceSwitch {
+                let target = surfaceSwitch.other
+                Button(target.showTitle, systemImage: target.showSystemImage) {
+                    surfaceSwitch.select(target)
+                }
+                .accessibilityHint(target.showAccessibilityHint)
+            }
+            Menu("More", systemImage: "ellipsis") {
+                AgentDetailHeaderMenuItems(actions: actions, isExpanded: $isExpanded)
+            }
+            .menuIndicator(.hidden)
+        }
+    }
+}
+
+/// The More menu's items: the screen's actions, then the item that folds
+/// or unfolds the header.
+private struct AgentDetailHeaderMenuItems: View {
+    let actions: [AgentDetailHeaderAction]
+    @Binding var isExpanded: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ForEach(actions) { @Sendable action in
+            MainActorContent {
+                Button(action.title, systemImage: action.systemImage, action: action.perform)
+            }
+        }
+        Button(
+            isExpanded ? "Collapse" : "Expand",
+            // A window's top bar, which is what this shows and hides: put
+            // away while it is out, filled in while it is folded.
+            systemImage: isExpanded
+                ? "menubar.arrow.up.rectangle" : "inset.filled.topthird.rectangle"
+        ) {
+            withAnimation(reduceMotion ? nil : .snappy) {
+                isExpanded.toggle()
+            }
+        }
     }
 }
 
@@ -325,6 +387,22 @@ struct AgentDetailHeaderButton: View {
 }
 
 extension View {
+    /// Puts `AgentDetailHeader`'s trailing controls in the bar while
+    /// `isShown`, for a header made with `trailingInBar`.
+    func detailHeaderBarControls(
+        _ isShown: Bool,
+        isExpanded: Binding<Bool>,
+        actions: [AgentDetailHeaderAction],
+        surfaceSwitch: AgentDetailSurfaceSwitch? = nil
+    ) -> some View {
+        toolbar {
+            if isShown {
+                AgentDetailHeaderBarControls(
+                    isExpanded: isExpanded, actions: actions, surfaceSwitch: surfaceSwitch)
+            }
+        }
+    }
+
     /// Liquid Glass where the system has it, a blur before that. The glass
     /// sits behind the icons at part strength, so the output under the
     /// buttons still shows through while the icons stay solid. Chat's
