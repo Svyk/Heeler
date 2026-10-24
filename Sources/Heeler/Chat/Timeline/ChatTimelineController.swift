@@ -937,7 +937,10 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd)
+        // A finger that catches the momentum or the bounce stops it here,
+        // past the end as often as not; the list rests where it was caught,
+        // and following there would pin it to the end under the finger.
+        latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd && !scrollView.isTracking)
         noteFollowing()
         releaseHoldIfBack()
     }

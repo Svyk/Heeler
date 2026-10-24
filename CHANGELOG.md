@@ -81,8 +81,9 @@ Entries reference the pull request that made the change.
   when the keyboard leaves less room, including from sidebar search. (#505)
 - Line up a running tool's spinner in Chat with the first line of its
   title, instead of below it. (#507)
-- Stop Chat from jumping when you pull past the newest message or the list
-  bounces back from it, such as while the Agent is working. (#507)
+- Stop Chat from jumping when you pull past the newest message, the list
+  bounces back from it, or you catch it mid-bounce, such as while the Agent
+  is working. (#507)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
