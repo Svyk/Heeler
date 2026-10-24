@@ -286,6 +286,45 @@ struct ChatTimelineControllerTests {
         }
     }
 
+    /// The Load Earlier row follows a pull: a hint while pulling, Release
+    /// once letting go would load, then loading until the row shows it. A
+    /// pull let go short of that keeps its hint until it bounces back.
+    @Test func theLoadEarlierRowFollowsAPull() async throws {
+        let controller = ChatTimelineController(actions: ChatTimelineActions())
+        let builder = ChatRowBuilder()
+        let available = await builder.rows(
+            for: ChatTimelineInput(entries: Self.entries(200..<260), older: .available))
+        try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
+            controller.apply(Self.state(available))
+            await Self.settle(controller)
+            let view = controller.timeline
+            Self.drag(controller, to: view.minOffsetY)
+            await Self.settle(controller)
+            let distance = ChatTimelineController.pullToLoadDistance
+
+            controller.scrollViewWillBeginDragging(view)
+            view.contentOffset.y = view.minOffsetY - 30
+            #expect(controller.olderPullPhase == .pulling)
+            controller.scrollViewDidEndDragging(view, willDecelerate: true)
+            #expect(controller.olderPullPhase == .pulling)
+            view.contentOffset.y = view.minOffsetY
+            #expect(controller.olderPullPhase == .idle)
+
+            controller.scrollViewWillBeginDragging(view)
+            view.contentOffset.y = view.minOffsetY - distance - 10
+            #expect(controller.olderPullPhase == .armed)
+            view.contentOffset.y = view.minOffsetY - 30
+            #expect(controller.olderPullPhase == .armed)
+            controller.scrollViewDidEndDragging(view, willDecelerate: true)
+            #expect(controller.olderPullPhase == .requested)
+
+            let loading = await builder.rows(
+                for: ChatTimelineInput(entries: Self.entries(200..<260), older: .loading))
+            controller.apply(Self.state(loading, revision: 2))
+            #expect(controller.olderPullPhase == .idle)
+        }
+    }
+
     /// Rows that don't fill the screen ask for earlier history by
     /// themselves, which Chat bounds for Grok Build.
     @Test func aShortListAsksForEarlierHistoryByItself() async throws {

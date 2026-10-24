@@ -34,6 +34,24 @@ struct ChatRowActions {
     var showFile: @MainActor (ChatRowID, String) -> Void = { _, _ in }
     /// Tries a failed output read again.
     var retryOutput: @MainActor (ChatRowID) -> Void = { _ in }
+    /// How far a pull past the top has gone, for the Load Earlier row.
+    var olderPull: ChatOlderPull?
+}
+
+/// A pull past the timeline's top, as the Load Earlier row shows it.
+@MainActor @Observable
+final class ChatOlderPull {
+    enum Phase: Equatable {
+        case idle
+        /// Pulled, not yet far enough to load.
+        case pulling
+        /// Far enough: letting go loads earlier messages.
+        case armed
+        /// Let go while armed, until the request shows in the row.
+        case requested
+    }
+
+    var phase: Phase = .idle
 }
 
 /// The Chat timeline: a collection view of hosted SwiftUI rows that opens at
@@ -106,12 +124,15 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     /// The drag pulled the list past its top far enough to load earlier
     /// history when the finger lifts.
     private var isPullArmed = false
+    private let olderPull = ChatOlderPull()
 
     /// How far past its top the list is pulled to load earlier history.
     static let pullToLoadDistance: CGFloat = 80
 
     /// Whether the list follows its end, for tests.
     var isFollowing: Bool { latch.isFollowing }
+    /// What the Load Earlier row shows of a pull, for tests.
+    var olderPullPhase: ChatOlderPull.Phase { olderPull.phase }
     var timeline: ChatCollectionView { collectionView }
     var geometry: ChatTimelineGeometry { layout.geometry }
     var canCollapseTrajectory: Bool { collapseTarget != nil }
@@ -233,7 +254,8 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             missingOutputText: actions.missingOutputText,
             toggleFile: { [weak self] id, path in self?.toggleFile(id, path: path) },
             showFile: { [weak self] id, path in self?.showFile(id, path: path) },
-            retryOutput: { [weak self] id in self?.retryOutput(id) })
+            retryOutput: { [weak self] id in self?.retryOutput(id) },
+            olderPull: olderPull)
     }
 
     // MARK: Updates
@@ -257,6 +279,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             requestedOlderAtRowCount = nil
             isPulling = false
             isPullArmed = false
+            olderPull.phase = .idle
             disclosureAnchor = nil
             latch.reset()
             noteFollowing()
@@ -303,6 +326,10 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             restore(anchor)
         }
         redrawResizedRows(changed, heightsBefore: heightsBefore)
+        // Once the row shows the request, its own state takes over.
+        if olderPull.phase == .requested {
+            if case .olderHistory(.available)? = rowsByID[.olderHistory]?.content {} else { olderPull.phase = .idle }
+        }
         forgetMeasurements()
         reportFirstLayoutIfReady()
         requestOlderIfShort()
@@ -854,6 +881,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         isJumpAnimating = false
         isPulling = true
         isPullArmed = false
+        olderPull.phase = .idle
         latch.userScrollBegan()
         noteFollowing()
     }
@@ -870,6 +898,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         isPulling = false
         if isPullArmed {
             isPullArmed = false
+            olderPull.phase = .requested
             actions.loadOlder()
         }
         guard !decelerate else { return }
@@ -908,14 +937,24 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     /// makes it, as Load Earlier Messages or Retry does. Reaching the top
     /// alone loads nothing, so a scroll that bounces there can't by accident.
     private func notePull() {
-        guard isPulling, !isPullArmed else { return }
+        let pulled = collectionView.minOffsetY - collectionView.contentOffset.y
         switch rowsByID[.olderHistory]?.content {
         case .olderHistory(.available)?, .olderHistory(.failed)?: break
         default: return
         }
-        guard collectionView.minOffsetY - collectionView.contentOffset.y >= Self.pullToLoadDistance else { return }
-        isPullArmed = true
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // A pull let go short of loading keeps its hint until it bounces back.
+        if !isPulling {
+            if olderPull.phase == .pulling, pulled <= 0 { olderPull.phase = .idle }
+            return
+        }
+        if pulled >= Self.pullToLoadDistance {
+            guard !isPullArmed else { return }
+            isPullArmed = true
+            olderPull.phase = .armed
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } else if !isPullArmed, pulled > 0 {
+            olderPull.phase = .pulling
+        }
     }
 
     /// Rows that do not fill the screen leave it partly empty, so earlier

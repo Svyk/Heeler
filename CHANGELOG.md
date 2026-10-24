@@ -57,9 +57,11 @@ Entries reference the pull request that made the change.
   Host headers say when their Host is connecting, reconnecting or
   unavailable. (#486)
 - Chat loads earlier messages when you pull down past the top of a
-  conversation and let go, with a tap of haptic feedback once the pull goes
-  far enough, instead of as soon as you scroll near the top. A conversation
-  too short to fill the screen still loads them by itself.
+  conversation and let go, instead of as soon as you scroll near the top.
+  The top of the list says Pull, then Release with a tap of haptic
+  feedback once the pull goes far enough, then shows a spinner while they
+  load. A conversation too short to fill the screen still loads them by
+  itself.
 
 ### Fixed
 
