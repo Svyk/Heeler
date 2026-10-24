@@ -5,8 +5,8 @@ import UIKit
 struct ChatTimelineActions {
     /// The user asked for earlier history: Load Earlier Messages or Retry.
     var loadOlder: @MainActor () -> Void = {}
-    /// The list asks for earlier history by itself within a screen of its
-    /// top.
+    /// The list asks for earlier history by itself while its rows do not
+    /// fill the screen.
     var loadOlderAutomatically: @MainActor () -> Void = {}
     /// Whether the list follows its newest row; drives Jump to Latest.
     var followingChanged: @MainActor (Bool) -> Void = { _ in }
@@ -34,6 +34,24 @@ struct ChatRowActions {
     var showFile: @MainActor (ChatRowID, String) -> Void = { _, _ in }
     /// Tries a failed output read again.
     var retryOutput: @MainActor (ChatRowID) -> Void = { _ in }
+    /// How far a pull past the top has gone, for the Load Earlier row.
+    var olderPull: ChatOlderPull?
+}
+
+/// A pull past the timeline's top, as the Load Earlier row shows it.
+@MainActor @Observable
+final class ChatOlderPull {
+    enum Phase: Equatable {
+        case idle
+        /// Pulled, not yet far enough to load.
+        case pulling
+        /// Far enough: letting go loads earlier messages.
+        case armed
+        /// Let go while armed, until the request shows in the row.
+        case requested
+    }
+
+    var phase: Phase = .idle
 }
 
 /// The Chat timeline: a collection view of hosted SwiftUI rows that opens at
@@ -99,11 +117,22 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     private var isJumpAnimating = false
     private var hasReportedFirstLayout = false
     /// The older-history state the last automatic request was made in, so
-    /// one approach to the top asks once.
+    /// one short list asks once.
     private var requestedOlderAtRowCount: Int?
+    /// From a drag's start until the finger lifts.
+    private var isPulling = false
+    /// The drag pulled the list past its top far enough to load earlier
+    /// history when the finger lifts.
+    private var isPullArmed = false
+    private let olderPull = ChatOlderPull()
+
+    /// How far past its top the list is pulled to load earlier history.
+    static let pullToLoadDistance: CGFloat = 80
 
     /// Whether the list follows its end, for tests.
     var isFollowing: Bool { latch.isFollowing }
+    /// What the Load Earlier row shows of a pull, for tests.
+    var olderPullPhase: ChatOlderPull.Phase { olderPull.phase }
     var timeline: ChatCollectionView { collectionView }
     var geometry: ChatTimelineGeometry { layout.geometry }
     var canCollapseTrajectory: Bool { collapseTarget != nil }
@@ -167,6 +196,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             guard let self else { return false }
             return latch.isFollowing && !isJumpAnimating
         }
+        collectionView.isUserScrolling = { [weak self] in self?.latch.isUserScrolling ?? false }
         layout.itemIDs = { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] }
         layout.rowInfo = { [weak self] id in
             guard let self, let row = rowsByID[id] else { return nil }
@@ -211,6 +241,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         super.viewDidLayoutSubviews()
         updateBottomObstruction()
         liftEndClearOfCollapseControl()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
@@ -223,7 +254,8 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             missingOutputText: actions.missingOutputText,
             toggleFile: { [weak self] id, path in self?.toggleFile(id, path: path) },
             showFile: { [weak self] id, path in self?.showFile(id, path: path) },
-            retryOutput: { [weak self] id in self?.retryOutput(id) })
+            retryOutput: { [weak self] id in self?.retryOutput(id) },
+            olderPull: olderPull)
     }
 
     // MARK: Updates
@@ -245,6 +277,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             disclosures = [:]
             openHeaders = []
             requestedOlderAtRowCount = nil
+            isPulling = false
+            isPullArmed = false
+            olderPull.phase = .idle
             disclosureAnchor = nil
             latch.reset()
             noteFollowing()
@@ -256,6 +291,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             }
             forgetMeasurements()
             reportFirstLayoutIfReady()
+            requestOlderIfShort()
             noteCollapseAvailability()
             return
         }
@@ -290,8 +326,13 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             restore(anchor)
         }
         redrawResizedRows(changed, heightsBefore: heightsBefore)
+        // Once the row shows the request, its own state takes over.
+        if olderPull.phase == .requested {
+            if case .olderHistory(.available)? = rowsByID[.olderHistory]?.content {} else { olderPull.phase = .idle }
+        }
         forgetMeasurements()
         reportFirstLayoutIfReady()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
@@ -838,6 +879,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         disclosureAnchor = nil
         isJumpAnimating = false
+        isPulling = true
+        isPullArmed = false
+        olderPull.phase = .idle
         latch.userScrollBegan()
         noteFollowing()
     }
@@ -845,11 +889,18 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if disclosureAnchor == nil { latch.scrolled(isAtEnd: isAtEnd) }
         noteFollowing()
-        requestOlderIfNear()
+        notePull()
+        requestOlderIfShort()
         noteCollapseAvailability()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        isPulling = false
+        if isPullArmed {
+            isPullArmed = false
+            olderPull.phase = .requested
+            actions.loadOlder()
+        }
         guard !decelerate else { return }
         latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd)
         noteFollowing()
@@ -881,16 +932,43 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         noteFollowing()
     }
 
-    /// Within a screen of the top, earlier history loads by itself.
-    private func requestOlderIfNear() {
+    /// Pulling the list past its top by `pullToLoadDistance` arms a request
+    /// for earlier history, with a tap of feedback; lifting the finger then
+    /// makes it, as Load Earlier Messages or Retry does, unless the finger
+    /// pushed back inside that distance first. Reaching the top alone loads
+    /// nothing, so a scroll that bounces there can't by accident.
+    private func notePull() {
+        let pulled = collectionView.minOffsetY - collectionView.contentOffset.y
+        switch rowsByID[.olderHistory]?.content {
+        case .olderHistory(.available)?, .olderHistory(.failed)?: break
+        default: return
+        }
+        // A pull let go short of loading keeps its hint until it bounces back.
+        if !isPulling {
+            if olderPull.phase == .pulling, pulled <= 0 { olderPull.phase = .idle }
+            return
+        }
+        if pulled >= Self.pullToLoadDistance {
+            guard !isPullArmed else { return }
+            isPullArmed = true
+            olderPull.phase = .armed
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } else {
+            isPullArmed = false
+            olderPull.phase = pulled > 0 ? .pulling : .idle
+        }
+    }
+
+    /// Rows that do not fill the screen leave it partly empty, so earlier
+    /// history loads by itself, without a pull.
+    private func requestOlderIfShort() {
         guard case .olderHistory(.available)? = rowsByID[.olderHistory]?.content else {
             requestedOlderAtRowCount = nil
             return
         }
         // Built rows, so opening or closing a fold does not ask again.
         let count = allRows.count
-        guard requestedOlderAtRowCount != count,
-            collectionView.contentOffset.y - collectionView.minOffsetY < collectionView.bounds.height
+        guard requestedOlderAtRowCount != count, layout.geometry.contentHeight < layout.geometry.visibleHeight
         else { return }
         requestedOlderAtRowCount = count
         // An apply's offset restore scrolls too, inside a SwiftUI update.
@@ -958,6 +1036,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
 /// rotation in one place.
 final class ChatCollectionView: UICollectionView {
     var shouldPin: () -> Bool = { false }
+    /// Whether a user scroll is underway, from a drag's start through its
+    /// momentum. Only then does a bounce bring a kept overscroll back.
+    var isUserScrolling: () -> Bool = { false }
 
     var minOffsetY: CGFloat { -adjustedContentInset.top }
 
@@ -965,8 +1046,27 @@ final class ChatCollectionView: UICollectionView {
         max(minOffsetY, contentSize.height + adjustedContentInset.bottom - bounds.height)
     }
 
+    /// How far a drag or its bounce had pulled the list past its end when a
+    /// row above was measured. The layout's offset adjustment clamps to the
+    /// new end, which drops the overscroll for a frame; the pan puts it back
+    /// on the next touch, so the rows jump down and up again.
+    private var overscrollToRestore: CGFloat = 0
+
+    /// Keeps the current overscroll past the end through the layout pass
+    /// that applies an offset adjustment.
+    func preserveEndOverscroll() {
+        overscrollToRestore = max(overscrollToRestore, contentOffset.y - maxOffsetY)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        if overscrollToRestore > 0 {
+            let overscrolled = maxOffsetY + overscrollToRestore
+            overscrollToRestore = 0
+            if isUserScrolling(), contentOffset.y < overscrolled {
+                contentOffset.y = overscrolled
+            }
+        }
         guard shouldPin() else { return }
         let end = maxOffsetY
         if abs(contentOffset.y - end) > 0.25 {

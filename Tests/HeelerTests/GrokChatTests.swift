@@ -141,7 +141,7 @@ struct GrokChatTests {
     }
 
     /// The request the timeline makes on its own while its rows fit within
-    /// a screen (`ChatTimelineController.requestOlderIfNear`).
+    /// a screen (`ChatTimelineController.requestOlderIfShort`).
     @MainActor
     private static func requestOlderAutomatically(_ store: AgentChatStore) async {
         store.loadOlder(automatic: true)

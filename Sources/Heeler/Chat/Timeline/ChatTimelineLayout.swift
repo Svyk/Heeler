@@ -117,6 +117,7 @@ final class ChatTimelineLayout: UICollectionViewLayout {
         let adjustment = geometry.offsetAdjustment(restoring: anchor)
         if adjustment != 0 {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: adjustment)
+            (collectionView as? ChatCollectionView)?.preserveEndOverscroll()
         }
         return context
     }

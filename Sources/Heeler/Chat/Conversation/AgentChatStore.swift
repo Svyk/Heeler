@@ -432,7 +432,7 @@ final class AgentChatStore {
     }
 
     /// Reads one page above the oldest message shown, for the user or,
-    /// `automatic`, for the timeline as the reader nears the top.
+    /// `automatic`, for a timeline whose rows do not fill the screen.
     func loadOlder(automatic: Bool = false) {
         // The timeline asks as the user does, unless the program bounds
         // what it loads by itself: then it never retries a failure, and
