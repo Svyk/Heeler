@@ -84,7 +84,7 @@ struct AgentDetailHeader: View {
     /// As wide as `AgentDetailHeaderTrailingControls` draws in the bar.
     private var barControlsWidth: CGFloat {
         guard surfaceSwitch != nil else { return Self.controlSize }
-        return 2 * Self.capsuleButtonWidth + 2 * Self.capsuleInset + 5
+        return 2 * Self.capsuleButtonWidth + 2 * Self.capsuleInset
     }
 
     var body: some View {
@@ -236,16 +236,10 @@ struct AgentDetailHeaderTrailingControls: View {
     /// draws it, so the symbols keep the balance SF Symbols gives them.
     static let glyphFont = Font.system(size: 17)
 
-    @Environment(\.displayScale) private var displayScale
-
     var body: some View {
         if let surfaceSwitch {
             HStack(spacing: 0) {
                 surfaceButton(surfaceSwitch)
-                Rectangle()
-                    .fill(palette.foreground.opacity(0.25))
-                    .frame(width: 1 / max(displayScale, 1), height: 20)
-                    .padding(.horizontal, 2)
                 moreMenu(width: AgentDetailHeader.capsuleButtonWidth)
             }
             .padding(.horizontal, AgentDetailHeader.capsuleInset)
