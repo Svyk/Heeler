@@ -62,6 +62,8 @@ Entries reference the pull request that made the change.
   feedback once the pull goes far enough, then shows a spinner while they
   load. Pushing back before you let go cancels it. A conversation too short
   to fill the screen still loads them by itself.
+- Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
+  cover less of the conversation; they are as easy to tap.
 
 ### Fixed
 

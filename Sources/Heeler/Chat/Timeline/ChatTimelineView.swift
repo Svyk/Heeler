@@ -82,7 +82,6 @@ struct ChatCollapseTrajectoryButton: View {
             ChatFloatingIcon(systemImage: "arrow.down.and.line.horizontal.and.arrow.up")
         }
         .buttonStyle(.plain)
-        .headerGlass(in: .circle, opacity: ChatFloatingIcon.glassOpacity)
         .accessibilityLabel("Collapse Current Trajectory")
         .accessibilityHint("Collapses this turn's reasoning and tool details and brings its summary into view.")
         .accessibilityIdentifier("chat.collapse-trajectory")
@@ -104,7 +103,6 @@ struct ChatJumpToLatestButton: View {
             ChatFloatingIcon(systemImage: "chevron.down")
         }
         .buttonStyle(.plain)
-        .headerGlass(in: .circle, opacity: ChatFloatingIcon.glassOpacity)
         .accessibilityLabel("Jump to Latest")
         .accessibilityIdentifier("chat.jump-to-latest")
         .opacity(isVisible ? 1 : 0)
@@ -114,19 +112,23 @@ struct ChatJumpToLatestButton: View {
     }
 }
 
-/// A glyph for Chat's floating buttons, drawn like the detail header's: a
-/// control-sized circle on the same glass, held a little more solid where
-/// it floats over the conversation's text.
+/// A glyph for Chat's floating buttons: a circle on the detail header's
+/// glass, held a little more solid where it floats over the conversation's
+/// text, and smaller than the header's controls so it hides less of it.
+/// Taps still land anywhere in a control-sized square around it.
 private struct ChatFloatingIcon: View {
     static let glassOpacity: Double = 0.9
+    static let diameter: CGFloat = 36
 
     let systemImage: String
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(.primary)
+            .frame(width: Self.diameter, height: Self.diameter)
+            .headerGlass(in: .circle, opacity: Self.glassOpacity)
             .frame(width: AgentDetailHeader.controlSize, height: AgentDetailHeader.controlSize)
-            .contentShape(.circle)
+            .contentShape(.rect)
     }
 }
