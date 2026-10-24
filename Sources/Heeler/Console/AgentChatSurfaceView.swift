@@ -435,6 +435,7 @@ struct AgentChatSurfaceView: View {
         .toolbar(.visible, for: .navigationBar)
         .detailHeaderBarControls(
             headerSharesBar,
+            palette: .system,
             isExpanded: $isBackHeaderExpanded,
             actions: backHeaderActions,
             surfaceSwitch: terminalSurfaceSwitch)

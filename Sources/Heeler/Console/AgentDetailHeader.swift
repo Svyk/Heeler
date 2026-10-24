@@ -29,7 +29,7 @@ struct AgentDetailHeader: View {
     static let glassOpacity: Double = 0.8
     /// Buttons sharing a capsule sit closer than standalone ones.
     static let capsuleButtonWidth: CGFloat = 36
-    private static let capsuleInset: CGFloat = (controlSize - capsuleButtonWidth) / 2
+    static let capsuleInset: CGFloat = (controlSize - capsuleButtonWidth) / 2
 
     /// Where the header's top edge sits. Beside an iPad's sidebar it lines
     /// up with the detail column's bar, level with the sidebar's buttons and
@@ -62,7 +62,6 @@ struct AgentDetailHeader: View {
     /// clear so the expanded title stays centred.
     var trailingInBar = false
 
-    @Environment(\.displayScale) private var displayScale
     /// The expanded title's height, which the grip under it resizes.
     @State private var titleHeight: CGFloat = AgentDetailHeader.controlSize
     /// Set while a grip drag is under way, so the drag measures from where it began.
@@ -82,9 +81,10 @@ struct AgentDetailHeader: View {
         trailingInBar ? barControlsWidth : max(trailingWidth, Self.controlSize)
     }
 
-    /// About as wide as the bar's own glass around the moved controls.
+    /// As wide as `AgentDetailHeaderTrailingControls` draws in the bar.
     private var barControlsWidth: CGFloat {
-        surfaceSwitch == nil ? Self.controlSize : 2 * Self.controlSize + 8
+        guard surfaceSwitch != nil else { return Self.controlSize }
+        return 2 * Self.capsuleButtonWidth + 2 * Self.capsuleInset + 5
     }
 
     var body: some View {
@@ -128,27 +128,13 @@ struct AgentDetailHeader: View {
             if isExpanded {
                 Color.clear.frame(width: slotWidth, height: Self.controlSize)
             }
-        } else if let surfaceSwitch {
-            HStack(spacing: 0) {
-                surfaceButton(surfaceSwitch)
-                Rectangle()
-                    .fill(palette.foreground.opacity(0.25))
-                    .frame(width: 1 / max(displayScale, 1), height: 20)
-                    .padding(.horizontal, 2)
-                moreMenu(width: Self.capsuleButtonWidth)
-            }
-            .padding(.horizontal, Self.capsuleInset)
-            .fixedSize()
-            .headerGlass(in: .capsule)
+        } else {
+            AgentDetailHeaderTrailingControls(
+                palette: palette, isExpanded: $isExpanded, actions: actions,
+                surfaceSwitch: surfaceSwitch)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
                 trailingWidth = $0
             }
-        } else {
-            moreMenu(width: Self.controlSize)
-                .headerGlass(in: .circle)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
-                    trailingWidth = $0
-                }
         }
     }
 
@@ -217,22 +203,6 @@ struct AgentDetailHeader: View {
         min(max(height, titleHeightRange.lowerBound), titleHeightRange.upperBound)
     }
 
-    /// Swaps to the surface not showing, drawn with that surface's glyph.
-    private func surfaceButton(_ control: AgentDetailSurfaceSwitch) -> some View {
-        let target = control.other
-        return Button {
-            control.select(target)
-        } label: {
-            Image(systemName: target.showSystemImage)
-                .font(.system(size: Self.surfacePointSize(target), weight: .semibold))
-                .frame(width: Self.capsuleButtonWidth, height: Self.controlSize)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(target.showTitle)
-        .accessibilityHint(target.showAccessibilityHint)
-    }
-
     /// The two-bubble glyph draws taller and denser than the terminal's at
     /// one size, so it gets a smaller one that matches the terminal glyph's
     /// height and reads the same size when the surfaces swap.
@@ -241,6 +211,76 @@ struct AgentDetailHeader: View {
         case .chat: 14
         case .terminal: 17
         }
+    }
+}
+
+/// `AgentDetailHeader`'s trailing controls as an item of the detail
+/// column's bar, beside Show Sidebar, for a header that shares the bar's
+/// row. The item draws the header's own capsule, so it keeps the floating
+/// header's size rather than the bar's wider item spacing.
+struct AgentDetailHeaderBarControls: ToolbarContent {
+    let palette: TerminalThemePalette
+    @Binding var isExpanded: Bool
+    var actions: [AgentDetailHeaderAction] = []
+    var surfaceSwitch: AgentDetailSurfaceSwitch?
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            AgentDetailHeaderTrailingControls(
+                palette: palette, isExpanded: $isExpanded, actions: actions,
+                surfaceSwitch: surfaceSwitch)
+        }
+        .toolbarItemBackground(.hidden)
+    }
+}
+
+/// The header's far end on its own glass: the surface button and the More
+/// menu sharing a capsule, or the menu alone on a circle.
+struct AgentDetailHeaderTrailingControls: View {
+    let palette: TerminalThemePalette
+    @Binding var isExpanded: Bool
+    let actions: [AgentDetailHeaderAction]
+    let surfaceSwitch: AgentDetailSurfaceSwitch?
+
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        if let surfaceSwitch {
+            HStack(spacing: 0) {
+                surfaceButton(surfaceSwitch)
+                Rectangle()
+                    .fill(palette.foreground.opacity(0.25))
+                    .frame(width: 1 / max(displayScale, 1), height: 20)
+                    .padding(.horizontal, 2)
+                moreMenu(width: AgentDetailHeader.capsuleButtonWidth)
+            }
+            .padding(.horizontal, AgentDetailHeader.capsuleInset)
+            .fixedSize()
+            .headerGlass(in: .capsule)
+            .foregroundStyle(palette.foreground)
+        } else {
+            moreMenu(width: AgentDetailHeader.controlSize)
+                .headerGlass(in: .circle)
+        }
+    }
+
+    /// Swaps to the surface not showing, drawn with that surface's glyph.
+    private func surfaceButton(_ control: AgentDetailSurfaceSwitch) -> some View {
+        let target = control.other
+        return Button {
+            control.select(target)
+        } label: {
+            Image(systemName: target.showSystemImage)
+                .font(.system(
+                    size: AgentDetailHeader.surfacePointSize(target), weight: .semibold))
+                .frame(
+                    width: AgentDetailHeader.capsuleButtonWidth,
+                    height: AgentDetailHeader.controlSize)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(target.showTitle)
+        .accessibilityHint(target.showAccessibilityHint)
     }
 
     /// Stays at the far end in both states: the screen's actions, then the
@@ -252,43 +292,14 @@ struct AgentDetailHeader: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(palette.foreground)
-                .frame(width: width, height: Self.controlSize)
+                .frame(width: width, height: AgentDetailHeader.controlSize)
                 .contentShape(.rect)
         }
+        // Plain, or a bar pads the menu as one of its own buttons.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel("More")
-    }
-}
-
-/// `AgentDetailHeader`'s trailing controls as items of the detail column's
-/// bar, beside Show Sidebar, for a header that shares the bar's row.
-struct AgentDetailHeaderBarControls: ToolbarContent {
-    @Binding var isExpanded: Bool
-    var actions: [AgentDetailHeaderAction] = []
-    var surfaceSwitch: AgentDetailSurfaceSwitch?
-
-    var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            if let surfaceSwitch {
-                let target = surfaceSwitch.other
-                // One width for both glyphs, so swapping surfaces leaves the
-                // button where it was.
-                Button {
-                    surfaceSwitch.select(target)
-                } label: {
-                    Image(systemName: target.showSystemImage)
-                        .font(.system(
-                            size: AgentDetailHeader.surfacePointSize(target), weight: .semibold))
-                        .frame(width: AgentDetailHeader.capsuleButtonWidth)
-                }
-                .accessibilityLabel(target.showTitle)
-                .accessibilityHint(target.showAccessibilityHint)
-            }
-            Menu("More", systemImage: "ellipsis") {
-                AgentDetailHeaderMenuItems(actions: actions, isExpanded: $isExpanded)
-            }
-            .menuIndicator(.hidden)
-        }
     }
 }
 
@@ -400,6 +411,7 @@ extension View {
     /// `isShown`, for a header made with `trailingInBar`.
     func detailHeaderBarControls(
         _ isShown: Bool,
+        palette: TerminalThemePalette,
         isExpanded: Binding<Bool>,
         actions: [AgentDetailHeaderAction],
         surfaceSwitch: AgentDetailSurfaceSwitch? = nil
@@ -407,7 +419,8 @@ extension View {
         toolbar {
             if isShown {
                 AgentDetailHeaderBarControls(
-                    isExpanded: isExpanded, actions: actions, surfaceSwitch: surfaceSwitch)
+                    palette: palette, isExpanded: isExpanded, actions: actions,
+                    surfaceSwitch: surfaceSwitch)
             }
         }
     }

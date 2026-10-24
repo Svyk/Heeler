@@ -1154,6 +1154,7 @@ struct AgentTerminalView: View {
         .toolbar(.visible, for: .navigationBar)
         .detailHeaderBarControls(
             headerSharesBar,
+            palette: themePalette,
             isExpanded: $isBackHeaderExpanded,
             actions: backHeaderActions,
             surfaceSwitch: chatSurfaceSwitch)

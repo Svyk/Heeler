@@ -311,7 +311,8 @@ struct ShellTerminalView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar(.visible, for: .navigationBar)
             .detailHeaderBarControls(
-                headerSharesBar, isExpanded: $isBackHeaderExpanded, actions: backHeaderActions)
+                headerSharesBar, palette: themePalette, isExpanded: $isBackHeaderExpanded,
+                actions: backHeaderActions)
             .sheet(
                 isPresented: Binding(
                     get: { store.pendingPaste != nil },
