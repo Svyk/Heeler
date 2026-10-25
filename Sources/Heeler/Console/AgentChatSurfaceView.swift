@@ -461,10 +461,7 @@ struct AgentChatSurfaceView: View {
             }
         }
         .chatContentColumn()
-        .padding(.bottom, Self.floatingControlsBottomPadding)
     }
-
-    private static let floatingControlsBottomPadding: CGFloat = 12
 
     /// The timeline runs edge to edge: under the status bar, the back
     /// header and the banners over its top, and under the Composer and the
@@ -476,7 +473,7 @@ struct AgentChatSurfaceView: View {
                 collapseRequest: collapseRequest,
                 topObstruction: topInset + headerObstruction + bannerHeight,
                 bottomEdge: conversationBottom,
-                collapseControlClearance: collapseControlHeight + Self.floatingControlsBottomPadding,
+                collapseControlClearance: collapseControlHeight,
                 textSize: ChatTextSettings.size(system: dynamicTypeSize, offset: textSizeOffset),
                 font: chatFont,
                 actions: timelineActions)
