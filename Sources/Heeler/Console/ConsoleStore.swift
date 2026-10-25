@@ -1152,8 +1152,6 @@ final class ConsoleStore {
         }
     }
 
-    /// Settings' plugin requirement notes: each Host's plugin, read on its
-    /// current connection.
     func agentUsageStore(for hostID: Host.ID) -> AgentUsageStore {
         if let store = agentUsageStores[hostID] { return store }
         let store = AgentUsageStore(hostID: hostID) { [weak self] timeZone, claudeLimits in
@@ -1167,6 +1165,8 @@ final class ConsoleStore {
         return store
     }
 
+    /// Settings' plugin requirement notes: each Host's plugin, read on its
+    /// current connection.
     func refreshPluginStatuses(for hostIDs: [Host.ID]) async {
         await pluginStatuses.refresh(hostIDs, transports: self)
     }
