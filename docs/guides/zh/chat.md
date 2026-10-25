@@ -1,4 +1,4 @@
-<!-- Translated from docs/guides/chat.md at eb985b1d -->
+<!-- Translated from docs/guides/chat.md at c9c8167e -->
 # 在 Chat 中使用 Agent
 
 Chat 把 Agent 的对话显示成消息，而不是终端画面。你可以查看 Agent 做了什么、回复它，并用按钮回答它的提问。
@@ -30,6 +30,14 @@ codex --no-daemon
 ```
 
 Codex 的共享后台服务无法告诉 herdr 对话在哪个终端里，Chat 可能一直等待，或显示另一个 Agent 的对话。只在 Codex 设置中关闭 `daemon_auto_start` 是不够的。
+
+在 Codex 修复之前，可以在 shell 的启动文件（如 `~/.zshrc`、`~/.bashrc` 或 `~/.config/fish/config.fish`）中加一个别名。herdr 重启后恢复的 Agent 也会用上它：
+
+```sh
+alias codex='codex --no-daemon'
+```
+
+用了别名后，直接运行 `codex` 和 `codex resume` 即可：Codex 不接受重复两次的 `--no-daemon`。
 
 ## 打开 Chat
 
