@@ -3,29 +3,42 @@ import { readdir, realpath, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { jsonLines } from "./json-lines.js";
 
+/**
+ * Transcripts in the window. An entry that cannot be listed is skipped and its
+ * path returned in `unreadable`; only a `projects/` root that cannot be listed
+ * sets `rootFailed`.
+ */
 export async function claudeFiles(roots, cutoff) {
   const files = [];
+  const unreadable = [];
+  let rootFailed = false;
   const seenDirectories = new Set();
   const seenFiles = new Set();
-  async function visit(path) {
+  const skip = (path, root) => { if (root) rootFailed = true; else unreadable.push(path); };
+  async function visit(path, root) {
     let actual;
-    try { actual = await realpath(path); } catch (error) { if (error.code === "ENOENT") return; throw error; }
-    if (seenDirectories.has(actual)) return;
-    seenDirectories.add(actual);
-    const entries = await readdir(actual, { withFileTypes: true });
+    let entries;
+    try {
+      actual = await realpath(path);
+      if (seenDirectories.has(actual)) return;
+      seenDirectories.add(actual);
+      entries = await readdir(actual, { withFileTypes: true });
+    } catch (error) { if (error.code !== "ENOENT") skip(actual || path, root); return; }
     for (const entry of entries) {
       const child = join(actual, entry.name);
-      if (entry.isDirectory()) await visit(child);
+      if (entry.isDirectory()) await visit(child, false);
       else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        const metadata = await stat(child);
+        let metadata;
+        try { metadata = await stat(child); }
+        catch (error) { if (error.code !== "ENOENT") skip(child, false); continue; }
         if (metadata.mtimeMs < cutoff || seenFiles.has(child)) continue;
         seenFiles.add(child);
         files.push({ path: child, ...metadata });
       }
     }
   }
-  for (const root of roots) await visit(join(root, "projects"));
-  return files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
+  for (const root of roots) await visit(join(root, "projects"), true);
+  return { files: files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path)), unreadable, rootFailed };
 }
 export async function* transcriptEntries(path, onChunk = () => {}, start = 0) {
   yield* jsonLines(createReadStream(path, { start }), start, 0, onChunk);

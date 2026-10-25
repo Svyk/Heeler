@@ -281,15 +281,39 @@ test("the shared v1 vector comes from the worker's Claude and Codex aggregation"
   assert.deepEqual(report, JSON.parse(readFileSync(path, "utf8")));
 });
 
-test("an unreadable Transcript finishes with a filtered error instead of refreshing forever", async t => {
+// One unreadable Transcript used to put the whole program in error and hide
+// every readable one; it now skips only itself, is counted, and is retried.
+test("an unreadable Transcript is skipped, counted and retried without hiding its program", async t => {
   const f = fixture(t);
+  f.transcript("readable.jsonl", [assistant("readable")]);
   const path = f.transcript("private.jsonl", [assistant("unreadable")]);
   chmodSync(path, 0);
   t.after(() => { try { chmodSync(path, 0o600); } catch { /* Fixture removed. */ } });
   const report = await f.finish();
   assert.equal(report.refreshing, false);
+  assert.equal(claude(report).state, "ok");
+  assert.equal(claude(report).totals.today.tokens.total, 12);
+  assert.equal(report.scan.unreadableFiles, 1);
+  assert.equal(JSON.stringify(report).includes(f.root), false);
+  chmodSync(path, 0o600);
+  f.stale();
+  const retried = await f.finish();
+  assert.equal(claude(retried).totals.today.tokens.total, 24);
+  assert.equal(retried.scan.unreadableFiles, 0);
+});
+
+test("a Transcript root that cannot be listed reports its program's error", async t => {
+  const f = fixture(t);
+  f.transcript("hidden.jsonl", [assistant("hidden")]);
+  const projects = join(f.env.CLAUDE_CONFIG_DIR, "projects");
+  chmodSync(projects, 0);
+  let report;
+  try { report = await f.finish(); } finally { chmodSync(projects, 0o700); }
+  assert.equal(report.refreshing, false);
   assert.equal(claude(report).state, "error");
   assert.equal(claude(report).reason, "Could not read the Claude Code Transcripts.");
+  assert.equal(report.programs[1].tokenUsage.state, "noData");
+  assert.equal(report.scan.unreadableFiles, 0);
   assert.equal(JSON.stringify(report).includes(f.root), false);
 });
 

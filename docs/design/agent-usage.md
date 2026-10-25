@@ -436,6 +436,8 @@ size:
     `offset` bytes long: Codex decompressed it to append. The logical file
     keeps its state and is read from `offset`.
   - A file that falls outside the window is pruned by bucket age.
+  - A file the listing cannot see because its directory, or the file itself,
+    cannot be read: its state and counted totals are kept until it can be.
 - Anything else rebuilds the whole cache from the Transcripts: a file deleted
   while it held in-window records, a file that shrank, a new inode at the
   same path, or an `mtimeMs` change without growth. Global deduplication
@@ -610,7 +612,8 @@ tests and decoded by the Swift tests.
     "state": "complete",
     "coveredFrom": "2026-09-24",
     "coveredThrough": "2026-10-23T12:34:00Z",
-    "skippedArchives": 0
+    "skippedArchives": 0,
+    "unreadableFiles": 0
   },
   "programs": [
     {
@@ -667,6 +670,13 @@ tests and decoded by the Swift tests.
   that the remaining Transcripts cover, as `YYYY-MM-DD`, or null without
   data. `scan.coveredThrough`: the UTC time the last finished scan started;
   records written after it are not counted yet.
+- `scan.skippedArchives`: `.zst` rollouts skipped for want of a decoder.
+  `scan.unreadableFiles`: Transcripts, rollouts or directories under a root
+  that could not be listed or read in the last run; 0 when none. They are
+  skipped, retried by the next run, and keep the totals already counted from
+  them. A root (Claude Code `projects/`, the Codex home, `sessions/` or
+  `archived_sessions/`) that cannot be listed reports that program's
+  `tokenUsage` as `error` instead.
 - `tokenUsage.state`: `ok`, `noData` (program never used on this Host),
   `error` with `reason`.
 - `usageLimits.state`: `ok`, `disabled` (Claude toggle off, or this query
@@ -762,6 +772,8 @@ tests and decoded by the Swift tests.
 | Transcript deleted with in-window records, truncated or rewritten | Background rebuild; previous snapshot shown meanwhile |
 | Transcript older than 30 days deleted; rollout archived, compressed, or decompressed to append | No rebuild |
 | `.zst` rollout with neither Node zstd nor `zstd` on `PATH` | Counted in `skippedArchives`; coverage note |
+| Transcript, rollout or directory unreadable (permissions, corrupt or truncated `.zst`) | Skipped and counted in `unreadableFiles`; known totals kept, no rebuild; retried next run |
+| Transcript root unreadable | That program's Token Usage `error`; its known files are not treated as deleted |
 | Worker crashed | Stale lock reclaimed; next query restarts it |
 | Cache directory not writable | Cached report, `refreshing: false`; no worker |
 | Worker fails 3 runs in a row | Token Usage `error`, `refreshing: false`; retried after 10 minutes |
@@ -803,8 +815,9 @@ tests and decoded by the Swift tests.
     including a record duplicated in two files where the counted copy's file
     is deleted; no rebuild for deleting a file older than 30 days, archiving
     a rollout, replacing it with its `.zst`, or replacing a `.zst` with a
-    longer plain file; a lock whose heartbeat is fresh survives a long
-    run.
+    longer plain file; an unreadable file or directory, or a truncated
+    `.zst`, is skipped and counted without a rebuild; a lock whose heartbeat
+    is fresh survives a long run.
   - Roots: a root created after the first scan keeps the cache directory;
     an unused sibling cache directory is deleted after 31 days.
   - Time and price: folding into +5:45 and DST days; per-request

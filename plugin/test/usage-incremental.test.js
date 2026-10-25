@@ -215,6 +215,26 @@ test("a reused inode claims an unlisted old state only under the same file name"
   assert.equal(moved.rebuild,false);assert.equal(moved.states["/c/archived_sessions/rollout-a.jsonl"].offset,100);
 });
 
+test("an unreadable directory keeps its known Transcripts without a rebuild",async t=>{
+  const f=fixture(t);const path=f.transcript("live.jsonl",[assistant("live",5)]);
+  const other=join(f.env.CLAUDE_CONFIG_DIR,"projects","-work-other");mkdirSync(other);writeFileSync(join(other,"kept.jsonl"),records([assistant("kept",7)]));
+  assert.equal(tokens(await f.finish()),12);const initial=generation(f);
+  chmodSync(other,0);let hidden;
+  try{appendFileSync(path,records([assistant("more",3)]));f.stale();hidden=await f.finish();}finally{chmodSync(other,0o700);}
+  assert.equal(tokens(hidden),15);assert.equal(hidden.scan.unreadableFiles,1);assert.equal(generation(f),initial);
+  assert.equal(JSON.stringify(hidden).includes(f.root),false);
+  f.stale();const restored=await f.finish();assert.equal(tokens(restored),15);assert.equal(restored.scan.unreadableFiles,0);assert.equal(generation(f),initial);
+  rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,restored.programs);
+});
+
+test("a truncated rollout archive is skipped and counted without hiding Codex",{skip:!zlib.zstdCompressSync},async t=>{
+  const f=fixture(t);rollout(f,"whole",[meta("whole"),count(9,9)]);
+  const cut=rollout(f,"cut",[meta("cut"),count(50,50)]);const archive=zlib.zstdCompressSync(readFileSync(cut));
+  writeFileSync(cut+".zst",archive.subarray(0,archive.length-2));rmSync(cut);
+  const report=await f.finish();assert.equal(report.programs[1].tokenUsage.state,"ok");
+  assert.equal(tokens(report,"codex"),9);assert.equal(report.scan.unreadableFiles,1);
+});
+
 test("expired keys and buckets are pruned without rereading unchanged Transcripts",async t=>{
   const f=fixture(t);const now=Date.now();f.setClock(now);
   const path=f.transcript("prune.jsonl",[assistant("aging",100,{timestamp:new Date(now-30.9*86400000).toISOString()}),assistant("recent",7)]);

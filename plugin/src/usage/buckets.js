@@ -91,7 +91,8 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
     if (date >= dates[0] && date <= today && (covered === null || date < covered)) covered = date;
   }
   return { version: 1, pricingVersion: snapshot?.pricingVersion || pricingVersion, generatedAt: new Date(now).toISOString(), timeZone, runtime: "recorded", refreshing,
-    scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: snapshot?.skippedArchives || 0 }, programs };
+    scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: snapshot?.skippedArchives || 0,
+      unreadableFiles: snapshot?.unreadableFiles || 0 }, programs };
 }
 
 function pricedSummary(summary) {

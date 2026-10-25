@@ -9,27 +9,37 @@ export class ArchiveUnavailableError extends Error {
   constructor() { super("No zstd decoder is available."); this.name = "ArchiveUnavailableError"; }
 }
 
-/** One physical representation per rollout, with the live plain file preferred. */
+/**
+ * One physical representation per rollout, with the live plain file preferred.
+ * An entry that cannot be listed is skipped and its logical path returned in
+ * `unreadable`; only a Codex home, `sessions/` or `archived_sessions/` that
+ * cannot be listed sets `rootFailed`.
+ */
 export async function codexFiles(roots, cutoff) {
   const selected = new Map();
   const seenRoots = new Set();
+  const unreadable = [];
+  let rootFailed = false;
+  const skip = (path, root) => { if (root) rootFailed = true; else unreadable.push(path); };
   for (const root of roots) {
     let actual;
     try { actual = await realpath(root); }
-    catch (error) { if (error.code === "ENOENT") continue; throw error; }
+    catch (error) { if (error.code !== "ENOENT") rootFailed = true; continue; }
     if (seenRoots.has(actual)) continue;
     seenRoots.add(actual);
-    async function visit(directory, archived) {
+    async function visit(directory, archived, root) {
       let entries;
       try { entries = await readdir(directory, { withFileTypes: true }); }
-      catch (error) { if (error.code === "ENOENT") return; throw error; }
+      catch (error) { if (error.code !== "ENOENT") skip(directory, root); return; }
       for (const entry of entries) {
         const path = join(directory, entry.name);
-        if (entry.isDirectory()) { await visit(path, archived); continue; }
+        if (entry.isDirectory()) { await visit(path, archived, false); continue; }
         if (!entry.isFile() || !/^rollout-.+\.jsonl(?:\.zst)?$/.test(entry.name)) continue;
-        const metadata = await stat(path);
         const compressed = path.endsWith(".zst");
         const logicalPath = compressed ? path.slice(0, -4) : path;
+        let metadata;
+        try { metadata = await stat(path); }
+        catch (error) { if (error.code !== "ENOENT") skip(logicalPath, false); continue; }
         const key = JSON.stringify([actual, basename(logicalPath)]);
         const priority = Number(!archived) * 2 + Number(!compressed);
         const previous = selected.get(key);
@@ -39,12 +49,13 @@ export async function codexFiles(roots, cutoff) {
         }
       }
     }
-    await visit(join(actual, "sessions"), false);
-    await visit(join(actual, "archived_sessions"), true);
+    await visit(join(actual, "sessions"), false, true);
+    await visit(join(actual, "archived_sessions"), true, true);
   }
-  return [...selected.values()].filter(file => file.mtimeMs >= cutoff)
+  const files = [...selected.values()].filter(file => file.mtimeMs >= cutoff)
     .sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path))
     .map(({ priority, ...file }) => file);
+  return { files, unreadable, rootFailed };
 }
 
 /**

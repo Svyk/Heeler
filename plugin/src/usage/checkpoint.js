@@ -78,8 +78,9 @@ export function saveCheckpoint(directory, files, generation, snapshot) {
  * Match paths before inodes so moves retain their parser identity and response
  * keys. Archiving keeps the base name; a freed inode reused by another file
  * does not, so an identity claim also requires the same logical base name.
+ * A state the listing could not see (`unlisted`) is kept rather than deleted.
  */
-export function matchFiles(files, previous, now) {
+export function matchFiles(files, previous, now, unlisted = () => false) {
   const states = {};
   const claimed = new Set();
   const currentPaths = new Set(files.map(file => file.logicalPath || file.path));
@@ -113,6 +114,10 @@ export function matchFiles(files, previous, now) {
       finished: old.finished && (representationChanged
         ? file.compressed && Math.abs(file.mtimeMs - old.mtimeMs) < 1 : file.size === old.size) };
   }
-  for (const [path, state] of Object.entries(previous)) if (!claimed.has(path) && state.mtimeMs >= now - 30 * DAY) rebuild = true;
+  for (const [path, state] of Object.entries(previous)) {
+    if (claimed.has(path)) continue;
+    if (unlisted(path, state)) states[path] = state;
+    else if (state.mtimeMs >= now - 30 * DAY) rebuild = true;
+  }
   return { states, rebuild };
 }

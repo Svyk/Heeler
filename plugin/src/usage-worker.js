@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { appendFileSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { setPriority } from "node:os";
 import { readUsageRuntime } from "./usage-runtime.js";
 import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeLock, recordFailure, clearFailures, RETENTION } from "./usage/cache.js";
@@ -16,6 +16,12 @@ import { readClaudeLimits, cacheClaudeLimits } from "./usage/claude-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 class LockLostError extends Error {}
+/** The cache or lock could not be written: the run fails, unlike one unreadable Transcript. */
+class CacheWriteError extends Error {}
+const cacheWrite = write => {
+  try { return write(); } catch (error) { throw new CacheWriteError("Could not write the usage cache.", { cause: error }); }
+};
+const runFailure = error => error instanceof LockLostError || error instanceof CacheWriteError;
 /** A cache's last write: its snapshot, or, before a first commit, its newest entry. */
 function lastWritten(directory) {
   try { return statSync(join(directory, "buckets.json")).mtimeMs; }
@@ -42,7 +48,7 @@ async function run() {
   const heartbeat = () => {
     if (readJSON(lockPath)?.token !== lock.token) throw new LockLostError("worker lock lost");
     lock.heartbeat = Date.now();
-    writeJSON(lockPath, lock);
+    cacheWrite(() => writeJSON(lockPath, lock));
   };
   try {
     const now = Date.now();
@@ -60,13 +66,24 @@ async function run() {
     const maintainHeartbeat = () => { if (Date.now() - lock.heartbeat >= 1000) heartbeat(); };
     const previous = await loadCheckpoint(directory, previousSnapshot, maintainHeartbeat);
     const errors = {};
-    let files = [];
-    try { files = (await claudeFiles(roots.claude, cutoff)).map(file => ({ ...file, program: "claude" })); }
-    catch { errors.claude = "Could not read the Claude Code Transcripts."; }
-    try { files.push(...(await codexFiles(roots.codex, cutoff)).map(file => ({ ...file, program: "codex" }))); }
-    catch { errors.codex = "Could not read the Codex Transcripts."; }
+    const files = [];
+    const unlistedPaths = [];
+    const failedPrograms = new Set();
+    // One unreadable entry is skipped and counted; only a root that cannot be
+    // listed hides its program. Neither makes its known files look deleted.
+    for (const [program, list, programRoots, reason] of [
+      ["claude", claudeFiles, roots.claude, "Could not read the Claude Code Transcripts."],
+      ["codex", codexFiles, roots.codex, "Could not read the Codex Transcripts."],
+    ]) {
+      let listing;
+      try { listing = await list(programRoots, cutoff); } catch { listing = { files: [], unreadable: [], rootFailed: true }; }
+      files.push(...listing.files.map(file => ({ ...file, program })));
+      unlistedPaths.push(...listing.unreadable);
+      if (listing.rootFailed) { failedPrograms.add(program); errors[program] = reason; }
+    }
     files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
-    const match = matchFiles(files, previous?.files || {}, now);
+    const match = matchFiles(files, previous?.files || {}, now, (path, state) => failedPrograms.has(state.program)
+      || unlistedPaths.some(unlisted => path === unlisted || path.startsWith(unlisted + sep)));
     const rebuilding = !previous || match.rebuild || previousSnapshot?.limitsVersion !== 1;
     const preserveSnapshot = previousSnapshot !== null && (rebuilding || previousSnapshot.rebuilding);
     const buckets = rebuilding ? new Map() : previous.buckets;
@@ -83,12 +100,14 @@ async function run() {
         complete, pricingVersion, breakdownsVersion: 1, buckets: [...buckets.values()], errors,
         limitsVersion: 1, usageLimits: { codex: limits.codex?.report, claude: limits.claude?.report },
         nextLimitsAt: limits.codex?.nextAllowedAt, nextClaudeLimitsAt: limits.claude?.nextAllowedAt,
-        skippedArchives: Object.values(fileStates).filter(file => file.skipped).length };
-      saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
+        skippedArchives: Object.values(fileStates).filter(file => file.skipped).length,
+        unreadableFiles: unlistedPaths.length + files.filter(file => fileStates[file.logicalPath || file.path]?.unreadable).length };
+      cacheWrite(() => saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
         ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
           usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt, nextClaudeLimitsAt: progress.nextClaudeLimitsAt }
-        : { ...progress, rebuilding: false });
+        : { ...progress, rebuilding: false }));
     };
+    const appendKey = record => cacheWrite(() => appendFileSync(keysPath, JSON.stringify(record) + "\n"));
     const threads = new Map();
     const parentTotals = new Map();
     let pendingPrefix = false;
@@ -105,7 +124,7 @@ async function run() {
           if (line?.type === "session_meta" && typeof line.payload?.id === "string" && !threads.has(line.payload.id)) threads.set(line.payload.id, file);
           break;
         }
-      } catch { /* The main pass reports unavailable or unreadable archives. */ }
+      } catch (error) { if (runFailure(error)) throw error; /* The main pass reports unavailable or unreadable archives. */ }
     }
     const totalsForParent = async id => {
       if (!id || !threads.has(id)) return null;
@@ -116,7 +135,7 @@ async function run() {
             if (line?.type === "event_msg" && line.payload?.type === "token_count" && line.payload.info?.total_token_usage) totals.push(codexTotalSignature(line.payload.info.total_token_usage));
           }
           parentTotals.set(id, totals);
-        } catch { parentTotals.set(id, null); }
+        } catch (error) { if (runFailure(error)) throw error; parentTotals.set(id, null); }
       }
       return parentTotals.get(id);
     };
@@ -137,7 +156,7 @@ async function run() {
             if (keys.has(candidate.key)) continue;
             keys.set(candidate.key, candidate);
             changeBucket(buckets, candidate, 1);
-            appendFileSync(keysPath, JSON.stringify(candidate) + "\n");
+            appendKey(candidate);
             processed++;
             due ||= processed % 1000 === 0;
           }
@@ -156,9 +175,12 @@ async function run() {
           pendingPrefix ||= carry.pending.length > 0;
           state.finished = true;
           state.skipped = false;
+          state.unreadable = false;
         } catch (error) {
+          if (runFailure(error)) throw error;
+          // The file stays unfinished and is retried by the next run.
           if (error instanceof ArchiveUnavailableError) state.skipped = true;
-          else errors.codex = "Could not read the Codex Transcripts.";
+          else state.unreadable = true;
         }
         snapshot(false);
         continue;
@@ -175,7 +197,7 @@ async function run() {
           const existing = keys.get(candidate.key);
           if (!peers.has(candidate.key)) {
             peers.add(candidate.key);
-            appendFileSync(keysPath, JSON.stringify({ alias: { group: candidate.group, key: candidate.key } }) + "\n");
+            appendKey({ alias: { group: candidate.group, key: candidate.key } });
           }
           const siblings = [...peers].map(key => keys.get(key)).filter(Boolean);
           if (candidate.sidechain && siblings.some(record => !record.sidechain)) continue;
@@ -190,18 +212,20 @@ async function run() {
             if (old) { changeBucket(buckets, old, -1); keys.delete(key); }
           }
           if (winner !== candidate) {
-            if (removed.length) appendFileSync(keysPath, JSON.stringify({ replaces: removed }) + "\n");
+            if (removed.length) appendKey({ replaces: removed });
             continue;
           }
           keys.set(candidate.key, candidate);
           changeBucket(buckets, candidate, 1);
-          appendFileSync(keysPath, JSON.stringify({ ...candidate, replaces: removed }) + "\n");
+          appendKey({ ...candidate, replaces: removed });
           processed++;
           if (processed % 1000 === 0) snapshot(false);
         }
         state.finished = true;
-      } catch {
-        errors.claude = "Could not read the Claude Code Transcripts.";
+        state.unreadable = false;
+      } catch (error) {
+        if (runFailure(error)) throw error;
+        state.unreadable = true;
       }
       snapshot(false);
     }
