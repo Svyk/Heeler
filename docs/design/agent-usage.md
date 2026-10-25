@@ -539,10 +539,16 @@ size:
    `nextAllowedAt` to `limits.json` before starting `codex`, so a worker
    that dies mid-read still throttles the next one, which treats the lost
    reading as `error` with `requestFailed` (subject to the fallback below).
-2. **Shapes:** since 0.56.0, `account/read` answers `{account}` and each
-   window is `{usedPercent, windowDurationMins, resetsAt}`. From 0.48.0 to
-   0.55 it answered the bare account and windows were
-   `{used_percent, window_minutes, resets_at}`. The reader accepts both.
+2. **Shapes:** since 0.57.0, `account/read` answers `{account,
+   requiresOpenaiAuth}`. From 0.48.0 to 0.56 it is declared but answers
+   -32603 "not implemented yet"; any `account/read` error therefore still
+   leads to `account/rateLimits/read`, without a plan. Since 0.56.0 each
+   window is `{usedPercent, windowDurationMins, resetsAt}`, before that
+   `{used_percent, window_minutes, resets_at}`; the reader accepts both.
+   Codex answers a method it does not know with -32600, "Invalid request:
+   unknown variant …" since 0.54.0 and a bare "Invalid request" before
+   (`codex-rs/app-server/src/message_processor.rs`); either, or -32601, maps
+   to `programTooOld`. Other -32600 answers are errors.
 3. **Group:** only the default `rateLimits` group is used. Current Codex
    picks the group with limit id `codex`, else its first group.
 4. **Windows:** `primary` and `secondary` keep those ids, but neither id
@@ -550,9 +556,10 @@ size:
    `windowDurationMins: 10080` and no `secondary`. Either may be null, and
    the app labels each window by `durationMinutes`.
 5. **Accounts without plan limits:** an account of any type other than
-   `chatgpt` (an API key, Amazon Bedrock, Google Cloud) is reported as
-   `unavailable` with `noPlanLimits`, with no fallback: old snapshots from
-   another sign-in would not describe it.
+   `chatgpt` (an API key, Amazon Bedrock, Google Cloud), and no account while
+   `requiresOpenaiAuth` is false (a third-party or local model provider), is
+   reported as `unavailable` with `noPlanLimits`, with no fallback: old
+   snapshots from another sign-in would not describe it.
 6. **Fallback:** when the reading fails otherwise (`codex` missing or not
    runnable, the method unknown, no account signed in, an error answer, a
    timeout, or an unknown shape), use the newest `token_count.rate_limits`
@@ -826,7 +833,7 @@ tests and decoded by the Swift tests.
 | Cache directory not writable | Cached report, `refreshing: false`; no worker |
 | Worker fails 3 runs in a row | Token Usage `error`, `refreshing: false`; retried after 10 minutes |
 | Codex reading fails (too old, missing, not signed in, error, timeout) | `lastSession` fallback; without a snapshot `unavailable` or `error` |
-| Codex signed in without ChatGPT | `unavailable`, `noPlanLimits` |
+| Codex signed in without ChatGPT, or using a provider without OpenAI sign-in | `unavailable`, `noPlanLimits` |
 | Reset time of a reading has passed | Window shown expired, usage unknown |
 | Claude Code too old for `get_usage` | `unavailable`, `programTooOld` |
 | Claude sign-in without plan limits | `unavailable`, `noPlanLimits` |
@@ -877,8 +884,10 @@ tests and decoded by the Swift tests.
   - Codex limits: a stub `codex` (an npm-style `#!/usr/bin/env node` script,
     so it only runs with the recorded `PATH`) that replays app-server
     JSON-RPC and asserts no params and the recorded `CODEX_HOME`; a
-    weekly-only `primary`; the 0.48–0.55 snake_case shapes; an API key
-    account (`noPlanLimits`, no fallback); not signed in, a missing `codex`
+    weekly-only `primary`; a Codex whose `account/read` is not implemented,
+    with snake_case windows; unknown-method answers (-32601, and -32600 with
+    and without detail); an API key account and a third-party provider
+    (`noPlanLimits`, no fallback); not signed in, a missing `codex`
     and a timeout, each with and without a rollout snapshot; rollout
     snapshots with `resets_at`, `resets_in_seconds`, and another
     `limit_id`.
@@ -943,7 +952,8 @@ Tracked under #494 as vertical slices:
 
 Settled on 2026-10-23: herdr gives startup hooks `HERDR_PLUGIN_STATE_DIR`
 since 0.7.5; `account/rateLimits/read` exists since Codex `rust-v0.48.0`, its
-camelCase shapes since 0.56.0, and 0.164.0 does not require `initialized`;
+camelCase shapes since 0.56.0, a working `account/read` since 0.57.0, and
+0.164.0 does not require `initialized`;
 Codex's own-thread `thread_settings_applied` exists since 0.152.0 and
 `token_usage_record` since 0.153.0; Node ships zstd in 22.15.0 and 23.8.0
 (experimental) and not in 20.x.

@@ -55,6 +55,16 @@ export function codexLimitsWithFallback(service, fallback) {
   return service.state === "ok" || service.reason === "noPlanLimits" ? service : fallback || service;
 }
 
+/**
+ * Codex answers a method it does not know with -32600: "Invalid request:
+ * unknown variant …" since 0.54.0, a bare "Invalid request" before. -32601 is
+ * the JSON-RPC code for the same case.
+ */
+function unknownMethod(error) {
+  return error.code === -32601 || (error.code === -32600 && typeof error.message === "string"
+    && (error.message === "Invalid request" || error.message.includes("unknown variant")));
+}
+
 /** Ask the user's program over its local control protocol; never read its sign-in. */
 export async function readCodexLimits(runtime, directory) {
   if (typeof runtime.codex !== "string" || !runtime.codex.startsWith("/")) return unavailable("programMissing");
@@ -62,11 +72,15 @@ export async function readCodexLimits(runtime, directory) {
     env: runtime.env, directory }, ({ send, finish }) => {
     let plan;
     let stage = 1;
+    const readLimits = () => { stage = 3; send({ id: 3, method: "account/rateLimits/read" }); };
     send({ id: 1, method: "initialize", params: { clientInfo: { name: "heeler", version: "0.7.0" } } });
     return message => {
       if (!object(message) || message.id !== stage) return;
       if (message.error) {
-        finish(message.error.code === -32601 ? unavailable("programTooOld") : failed("requestFailed"));
+        // Codex 0.48.0 to 0.56 answer account/read with "not implemented yet"
+        // but already serve rate limits, without a plan.
+        if (stage === 2) readLimits();
+        else finish(object(message.error) && unknownMethod(message.error) ? unavailable("programTooOld") : failed("requestFailed"));
         return;
       }
       if (!Object.hasOwn(message, "result")) { finish(failed("invalidResponse")); return; }
@@ -75,14 +89,16 @@ export async function readCodexLimits(runtime, directory) {
         send({ method: "initialized" });
         send({ id: 2, method: "account/read", params: {} });
       } else if (stage === 2) {
-        const account = object(message.result) && Object.hasOwn(message.result, "account") ? message.result.account : message.result;
-        if (account === null) { finish(unavailable("notSignedIn")); return; }
+        if (!object(message.result) || !Object.hasOwn(message.result, "account")) { finish(failed("invalidResponse")); return; }
+        const account = message.result.account;
+        // A provider that does not use OpenAI sign-in (a third-party or local
+        // model provider) has no plan limits, signed in or not.
+        if (account === null) { finish(unavailable(message.result.requiresOpenaiAuth === false ? "noPlanLimits" : "notSignedIn")); return; }
         if (!object(account) || typeof account.type !== "string") { finish(failed("invalidResponse")); return; }
         if (account.type !== "chatgpt") { finish(unavailable("noPlanLimits")); return; }
         const reportedPlan = account.planType ?? account.plan_type;
         if (typeof reportedPlan === "string") plan = reportedPlan;
-        stage = 3;
-        send({ id: 3, method: "account/rateLimits/read" });
+        readLimits();
       } else {
         const observedAt = new Date().toISOString();
         const windows = windowsFrom(message.result?.rateLimits ?? message.result?.rate_limits, observedAt);

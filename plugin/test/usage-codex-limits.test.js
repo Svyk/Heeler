@@ -40,12 +40,18 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   else if (request.method === 'initialized') initialized = true;
   else if (request.method === 'account/read') {
     assert.equal(initialized, true);
-    const account = mode === 'signed-out' ? null : {type: mode === 'api-key' ? 'apiKey' : 'chatgpt', email: 'private-account@example.invalid', planType: 'plus'};
-    send({id: request.id, result: mode === 'legacy' ? account : {account}});
+    // Codex 0.48.0 to 0.56 declare account/read but do not implement it.
+    if (mode === 'legacy') return send({id: request.id, error: {code: -32603, message: 'account/read is not implemented yet'}});
+    if (mode === 'unknown-bare') return send({id: request.id, error: {code: -32600, message: 'Invalid request'}});
+    const account = mode === 'signed-out' || mode === 'third-party' ? null : {type: mode === 'api-key' ? 'apiKey' : 'chatgpt', email: 'private-account@example.invalid', planType: 'plus'};
+    send({id: request.id, result: {account, requiresOpenaiAuth: mode !== 'third-party'}});
   } else if (request.method === 'account/rateLimits/read') {
     assert.equal(Object.hasOwn(request, 'params'), false);
     if (mode === 'timeout') return;
     if (mode === 'unknown') return send({id: request.id, error: {code: -32601, message: 'unknown method'}});
+    if (mode === 'unknown-variant') return send({id: request.id, error: {code: -32600, message: 'Invalid request: unknown variant \`account/rateLimits/read\`, expected one of \`initialize\`'}});
+    if (mode === 'unknown-bare') return send({id: request.id, error: {code: -32600, message: 'Invalid request'}});
+    if (mode === 'invalid-params') return send({id: request.id, error: {code: -32600, message: 'Invalid request: invalid type: string, expected a boolean'}});
     if (mode === 'error') return send({id: request.id, error: {code: -32000, message: 'private-account@example.invalid private failure'}});
     if (mode === 'malformed') return send({id: request.id, result: {unexpected: true}});
     const reset = mode === 'near-reset' ? Math.floor(Date.now() / 1000) + 2 : ${expires};
@@ -105,15 +111,18 @@ test("Codex limits use the recorded npm-style executable environment and default
 const rolloutLimits = (timestamp, primary, extra = {}) => ({ type: "event_msg", timestamp,
   payload: { type: "token_count", info: null, rate_limits: { primary, secondary: null, ...extra } } });
 
-test("legacy accounts and snake-case windows remain supported", async t => {
+test("Codex without account/read still reads its snake-case limits without a plan", async t => {
   const f = fixture(t, "legacy");
   const limits = codexLimits(await f.finish());
   assert.equal(limits.source, "service");
+  assert.equal(Object.hasOwn(limits, "plan"), false);
   assert.equal(limits.windows[0].usedPercent, 18);
   assert.equal(limits.windows[0].durationMinutes, 10080);
+  assert.deepEqual(readFileSync(f.requests, "utf8").trim().split("\n").map(line => JSON.parse(line).method), ["initialize", "initialized", "account/read", "account/rateLimits/read"]);
 });
 
 for (const [mode, state, reason] of [["missing", "unavailable", "programMissing"], ["unknown", "unavailable", "programTooOld"],
+  ["unknown-variant", "unavailable", "programTooOld"], ["unknown-bare", "unavailable", "programTooOld"], ["invalid-params", "error", "requestFailed"],
   ["signed-out", "unavailable", "notSignedIn"], ["error", "error", "requestFailed"], ["malformed", "error", "invalidResponse"], ["timeout", "error", "timeout"]]) {
   for (const fallback of [false, true]) test(`${mode} ${fallback ? "uses the latest default rollout snapshot" : "reports a filtered failure without a snapshot"}`, async t => {
     const f = fixture(t, mode);
@@ -136,8 +145,8 @@ for (const [mode, state, reason] of [["missing", "unavailable", "programMissing"
   });
 }
 
-test("accounts without plan limits never reuse a previous session's limits", async t => {
-  const f = fixture(t, "api-key");
+for (const mode of ["api-key", "third-party"]) test(`${mode} accounts without plan limits never reuse a previous session's limits`, async t => {
+  const f = fixture(t, mode);
   f.transcript([rolloutLimits(new Date().toISOString(), {used_percent: 33, window_minutes: 300, resets_at: f.expires})]);
   assert.deepEqual(codexLimits(await f.finish()), {state: "unavailable", reason: "noPlanLimits"});
   assert.equal(readFileSync(f.requests, "utf8").includes("account/rateLimits/read"), false);
