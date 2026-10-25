@@ -1,4 +1,4 @@
-<!-- Translated from docs/guides/chat.md at 657257fc -->
+<!-- Translated from docs/guides/chat.md at eb985b1d -->
 # 在 Chat 中使用 Agent
 
 Chat 把 Agent 的对话显示成消息，而不是终端画面。你可以查看 Agent 做了什么、回复它，并用按钮回答它的提问。
@@ -22,6 +22,14 @@ herdr integration install claude
 ```
 
 按需把 `claude` 换成 `codex`、`pi`、`omp`、`grok` 或 `opencode`。OpenCode 需要 2.x 版本，并且 Host 上要有 `sqlite3` 或 `python3`。
+
+启动 Codex 时加上 `--no-daemon`，继续原来的对话用 `codex --no-daemon resume`：
+
+```sh
+codex --no-daemon
+```
+
+Codex 的共享后台服务无法告诉 herdr 对话在哪个终端里，Chat 可能一直等待，或显示另一个 Agent 的对话。只在 Codex 设置中关闭 `daemon_auto_start` 是不够的。
 
 ## 打开 Chat
 
