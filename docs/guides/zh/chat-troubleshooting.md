@@ -1,4 +1,4 @@
-<!-- Translated from docs/guides/chat-troubleshooting.md at eb985b1d -->
+<!-- Translated from docs/guides/chat-troubleshooting.md at 3e17e7d8 -->
 # Chat 疑难排解
 
 这里是 [Chat](chat.md) 中最常见问题的处理方法。Chat 里的其他提示大多会直接说明该怎么做。如果 Chat 做不到某件事，轻点 **Show Agent Terminal**，在终端中继续。
@@ -15,7 +15,11 @@ herdr 还没有告诉 Heeler 这个 Agent 正在哪个对话中。
 2. 在 Host 上运行 `herdr integration status`，如果该程序的集成不是 `current`，安装它（参见[配置 Host](chat.md#配置-host)），然后重启 Agent。
 3. 轻点 **Check Again**。
 
-如果已经发送过提示，Codex 仍在等待，很可能是启动时没有加 `--no-daemon`（参见[配置 Host](chat.md#配置-host)）。herdr 重启后恢复的 Agent 也不带这个参数。请退出 Codex，然后运行 `codex --no-daemon resume` 继续原来的对话。
+如果已经发送过提示，Codex 仍在等待，很可能是启动时没有加 `--no-daemon`：参见下一节。
+
+## Codex Started Without --no-daemon
+
+Codex 启动时没有加 `--no-daemon`，而它的后台服务正在运行，所以 herdr 无法判断它的对话在哪个终端里（参见[配置 Host](chat.md#配置-host)）。herdr 重启后恢复的 Agent 也不带这个参数。请退出 Codex，然后运行 `codex --no-daemon resume` 继续原来的对话。如果已经显示了对话，顶部的横幅会提醒它可能属于另一个终端。
 
 ## Conversation Not Found
 
