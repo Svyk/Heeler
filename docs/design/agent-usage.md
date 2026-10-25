@@ -818,19 +818,36 @@ tests and decoded by the Swift tests.
   returns a decoded `AgentUsageReport`; POSIX only via `requirePOSIXHost`.
 - **State:** an `AgentUsageStore` per Host owns the report, its freshness, and
   the refreshing re-query loop.
-- **Toggle:** "Claude Code limits" per Host, stored on the device, default
-  off, with an explanation that the plugin asks Claude Code on the computer
+- **Toggle:** "Claude Code limits" per Host, in the Usage Limits sheet,
+  stored on the device, default off, with an explanation that the plugin asks Claude Code on the computer
   for its plan limits, that neither the plugin nor Heeler ever handles the
   sign-in, and that this use is not officially supported.
 - **Surfaces:**
-  - Host detail gains a Usage section: per program, a bar for each Usage
-    Limits window with its reset time and source age; below, today and 30-day
-    Token Usage with estimated cost.
-  - Tapping it opens the Usage page: today / 7 days / 30 days totals, a 30-day
-    daily chart, per-model split, top 10 directories, the coverage note
-    (`coveredFrom`, skipped archives, unreadable files), the price table
-    date, and a note that Codex shows its default limit group only.
-- **Refresh:** query when the section or page appears, on pull to refresh, and
+  - A Usage tab, between Terminals and Hosts, reads All Hosts by default
+    and can switch to one Host from its scope menu. Token Usage adds up
+    across Hosts by the day each Host reported; Usage Limits are never
+    merged and stay listed per Host. Hosts that cannot report (not
+    connected, native Windows, an old plugin, a failed first read) are left
+    out of the totals and listed with the reason. When Hosts report in
+    different time zones, a note says days follow each Host's zone.
+  - The tab shows, for today, 7 days or 30 days and in estimated cost or
+    tokens: the total, a chip per Host and program for its tightest Usage
+    Limits window, a 30-day daily chart that can be scrubbed, a calendar of
+    the last five weeks, the Hosts and programs that make up the total, and
+    a Models / Directories / Days breakdown. A day opens a sheet with its
+    split by Host, program and token type. The limits sheet lists every
+    window per Host with the Claude Code limits toggle and the note that
+    Codex shows its default limit group only. The footer carries the
+    estimated cost note, each Host's coverage (`coveredFrom`, skipped
+    archives, unreadable files), and the price table date.
+  - On an iPad with a sidebar, Usage is a third list beside Agents and
+    Terminals in the sidebar's list menu: All Hosts and each Host with its
+    30-day figure; the detail column uses two columns when wide enough.
+  - Host detail keeps a short Usage section (30-day estimated cost, a
+    30-day strip, the tightest limit) that opens the Usage tab scoped to
+    that Host.
+- **Refresh:** query when the section or tab appears (the tab polls every
+  Host, whatever its scope), on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the
   Usage Limits requests; polling stops when it turns false. One "Refreshing"
   indicator covers the whole run; pull to refresh ends after its own read.

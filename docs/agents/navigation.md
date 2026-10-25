@@ -116,9 +116,16 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
 
 ## Other feature routes
 
-- **Usage Limits and Token Usage:** [HostOnboardingView](../../Sources/Heeler/Hosts/HostOnboardingView.swift)
-  embeds [AgentUsageSection](../../Sources/Heeler/Usage/AgentUsageSection.swift),
-  which opens [AgentUsageView](../../Sources/Heeler/Usage/AgentUsageView.swift).
+- **Usage Limits and Token Usage:** `ConsoleView.usageTab()` hosts the Usage
+  tab: [AgentUsageTabView and the iPad sidebar list](../../Sources/Heeler/Usage/AgentUsageTab.swift)
+  around [AgentUsageDashboard](../../Sources/Heeler/Usage/AgentUsageDashboard.swift),
+  with [charts](../../Sources/Heeler/Usage/AgentUsageCharts.swift) and
+  [sheets](../../Sources/Heeler/Usage/AgentUsageSheets.swift).
+  [AgentUsageScope](../../Sources/Heeler/Usage/AgentUsageScope.swift) adds
+  Token Usage across Hosts and lists the Hosts left out.
+  [HostOnboardingView](../../Sources/Heeler/Hosts/HostOnboardingView.swift)
+  embeds the short [AgentUsageSection](../../Sources/Heeler/Usage/AgentUsageSection.swift),
+  which opens the tab scoped to that Host.
   `ConsoleStore.agentUsageStore(for:)` retains an
   [AgentUsageStore](../../Sources/Heeler/Usage/AgentUsageStore.swift) per Host;
   it owns refresh polling and the device's per-Host Claude limits preference.
@@ -134,6 +141,7 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
   in [AgentUsageTests](../../Tests/HeelerTests/AgentUsageTests.swift),
   [probe](../../Tests/HeelerTests/AgentUsageProbeTests.swift),
   [presentation](../../Tests/HeelerTests/AgentUsagePresentationTests.swift),
+  [scope](../../Tests/HeelerTests/AgentUsageScopeTests.swift),
   [page and interactions](../../Tests/HeelerTests/AgentUsagePageTests.swift),
   [limits and disclosure](../../Tests/HeelerTests/AgentUsageLimitsTests.swift),
   and [real SSH](../../Tests/HeelerTests/HeelerSSHTransportBehaviorE2ETests+Usage.swift).
