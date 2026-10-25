@@ -29,7 +29,7 @@ extension ChatUnavailableReason {
         case .noSession(.claude):
             "herdr hasn't reported a Claude Code session ID for this Agent. Chat will keep checking. You can continue in the Agent terminal."
         case .noSession(.codex):
-            "herdr hasn't reported a Codex session ID for this Agent. Codex reports it after the first prompt, also after a resume, so send a prompt to show the conversation here. Chat will keep checking, and you can continue in the Agent terminal."
+            "Codex reports its conversation after a prompt. Send one to show it here."
         case .noSession(.pi):
             "herdr hasn't reported a Pi conversation for this Agent yet. Pi reports it once it has started, after you answer whether to trust the project folder. If this lasts, check the Pi integration on the Host. Chat will keep checking, and you can continue in the Agent terminal."
         case .noSession(.omp):
@@ -69,7 +69,7 @@ extension ChatUnavailableReason {
     func explanation(launchNotice: ChatLaunchNotice?) -> String {
         guard launchNotice == .codexSharedServer, self == .noSession(.codex) else { return explanation }
         let flag = ChatLaunchNotice.unbrokenNoDaemon
-        return "This Codex was started without \(flag), so herdr can't tell which terminal its conversation is in. Exit Codex, then run codex \(flag) resume in the Agent terminal. Chat will keep checking."
+        return "Codex was started without \(flag). Exit it, then run codex \(flag) resume in the Agent terminal."
     }
 
     /// One line for a banner over the timeline. `showingSavedMessages` is

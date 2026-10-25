@@ -430,7 +430,7 @@ struct AgentChatStoreTests {
     func missingSessionExplainsTheMissingIdentityWithoutAnInstallDiagnosis(program: ChatProgram) {
         let reason = ChatUnavailableReason.noSession(program)
         #expect(reason.title == "Waiting for Conversation")
-        #expect(reason.explanation.contains("session ID"))
+        #expect(reason.explanation.contains("report"))
         #expect(!reason.explanation.lowercased().contains("install"))
         #expect(reason.offersRetry)
     }
