@@ -610,6 +610,12 @@ plugin asks Claude Code itself, as it asks Codex.
   this way). That error maps to `unavailable` with `programTooOld`, not to
   the failure back-off below, so an updated Claude Code is picked up at the
   next allowed request.
+- Claude Code 2.1.12 and earlier leave an unknown control request
+  unanswered, so `get_usage` would only time out. The worker runs `claude
+  --version` (5-second limit) once per installed executable, keyed in
+  `limits.json` by the file's device, inode, size and mtime, which an update
+  changes; a version at or before 2.1.12 is `programTooOld` without starting
+  the stream-json process. An unreadable version starts it as usual.
 - Windows read: `five_hour`, `seven_day`, `seven_day_opus`,
   `seven_day_sonnet`, any other non-null object with a `utilization` and a
   `resets_at` as `claude:<key>`, and each `model_scoped[]` entry as

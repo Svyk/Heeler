@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { statSync } from "node:fs";
 import { runLimitsRequest } from "./limits-process.js";
 
 const unavailable = reason => ({ state: "unavailable", reason });
@@ -36,9 +38,40 @@ function readingFrom(body) {
     ...(typeof body.subscription_type === "string" ? { plan: body.subscription_type } : {}), windows };
 }
 
+// Claude Code 2.1.12 and earlier leave an unknown control request unanswered,
+// so get_usage would only time out. Later versions answer it with an error.
+const LAST_SILENT_VERSION = [2, 1, 12];
+const atOrBefore = (version, limit) => {
+  for (let index = 0; index < limit.length; index++) if (version[index] !== limit[index]) return version[index] < limit[index];
+  return true;
+};
+
+/**
+ * The version of the recorded `claude`, asked once per installed executable:
+ * the memo is keyed by the file it resolves to, which an update replaces.
+ */
+export async function claudeVersion(runtime, directory, known) {
+  if (typeof runtime.claude !== "string" || !runtime.claude.startsWith("/")) return null;
+  let identity;
+  try {
+    const file = statSync(runtime.claude);
+    identity = [file.dev, file.ino, file.size, file.mtimeMs].join(":");
+  } catch { return null; }
+  if (known?.identity === identity) return known;
+  const version = await new Promise(resolve => execFile(runtime.claude, ["--version"], {
+    cwd: directory, env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
+    timeout: 5_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024,
+  }, (error, stdout) => {
+    const match = error ? null : /^\s*(\d+)\.(\d+)\.(\d+)/.exec(stdout);
+    resolve(match ? match.slice(1).map(Number) : null);
+  }));
+  return { identity, version };
+}
+
 /** Ask Claude Code to handle its own sign-in. No prompt or user message is sent. */
-export async function readClaudeLimits(runtime, directory) {
+export async function readClaudeLimits(runtime, directory, version = null) {
   if (typeof runtime.claude !== "string" || !runtime.claude.startsWith("/")) return unavailable("programMissing");
+  if (Array.isArray(version) && atOrBefore(version, LAST_SILENT_VERSION)) return unavailable("programTooOld");
   return runLimitsRequest({ executable: runtime.claude,
     args: ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
       "--no-session-persistence", "--strict-mcp-config", "--settings", '{"disableAllHooks":true}'],

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, symlinkSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, symlinkSync, existsSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,7 @@ function fixture(t, initialMode = "success") {
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const root=${JSON.stringify(root)};
+if(process.argv[2]==='--version'){fs.appendFileSync(root+'/versions','checked\\n');process.stdout.write((fs.existsSync(root+'/version')?fs.readFileSync(root+'/version','utf8'):'2.1.309')+' (Claude Code)\\n');process.exit(0);}
 assert.deepEqual(process.argv.slice(2), ['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--no-session-persistence','--strict-mcp-config','--settings','{"disableAllHooks":true}']);
 assert.equal(process.env.CLAUDE_CONFIG_DIR,${JSON.stringify(env.CLAUDE_CONFIG_DIR)});
 assert.equal(process.env.HOME,${JSON.stringify(env.HOME)});
@@ -47,7 +48,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  if(request.request.subtype==='initialize') {assert.equal(initialized,false); initialized=true; send({request_id:request.request_id,subtype:'success',response:{}});return;}
  assert.equal(initialized,true);assert.deepEqual(request.request,{subtype:'get_usage',skip_behaviors:true});
  const mode=fs.readFileSync(root+'/mode','utf8');
- if(mode==='timeout')return;
+ if(mode==='timeout'||mode==='silent')return;
  if(mode==='error'||mode==='old')return send({request_id:request.request_id,subtype:'error',error:mode==='old'?'Unsupported control request subtype: get_usage':'private failure'});
  const reset=new Date(Number(fs.readFileSync(root+'/clock'))+30000).toISOString();
  const response={subscription_type:'max',rate_limits_available:mode!=='no-plan',rate_limits:{
@@ -85,7 +86,8 @@ const read=fs.readFileSync;fs.readFileSync=function(path,...args){if(String(path
   const finish = async (enabled = true) => { for (let i = 0; i < 500; i++) { const report = query(enabled); if (!report.refreshing) return report; await sleep(25); } assert.fail("worker did not finish"); };
   const requests = () => existsSync(join(root, "requests")) ? readFileSync(join(root, "requests"), "utf8").trim().split("\n").map(JSON.parse) : [];
   t.after(() => { try { process.kill(JSON.parse(readFileSync(join(cache(), "worker.lock"))).pid, "SIGKILL"); } catch {} rmSync(root, { recursive: true, force: true }); });
-  return { root, env, now, mode, setClock, query, finish, requests, cache, executable };
+  const versions = () => existsSync(join(root, "versions")) ? readFileSync(join(root, "versions"), "utf8").trim().split("\n").length : 0;
+  return { root, env, now, mode, setClock, query, finish, requests, cache, executable, versions };
 }
 
 test("Claude limits use the recorded process with only initialize and get_usage", async t => {
@@ -206,4 +208,25 @@ test("an answer without plan limits drops the last good reading before a later f
   cache = cacheClaudeLimits(cache, { state: "error", reason: "timeout" }, 2);
   assert.deepEqual(cache.report, { state: "error", reason: "timeout" });
   assert.equal(Object.hasOwn(cache, "lastGood"), false);
+});
+
+test("a Claude Code that leaves unknown requests unanswered is too old without a timeout", async t => {
+  const f = fixture(t, "silent");
+  writeFileSync(join(f.root, "version"), "2.1.12");
+  const started = Date.now();
+  assert.deepEqual(reading(await f.finish()), { state: "unavailable", reason: "programTooOld" });
+  assert.ok(Date.now() - started < 10_000);
+  assert.deepEqual(f.requests(), []);
+  assert.equal(f.versions(), 1);
+  // The version is asked once per installed executable.
+  f.setClock(f.now + 60_000);
+  assert.deepEqual(reading(await f.finish()), { state: "unavailable", reason: "programTooOld" });
+  assert.equal(f.versions(), 1);
+  // An update replaces the executable and is picked up at the next allowed request.
+  writeFileSync(join(f.root, "version"), "2.1.309");
+  appendFileSync(f.executable, "// updated\n");
+  f.mode("success");
+  f.setClock(f.now + 120_000);
+  assert.equal(reading(await f.finish()).state, "ok");
+  assert.equal(f.versions(), 2);
 });
