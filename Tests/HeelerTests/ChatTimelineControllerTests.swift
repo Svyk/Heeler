@@ -201,34 +201,69 @@ struct ChatTimelineControllerTests {
         }
     }
 
-    @Test func aRowMeasuredAboveKeepsADragPulledPastTheEnd() async throws {
+    /// A row above the screen measured while a drag or its bounce holds
+    /// the list past its end keeps its old height: the offset adjustment
+    /// for it would be clamped to the new end under UIKit's own tracking,
+    /// which throws the rows out. Hosted tests cannot hold an overscroll
+    /// (nothing tracks, so UIKit clamps it at the next layout), so the
+    /// layout is told directly; it takes the height once the list is back.
+    @Test func aRowMeasuredAboveWaitsWhileTheListIsPastItsEnd() async throws {
         let controller = ChatTimelineController(actions: ChatTimelineActions())
         let rows = await ChatRowBuilder().rows(for: ChatTimelineInput(entries: Self.entries(0..<60)))
         try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
             controller.apply(Self.state(rows))
             await Self.settle(controller)
             let view = controller.timeline
-            let layout = view.collectionViewLayout
-            let top = try #require(view.indexPathsForVisibleItems.map(\.item).min())
-            let above = IndexPath(item: top - 3, section: 0)
+            let layout = try #require(view.collectionViewLayout as? ChatTimelineLayout)
+            Self.drag(controller, to: view.maxOffsetY - 400)
+            await Self.settle(controller)
+            let (anchor, before) = try #require(Self.firstFullyVisibleRow(controller))
+            let above = IndexPath(item: try #require(layout.index(of: anchor)) - 3, section: 0)
             let original = try #require(layout.layoutAttributesForItem(at: above))
             let measured = try #require(original.copy() as? UICollectionViewLayoutAttributes)
             measured.size.height += 40
+            let offset = view.contentOffset.y
 
-            // A drag pulls the list 20 points past its end, and a row
-            // above the screen is measured, as one is when a scroll starts.
-            controller.scrollViewWillBeginDragging(view)
-            view.contentOffset.y = view.maxOffsetY + 20
-            let anchor = try #require(controller.visibleRowIDs.last)
-            let before = try #require(Self.screenY(of: anchor, in: controller))
-            layout.invalidateLayout(
-                with: layout.invalidationContext(
-                    forPreferredLayoutAttributes: measured, withOriginalAttributes: original))
+            var pastEnd = true
+            layout.isPastEnd = { pastEnd }
+            #expect(!layout.shouldInvalidateLayout(forPreferredLayoutAttributes: measured, withOriginalAttributes: original))
             view.layoutIfNeeded()
+            #expect(abs((layout.layoutAttributesForItem(at: above)?.size.height ?? 0) - original.size.height) <= 0.5)
+            #expect(abs(view.contentOffset.y - offset) <= 0.5)
 
-            #expect(abs(view.contentOffset.y - (view.maxOffsetY + 20)) <= 0.5)
-            let after = try #require(Self.screenY(of: anchor, in: controller))
-            #expect(abs(after - before) <= 0.5)
+            pastEnd = false
+            layout.applyHeldHeights()
+            view.layoutIfNeeded()
+            #expect(abs((layout.layoutAttributesForItem(at: above)?.size.height ?? 0) - measured.size.height) <= 0.5)
+            #expect(abs(view.contentOffset.y - (offset + 40)) <= 0.5)
+            #expect(abs(try #require(Self.screenY(of: anchor, in: controller)) - before) <= 0.5)
+        }
+    }
+
+    /// Rows arriving while a drag holds the list past its end wait until it
+    /// is back: applying them clamps the offset to the new end, and the drag
+    /// pulls it back on its next frame, so the rows flash by the overscroll.
+    @Test func rowsArrivingWhileTheListIsPastItsEndWaitUntilItIsBack() async throws {
+        let controller = ChatTimelineController(actions: ChatTimelineActions())
+        let builder = ChatRowBuilder()
+        let rows = await builder.rows(for: ChatTimelineInput(entries: Self.entries(0..<60)))
+        let more = await builder.rows(for: ChatTimelineInput(entries: Self.entries(0..<61)))
+        try await withTestWindow(frame: Self.frame, rootViewController: controller) { _ in
+            controller.apply(Self.state(rows))
+            await Self.settle(controller)
+            let view = controller.timeline
+            let count = view.numberOfItems(inSection: 0)
+
+            controller.scrollViewWillBeginDragging(view)
+            let pulled = view.maxOffsetY + 100
+            view.contentOffset.y = pulled
+            controller.apply(Self.state(more, revision: 2))
+            #expect(abs(view.contentOffset.y - pulled) <= 0.5)
+            #expect(view.numberOfItems(inSection: 0) == count)
+
+            // The bounce brings the list back to its end.
+            view.contentOffset.y = view.maxOffsetY
+            #expect(view.numberOfItems(inSection: 0) == count + 1)
         }
     }
 
@@ -941,10 +976,14 @@ struct ChatTimelineControllerTests {
             controller.apply(Self.foldState(rows, turns: running, activity: .working))
             await Self.settle(controller)
             let view = controller.timeline
-            // Among the last turn's steps, its answer out of sight.
-            let answer = try #require(controller.cellFrame(of: .entry(ChatEntryID("a2"))))
-            Self.drag(controller, to: answer.minY - view.bounds.height - 600)
-            await Self.settle(controller)
+            // Among the last turn's steps, its answer out of sight. Steps
+            // measure shorter than their estimates as they come on screen and
+            // can pull the answer back up, so drag again from where it lands.
+            for _ in 0..<3 {
+                guard let answer = controller.cellFrame(of: .entry(ChatEntryID("a2"))) else { break }
+                Self.drag(controller, to: answer.minY - view.bounds.height - 600)
+                await Self.settle(controller)
+            }
             #expect(!controller.visibleRowIDs.contains(.entry(ChatEntryID("a2"))))
             let top = view.contentOffset.y + view.adjustedContentInset.top
             let first = try #require(controller.visibleRowIDs.first)
@@ -1876,3 +1915,4 @@ private struct ChatTimelineChromeHost: View {
         .ignoresSafeArea()
     }
 }
+

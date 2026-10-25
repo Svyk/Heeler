@@ -21,6 +21,9 @@ Entries reference the pull request that made the change.
   CentOS Stream, AlmaLinux and Rocky Linux, how to confirm it from the audit
   log, and the small policy module that allows it, in English or Simplified
   Chinese. (#477)
+- Read how to use Chat, including setting up the Host for each program,
+  sending messages, and answering a Blocked Agent, and look up what each Chat
+  message means, in English or Simplified Chinese. (#511)
 - See the Agent's task title in the detail header, with its harness and
   working directory on a second line. (#480)
 - Chat shows Grok Build conversations on macOS and Linux Hosts: messages,
@@ -67,9 +70,16 @@ Entries reference the pull request that made the change.
   to fill the screen still loads them by itself. (#507)
 - Chat's Collapse Steps and Jump to Latest buttons are smaller, so they
   cover less of the conversation; they are as easy to tap. (#507)
+- The expanded Agent title centres on the screen. (#485, #510)
 
 ### Fixed
 
+- On iPad, Show Chat and the More menu at the top of an Agent or Shell
+  Terminal respond to taps again; they now sit in the bar beside Show
+  Sidebar, and Chat's buttons sit in the same place. Show Chat uses a
+  single text bubble drawn at the bar's own icon size and weight, and
+  Show Agent Terminal a chat bubble with code; Open Terminal now shows a
+  window with a plus so the two stay apart in the More menu. (#510)
 - Show Connecting and saved Chats on cold launch while configured Hosts
   start connecting, instead of briefly showing Agent Gone or No Agents.
   (#504)
@@ -77,8 +87,9 @@ Entries reference the pull request that made the change.
   when the keyboard leaves less room, including from sidebar search. (#505)
 - Line up a running tool's spinner in Chat with the first line of its
   title, instead of below it. (#507)
-- Stop Chat from jittering when you pull past the newest message in a
-  conversation you just opened. (#507)
+- Stop Chat from jumping when you pull past the newest message, the list
+  bounces back from it, or you catch it mid-bounce, such as while the Agent
+  is working. (#507, #510)
 - Prevent a freeze when returning from a Shell Terminal to the Agent while
   the outgoing terminal surface is still updating. (#481)
 - Center the subagent glyph on its Chat row's title instead of riding
@@ -92,6 +103,11 @@ Entries reference the pull request that made the change.
   fades out at the edge it scrolls past. (#480)
 - Show long Composer notices whole, up to six lines, instead of cutting
   them after three, which could hide what to do next. (#482)
+- Move the Agents and Terminals filter, presentation and new-item controls
+  to the bottom right of the sidebar, on an iPhone Duo's inner display and in
+  landscape on large iPhones, so they are within reach and the sidebar title
+  stays whole. On those layouts, the sidebar can also be dragged wider, up
+  to 600 points. (#485)
 
 ## [0.1.15] - 2026-10-19
 

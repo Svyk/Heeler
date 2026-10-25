@@ -76,6 +76,9 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     private lazy var collectionView = ChatCollectionView(frame: .zero, collectionViewLayout: layout)
     private var dataSource: UICollectionViewDiffableDataSource<Int, ChatRowID>?
     private var applied: ChatTimelineState?
+    /// The newest update that arrived while the list was held past its end,
+    /// applied once it is back.
+    private var heldState: ChatTimelineState?
     /// Every built row, folded ones included, so what a folded row has
     /// open survives its fold.
     private var allRows: [ChatRowID: ChatRow] = [:]
@@ -196,7 +199,6 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
             guard let self else { return false }
             return latch.isFollowing && !isJumpAnimating
         }
-        collectionView.isUserScrolling = { [weak self] in self?.latch.isUserScrolling ?? false }
         layout.itemIDs = { [weak self] in self?.dataSource?.snapshot().itemIdentifiers ?? [] }
         layout.rowInfo = { [weak self] id in
             guard let self, let row = rowsByID[id] else { return nil }
@@ -211,6 +213,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         }
         layout.isFollowing = { [weak self] in self?.latch.isFollowing ?? true }
         layout.disclosureAnchor = { [weak self] in self?.disclosureAnchor }
+        layout.isPastEnd = { [weak self] in self?.isHeldPastEnd ?? false }
 
         let registration = UICollectionView.CellRegistration<ChatHostingCell, ChatRowID> {
             [weak self] cell, _, id in
@@ -263,6 +266,13 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func apply(_ state: ChatTimelineState) {
         loadViewIfNeeded()
         guard let dataSource else { return }
+        // Applying rows clamps an offset past the end to the new end, which
+        // the drag or bounce then undoes on its next frame.
+        if isHeldPastEnd {
+            heldState = state
+            return
+        }
+        heldState = nil
         if let applied, applied.generation == state.generation, applied.revision == state.revision {
             return
         }
@@ -851,6 +861,24 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         ChatFollowLatch.isAtEnd(offset: collectionView.contentOffset.y, maxOffset: collectionView.maxOffsetY)
     }
 
+    /// A drag or its bounce holding the list past its end. UIKit moves the
+    /// offset itself then, and any change to it throws the rows out, so the
+    /// timeline holds its rows and their heights until the list is back
+    /// within its bounds.
+    private var isHeldPastEnd: Bool {
+        latch.isUserScrolling && collectionView.contentOffset.y > collectionView.maxOffsetY + 0.5
+    }
+
+    /// Catches up on what the list held while it was past its end.
+    private func releaseHoldIfBack() {
+        guard !isHeldPastEnd else { return }
+        layout.applyHeldHeights()
+        if let state = heldState {
+            heldState = nil
+            apply(state)
+        }
+    }
+
     /// Reported on the next turn: the change often happens inside a
     /// SwiftUI update, which must not mutate state.
     private func noteFollowing() {
@@ -889,6 +917,7 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if disclosureAnchor == nil { latch.scrolled(isAtEnd: isAtEnd) }
         noteFollowing()
+        releaseHoldIfBack()
         notePull()
         requestOlderIfShort()
         noteCollapseAvailability()
@@ -904,11 +933,16 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
         guard !decelerate else { return }
         latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd)
         noteFollowing()
+        releaseHoldIfBack()
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd)
+        // A finger that catches the momentum or the bounce stops it here,
+        // past the end as often as not; the list rests where it was caught,
+        // and following there would pin it to the end under the finger.
+        latch.userScrollEnded(isAtEnd: disclosureAnchor == nil && isAtEnd && !scrollView.isTracking)
         noteFollowing()
+        releaseHoldIfBack()
     }
 
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
@@ -1036,9 +1070,6 @@ final class ChatTimelineController: UIViewController, UICollectionViewDelegate {
 /// rotation in one place.
 final class ChatCollectionView: UICollectionView {
     var shouldPin: () -> Bool = { false }
-    /// Whether a user scroll is underway, from a drag's start through its
-    /// momentum. Only then does a bounce bring a kept overscroll back.
-    var isUserScrolling: () -> Bool = { false }
 
     var minOffsetY: CGFloat { -adjustedContentInset.top }
 
@@ -1046,27 +1077,8 @@ final class ChatCollectionView: UICollectionView {
         max(minOffsetY, contentSize.height + adjustedContentInset.bottom - bounds.height)
     }
 
-    /// How far a drag or its bounce had pulled the list past its end when a
-    /// row above was measured. The layout's offset adjustment clamps to the
-    /// new end, which drops the overscroll for a frame; the pan puts it back
-    /// on the next touch, so the rows jump down and up again.
-    private var overscrollToRestore: CGFloat = 0
-
-    /// Keeps the current overscroll past the end through the layout pass
-    /// that applies an offset adjustment.
-    func preserveEndOverscroll() {
-        overscrollToRestore = max(overscrollToRestore, contentOffset.y - maxOffsetY)
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
-        if overscrollToRestore > 0 {
-            let overscrolled = maxOffsetY + overscrollToRestore
-            overscrollToRestore = 0
-            if isUserScrolling(), contentOffset.y < overscrolled {
-                contentOffset.y = overscrolled
-            }
-        }
         guard shouldPin() else { return }
         let end = maxOffsetY
         if abs(contentOffset.y - end) > 0.25 {

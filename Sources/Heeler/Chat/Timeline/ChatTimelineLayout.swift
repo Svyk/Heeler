@@ -21,11 +21,19 @@ final class ChatTimelineLayout: UICollectionViewLayout {
     /// The row the reader explicitly opened, including when its top is
     /// partially clipped. Its own growth must extend downward.
     var disclosureAnchor: () -> ChatRowID? = { nil }
+    /// Whether a drag or its bounce holds the list past its end. UIKit
+    /// moves the offset itself then and clamps an adjustment to the new
+    /// end, which throws the rows out by far more than the row changed, so
+    /// rows above the reader's keep their heights until the list is back.
+    var isPastEnd: () -> Bool = { false }
 
     private(set) var geometry = ChatTimelineGeometry()
     private var ids: [ChatRowID] = []
     private var indexByID: [ChatRowID: Int] = [:]
     private var measured: [ChatRowID: ChatMeasuredHeight] = [:]
+    /// Rows above the reader's measured while the list was past its end,
+    /// with the heights they keep until `applyHeldHeights()`.
+    private var held: [ChatRowID: CGFloat] = [:]
     private var width: CGFloat = 0
     private var contentSizeCategory = ""
 
@@ -69,6 +77,7 @@ final class ChatTimelineLayout: UICollectionViewLayout {
             self.width = width
             contentSizeCategory = category
             indexByID = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            held = held.filter { indexByID[$0.key] != nil }
             geometry.setHeights(ids.map(estimatedHeight))
         }
         geometry.visibleHeight = Self.visibleHeight(of: collectionView)
@@ -100,7 +109,40 @@ final class ChatTimelineLayout: UICollectionViewLayout {
             return false
         }
         record(preferredAttributes.size.height, at: index)
-        return abs(preferredAttributes.size.height - geometry.height(at: index)) >= 0.5
+        guard abs(preferredAttributes.size.height - geometry.height(at: index)) >= 0.5 else { return false }
+        if isPastEnd(), !isFollowing(), let collectionView, let id = id(at: index),
+            let anchor = stableAnchor(in: collectionView), index < anchor.index
+        {
+            held[id] = held[id] ?? geometry.height(at: index)
+            return false
+        }
+        return true
+    }
+
+    /// Gives the rows measured while the list was past its end their
+    /// heights, keeping the reader's row where it is.
+    func applyHeldHeights() {
+        guard !held.isEmpty, let collectionView else { return }
+        let anchor = isFollowing() ? nil : stableAnchor(in: collectionView)
+        let rows = held.keys
+        held = [:]
+        let context = UICollectionViewLayoutInvalidationContext()
+        var paths: [IndexPath] = []
+        var delta: CGFloat = 0
+        for id in rows {
+            guard let index = indexByID[id] else { continue }
+            delta += geometry.setHeight(estimatedHeight(for: id), at: index)
+            paths.append(IndexPath(item: index, section: 0))
+        }
+        guard !paths.isEmpty else { return }
+        // Every row below them moves, the shown ones included.
+        context.invalidateItems(at: paths + collectionView.indexPathsForVisibleItems)
+        context.contentSizeAdjustment = CGSize(width: 0, height: delta)
+        let adjustment = geometry.offsetAdjustment(restoring: anchor)
+        if adjustment != 0 {
+            context.contentOffsetAdjustment = CGPoint(x: 0, y: adjustment)
+        }
+        invalidateLayout(with: context)
     }
 
     override func invalidationContext(
@@ -117,7 +159,6 @@ final class ChatTimelineLayout: UICollectionViewLayout {
         let adjustment = geometry.offsetAdjustment(restoring: anchor)
         if adjustment != 0 {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: adjustment)
-            (collectionView as? ChatCollectionView)?.preserveEndOverscroll()
         }
         return context
     }
@@ -151,6 +192,7 @@ final class ChatTimelineLayout: UICollectionViewLayout {
     }
 
     private func estimatedHeight(for id: ChatRowID) -> CGFloat {
+        if let height = held[id] { return height }
         guard let info = rowInfo(id) else { return ChatRowSeed.system.height }
         return ChatHeightEstimate(
             cached: measured[id], seed: info.seed, width: width,
