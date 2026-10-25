@@ -41,7 +41,7 @@ enum HeelerPluginCompatibility {
     /// `plugin/herdr-plugin.toml`'s version when this app was built. The
     /// shared `plugin/test-vectors/plugin-version-v1.json` pins both sides,
     /// so a plugin release must update this constant too. A Host with a newer
-    /// plugin (main moved ahead of this build) counts as current.
+    /// plugin (the plugin branch moved ahead of this build) counts as current.
     static let bundled = PluginVersion(0, 6, 2)
 }
 

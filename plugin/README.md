@@ -49,8 +49,11 @@ node --version    # 20 or newer
 Install the plugin from GitHub:
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 ```
+
+The `plugin` branch holds only the files the plugin runs, published from
+`plugin/` on `main`, so the install skips the rest of the repository.
 
 Herdr stores the plugin in its managed checkout and runs the manifest's
 `npm ci` build command automatically. Verify that the plugin is installed and
@@ -540,6 +543,11 @@ check that they agree. The app recommends updating any Host whose plugin is
 older, and its per-feature notes (`HeelerPluginFeature`) trust the version
 alone, so bump it with every change the app relies on rather than shipping
 behavior under an unchanged number, as 0.3.0 and 0.4.0 did.
+
+Once the bump is on `main`, run `make plugin` from the repository root to
+publish it to the `plugin` branch, before the app release that bundles it:
+the app's update notice installs from that branch. See
+[Publishing the herdr plugin](https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/releasing.md#publishing-the-herdr-plugin).
 
 ### Updating to 0.6.0
 

@@ -35,7 +35,7 @@ node --version
 **Run on: Mac or Linux**
 
 ```sh
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 ```
 
 herdr downloads and builds the plugin. Run the same command later to update it; the Host's page in Heeler tells you when the plugin is older than your version of Heeler expects.
