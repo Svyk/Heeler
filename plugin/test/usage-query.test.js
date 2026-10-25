@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { cacheDirectory } from "../src/usage/cache.js";
 import { pricingFingerprint } from "../src/usage/pricing.js";
+import { CHECKPOINT_VERSION, SCANNER_VERSION } from "../src/usage/checkpoint.js";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 
@@ -218,7 +219,7 @@ test("a cached 30-day report with 60480 buckets completes within the SSH deadlin
   assert.equal(buckets.length, 60480);
   writeFileSync(join(directory, "buckets.json"), JSON.stringify({
     complete: true, generatedAt: new Date(now).toISOString(), coveredThrough: new Date(now).toISOString(),
-    coveredSince: start, checkpoint: { pricingFingerprint }, breakdownsVersion: 1, limitsVersion: 1,
+    coveredSince: start, checkpoint: { version: CHECKPOINT_VERSION, scannerVersion: SCANNER_VERSION, pricingFingerprint }, breakdownsVersion: 1, limitsVersion: 1,
     nextLimitsAt: now + 60_000, buckets,
   }));
   // Exercise the real query process, including JSON decoding and encoding, under

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { cacheDirectory, readJSON, writeJSON, activeLock, reserveWorker, releaseWorker, processStart, refreshFailures } from "./usage/cache.js";
 import { reportFromSnapshot } from "./usage/buckets.js";
-import { pricingFingerprint } from "./usage/pricing.js";
+import { checkpointCurrent } from "./usage/checkpoint.js";
 import { readUsageRuntime } from "./usage-runtime.js";
 
 /** Start one detached worker unless another holds the lock; true while one runs. */
@@ -49,7 +49,7 @@ try {
     let refreshing = false;
     try {
       refreshing = Boolean(activeLock(directory));
-      if (!refreshing && !failures.paused && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint
+      if (!refreshing && !failures.paused && (!snapshot?.complete || !checkpointCurrent(snapshot?.checkpoint)
           || snapshot?.breakdownsVersion !== 1 || Date.now() - Date.parse(snapshot.generatedAt) > 60_000
           || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt
           || (values["claude-limits"] && (!snapshot.nextClaudeLimitsAt || Date.now() >= snapshot.nextClaudeLimitsAt)))) {

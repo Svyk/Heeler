@@ -353,3 +353,14 @@ test("persisted cross-session aliases suppress a sidechain replay appended on a 
   assert.equal(tokens(await f.finish()),10);
   const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
 });
+
+test("a checkpoint from another scanner version rebuilds even when fresh",async t=>{
+  const f=fixture(t);const path=f.transcript("scanner.jsonl",[assistant("one",5)]);
+  assert.equal(tokens(await f.finish()),5);const initial=generation(f);
+  // A counting fix bumps the scanner version without touching the price table.
+  const snapshotPath=join(f.cache(),"buckets.json");const snapshot=JSON.parse(readFileSync(snapshotPath));
+  snapshot.checkpoint.scannerVersion-=1;writeFileSync(snapshotPath,JSON.stringify(snapshot));
+  f.clearReads();assert.equal(f.query().refreshing,true);
+  assert.equal(tokens(await f.finish()),5);assert.notEqual(generation(f),initial);
+  assert.deepEqual(f.reads().filter(r=>r.path===path).map(r=>r.start),[0]);
+});

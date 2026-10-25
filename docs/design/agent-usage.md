@@ -390,8 +390,10 @@ size:
     id, whether the inherited prefix has ended and the `token_count` events
     still pending on it, whether a record arrived since the last advancing
     `token_count`).
-  - `buckets.json`: the 31-day buckets. This is the only file the query
-    reads, so it stays small.
+  - `buckets.json`: the 31-day buckets and the checkpoint: the cache format
+    version, the scanner version, the price table's fingerprint, and the
+    `files.json` hash and `keys.log` generation and length it commits. This
+    is the only file the query reads, so it stays small.
   - `keys.log`: one line per counted record: its dedupe key, its
     contribution (bucket, model, directory, normalized tokens, cost, unpriced
     tokens) and, for Claude Code, what decides a collision (`sessionId`,
@@ -452,6 +454,11 @@ size:
   `refreshing`, until it finishes.
 - Deleting the cache directory is always safe: the next query starts a full
   rebuild.
+- A checkpoint from another cache format, scanner version or price table
+  also rebuilds. Any change to parsing, deduplication or attribution that
+  changes what an existing Transcript counts bumps `SCANNER_VERSION` in
+  `src/usage/checkpoint.js`, so the fix reaches existing caches even when
+  the release keeps its price table.
 
 ### Worker scheduling
 

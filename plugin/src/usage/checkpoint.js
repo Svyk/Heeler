@@ -6,13 +6,27 @@ import { transcriptEntries } from "./claude-scanner.js";
 import { changeBucket } from "./buckets.js";
 import { pricingFingerprint } from "./pricing.js";
 
+/** The layout of the cache files; version 2 records each file's first timestamp for scan coverage. */
+export const CHECKPOINT_VERSION = 2;
+/**
+ * Bump whenever a change to parsing, deduplication or attribution changes what
+ * a Transcript counts: every cache built under another version rebuilds once.
+ * Version 2 recovers rollout tails appended before Codex compressed them.
+ */
+export const SCANNER_VERSION = 2;
+
 const digest = text => createHash("sha256").update(text).digest("hex");
+
+/** True when a snapshot's checkpoint was written by this format, scanner and price table. */
+export function checkpointCurrent(checkpoint) {
+  return checkpoint?.version === CHECKPOINT_VERSION && checkpoint.scannerVersion === SCANNER_VERSION
+    && checkpoint.pricingFingerprint === pricingFingerprint;
+}
 
 /** A committed snapshot binds offsets to exactly one prefix of the contribution log. */
 export async function loadCheckpoint(directory, snapshot, heartbeat) {
   const checkpoint = snapshot?.checkpoint;
-  // Version 2 records each file's first timestamp for scan coverage.
-  if (checkpoint?.version !== 2 || checkpoint.pricingFingerprint !== pricingFingerprint) return null;
+  if (!checkpointCurrent(checkpoint)) return null;
   try {
     const filesText = readFileSync(join(directory, "files.json"), "utf8");
     const logPath = join(directory, "keys.log");
@@ -71,7 +85,7 @@ export function saveCheckpoint(directory, files, generation, snapshot) {
   writeJSON(join(directory, "files.json"), files);
   const filesText = readFileSync(join(directory, "files.json"), "utf8");
   writeJSON(join(directory, "buckets.json"), { ...snapshot, checkpoint: {
-    version: 2, pricingFingerprint, generation, filesHash: digest(filesText), keyBytes: statSync(join(directory, "keys.log")).size,
+    version: CHECKPOINT_VERSION, scannerVersion: SCANNER_VERSION, pricingFingerprint, generation, filesHash: digest(filesText), keyBytes: statSync(join(directory, "keys.log")).size,
   } });
 }
 
