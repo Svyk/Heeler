@@ -37,8 +37,11 @@ final class AgentUsageStore {
         guard case .available(let report) = snapshotState else { return snapshotState }
         if !claudeLimitsEnabled { return .available(report.hidingClaudeLimits()) }
         // The toggle turned on after this report: its "off" reading is no
-        // longer this device's choice while the re-query is underway.
-        if !snapshotIncludesClaudeLimits { return .available(report.readingClaudeLimits()) }
+        // longer this device's choice while the re-query is underway, and
+        // a failed re-query must not leave it reading.
+        if !snapshotIncludesClaudeLimits {
+            return .available(refreshFailure == nil ? report.readingClaudeLimits() : report.failedClaudeLimits())
+        }
         return snapshotState
     }
     /// A refresh is running: a read is in flight or polling continues.

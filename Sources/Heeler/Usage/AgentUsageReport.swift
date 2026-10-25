@@ -121,6 +121,12 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
         replacingClaudeLimits(state: "unavailable", reason: "notReadYet")
     }
 
+    /// The query that would have read Claude Code limits after the toggle
+    /// turned on failed; they read as failed, not as still being read.
+    func failedClaudeLimits() -> Self {
+        replacingClaudeLimits(state: "error", reason: "requestFailed")
+    }
+
     private func replacingClaudeLimits(state: String, reason: String?) -> Self {
         var report = self
         report.programs = programs?.map { program in

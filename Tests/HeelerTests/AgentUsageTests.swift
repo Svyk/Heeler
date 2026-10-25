@@ -347,6 +347,29 @@ struct AgentUsageStoreTests {
         #expect(results.isEmpty)
     }
 
+    @Test func aFailedOptInReadShowsClaudeLimitsAsFailedNotReading() async throws {
+        let report = try AgentUsageFixture.report(refreshing: false)
+        var results: [Result<AgentUsageStore.State, any Error>] = [
+            .success(.available(report)), .failure(TransportError.timedOut),
+        ]
+        let name = "claude-opt-in-failure-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = AgentUsageStore(hostID: UUID(), defaults: defaults) { _, _ in
+            try results.removeFirst().get()
+        }
+        await store.refresh()
+        store.claudeLimitsEnabled = true
+        guard case .available(let reading) = store.state else { Issue.record("Missing snapshot"); return }
+        #expect(reading.programs?.first { $0.program == "claude" }?.usageLimits.reason == "notReadYet")
+        await store.pullToRefresh()
+        #expect(store.refreshFailure != nil)
+        guard case .available(let failed) = store.state else { Issue.record("Missing snapshot"); return }
+        let limits = failed.programs?.first { $0.program == "claude" }?.usageLimits
+        #expect(limits?.state == "error")
+        #expect(limits?.reason == "requestFailed")
+    }
+
     @Test func aUsableConnectionEndsTheRetryBackoffAtOnce() async throws {
         let partial = try AgentUsageFixture.report(refreshing: true)
         let complete = try AgentUsageFixture.report(refreshing: false)
