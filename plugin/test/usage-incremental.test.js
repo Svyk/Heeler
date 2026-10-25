@@ -130,6 +130,8 @@ test("Claude appends seek from the last complete byte and match a full scan", as
   const path=f.transcript("append.jsonl", [JSON.parse(first)]);
   assert.equal(tokens(await f.finish()),11);
   const log=readFileSync(join(f.cache(),"keys.log"),"utf8");
+  // A counted record is its own alias; only a losing copy writes an alias line.
+  assert.equal(log.includes('"alias"'),false);
   f.clearReads();
   appendFileSync(path,records([assistant("second",7)])); f.stale();
   assert.equal(tokens(await f.finish()),18);

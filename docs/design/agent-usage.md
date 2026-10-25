@@ -397,15 +397,20 @@ size:
   - `keys.log`: one line per counted record: its dedupe key, its
     contribution (bucket, model, directory, normalized tokens, cost, unpriced
     tokens) and, for Claude Code, what decides a collision (`sessionId`,
-    sidechain flag, total). A later winner appends a replacing line. A run
-    appends through one descriptor in 1 MiB chunks and flushes before a
-    snapshot records the log's length.
-  - Keys older than 31 days leave the totals at once, but the log is
-    rewritten only when a rebuild starts or a whole UTC day of its keys has
-    expired, so at most once a day. The rewrite streams the live keys into a temporary file and renames it
-    over the log; a crash leaves either the old log, which its checkpoint
-    still matches, or a new generation that no checkpoint matches yet, which
-    rebuilds.
+    message group, sidechain flag, total). A later winner appends a
+    replacing line; a Claude Code copy that loses appends an alias line so it
+    keeps suppressing later replays. A run appends through one descriptor in
+    1 MiB chunks and flushes before a snapshot records the log's length.
+  - Lines run 300 to 450 bytes: a synthetic Host with 200,000 records in the
+    window has a 95 MB log; one heavy Host's log measured 148 MB while every
+    record still had its own alias line. Every run replays the whole log: an
+    idle run takes 0.6 s and 380 MB resident with the 95 MB log. Keys older
+    than 31 days leave the totals at once, but the log is rewritten only when
+    a rebuild starts or a whole UTC day of its keys has expired, so at most
+    once a day. The rewrite streams the live keys into a temporary file and
+    renames it over the log; a crash leaves either the old log, which its
+    checkpoint still matches, or a new generation that no checkpoint matches
+    yet, which rebuilds.
   - `limits.json`: the last Usage Limits readings (percentages, reset times,
     errors, `nextAllowedAt`); never credentials.
   - `worker.lock`: `O_EXCL` lockfile with pid, process start time and a
@@ -483,7 +488,9 @@ size:
 - The worker commits progress atomically (`files.json`, then
   `buckets.json`) at most once a second, always at a line boundary, plus a
   final snapshot, so a query mid-scan returns partial, correctly labeled
-  data.
+  data. A full scan of the synthetic Host above takes 1.6 s and writes
+  103 MB; committing after every file and appending through a new descriptor
+  per record took 16.5 s and wrote 1.1 GB.
 - Files whose `mtime` is older than the window are skipped without reading.
 - A run fails when the worker throws (a full disk, an unwritable cache) or
   leaves its lock behind (killed or hung; the next query counts it when it
@@ -838,8 +845,8 @@ tests and decoded by the Swift tests.
     longer plain file; an unreadable file or directory, or a truncated
     `.zst`, is skipped and counted without a rebuild; a lock whose heartbeat
     is fresh survives a long run; expired keys leave the totals at once and
-    the log once a whole UTC day expires; a worker killed at each cache write,
-    including a torn log append, recovers a fresh scan's totals.
+    the log once a whole UTC day expires; a worker killed at each cache
+    write, including a torn log append, recovers a fresh scan's totals.
   - Roots: a root created after the first scan keeps the cache directory;
     an unused sibling cache directory is deleted after 31 days.
   - Time and price: folding into +5:45 and DST days; per-request

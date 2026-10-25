@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, fstatSync, fsyncSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeSync } from "node:fs";
+import { closeSync, fstatSync, fsyncSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeSync } from "node:fs";
 import { basename, join } from "node:path";
 import { writeJSON, DAY } from "./cache.js";
-import { transcriptEntries } from "./claude-scanner.js";
 import { changeBucket } from "./buckets.js";
 import { pricingFingerprint } from "./pricing.js";
 
-/** The layout of the cache files; version 2 records each file's first timestamp for scan coverage. */
-export const CHECKPOINT_VERSION = 2;
+/**
+ * The layout of the cache files. Version 2 records each file's first
+ * timestamp; version 3 drops the alias lines a counted record implies.
+ */
+export const CHECKPOINT_VERSION = 3;
 /**
  * Bump whenever a change to parsing, deduplication or attribution changes what
  * a Transcript counts: every cache built under another version rebuilds once.
@@ -31,6 +33,31 @@ export function removeAbandonedTemporaries(directory) {
   }
 }
 
+/** Complete lines of the first `length` bytes, read in large chunks; null for a torn prefix. */
+function* logLines(path, length, onChunk) {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(CHUNK);
+    let carry = Buffer.alloc(0);
+    let position = 0;
+    while (position < length) {
+      onChunk();
+      const read = readSync(fd, buffer, 0, Math.min(CHUNK, length - position), position);
+      if (read <= 0) { yield null; return; }
+      position += read;
+      const data = carry.length ? Buffer.concat([carry, buffer.subarray(0, read)]) : buffer.subarray(0, read);
+      let from = 0;
+      let newline;
+      while ((newline = data.indexOf(10, from)) >= 0) {
+        try { yield JSON.parse(data.toString("utf8", from, newline)); } catch { yield null; }
+        from = newline + 1;
+      }
+      carry = Buffer.from(data.subarray(from));
+    }
+    if (carry.length) yield null;
+  } finally { closeSync(fd); }
+}
+
 /**
  * A committed snapshot binds offsets to exactly one prefix of the contribution
  * log. Keys older than 31 days leave the totals at once; the log itself is
@@ -46,28 +73,28 @@ export async function loadCheckpoint(directory, snapshot, heartbeat) {
         || statSync(logPath).size < checkpoint.keyBytes) return null;
     const keys = new Map();
     const groups = new Map();
+    const alias = (group, key) => {
+      const peers = groups.get(group) || new Set();
+      peers.add(key); groups.set(group, peers);
+    };
     let generation;
-    let bytes = 0;
     let prune = false;
     const cutoff = Date.now() - 31 * DAY;
     const expiredDays = Math.floor(cutoff / DAY) * DAY;
-    for await (const { line, offset } of transcriptEntries(logPath, heartbeat)) {
-      if (offset > checkpoint.keyBytes) break;
+    for (const line of logLines(logPath, checkpoint.keyBytes, heartbeat)) {
       if (!line) return null;
-      bytes = offset;
       if (line.generation) { if (generation) return null; generation = line.generation; continue; }
-      if (line.alias) {
-        const peers = groups.get(line.alias.group) || new Set();
-        peers.add(line.alias.key); groups.set(line.alias.group, peers);
-      }
+      if (line.alias) alias(line.alias.group, line.alias.key);
       for (const key of line.replaces || []) keys.delete(key);
       if (line.key) {
         const { replaces, ...record } = line;
         keys.set(line.key, record);
+        // A counted Claude record is its own alias.
+        if (typeof line.group === "string") alias(line.group, line.key);
         prune ||= line.timestamp < expiredDays;
       }
     }
-    if (bytes !== checkpoint.keyBytes || generation !== checkpoint.generation) return null;
+    if (generation !== checkpoint.generation) return null;
     // A killed worker may have appended contributions without committing offsets.
     truncateSync(logPath, checkpoint.keyBytes);
     const buckets = new Map();
@@ -131,7 +158,7 @@ export function startLog(directory, keys = new Map(), groups = new Map()) {
   try {
     log.append({ generation });
     for (const value of keys.values()) { const { replaces, ...record } = value; log.append(record); }
-    for (const [group, peers] of groups) for (const key of peers) log.append({ alias: { group, key } });
+    for (const [group, peers] of groups) for (const key of peers) if (keys.get(key)?.group !== group) log.append({ alias: { group, key } });
     log.flush();
     fsyncSync(log.fd);
     renameSync(temporary, path);

@@ -220,12 +220,13 @@ async function run() {
           const peers = groups.get(candidate.group) || new Set();
           groups.set(candidate.group, peers);
           const existing = keys.get(candidate.key);
-          if (!peers.has(candidate.key)) {
-            peers.add(candidate.key);
-            appendKey({ alias: { group: candidate.group, key: candidate.key } });
-          }
+          // A counted record carries its own group; only a candidate that loses
+          // needs an alias line to keep suppressing later replays.
+          const newAlias = !peers.has(candidate.key);
+          peers.add(candidate.key);
+          const remember = () => { if (newAlias) appendKey({ alias: { group: candidate.group, key: candidate.key } }); };
           const siblings = [...peers].map(key => keys.get(key)).filter(Boolean);
-          if (candidate.sidechain && siblings.some(record => !record.sidechain)) continue;
+          if (candidate.sidechain && siblings.some(record => !record.sidechain)) { remember(); continue; }
           const collisions = [existing, ...siblings.filter(record => record.sidechain)].filter(Boolean);
           // A stable final comparison makes even equal-size streamed copies order independent.
           const collisionFields = ({ estimatedCostUSD, unpricedTokens, ...record }) => JSON.stringify(record);
@@ -237,6 +238,7 @@ async function run() {
             if (old) { changeBucket(buckets, old, -1); keys.delete(key); }
           }
           if (winner !== candidate) {
+            remember();
             if (removed.length) appendKey({ replaces: removed });
             continue;
           }
