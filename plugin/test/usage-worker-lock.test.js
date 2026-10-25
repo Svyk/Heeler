@@ -158,3 +158,18 @@ test("an abandoned admission without a start time is reclaimed by pid or age", t
   utimesSync(admissionPath, old, old);
   reclaim();
 });
+
+test("a worker that dies during the Codex limits read leaves the read throttled", async t => {
+  const f = fixture(t);
+  f.codexStub(30_000);
+  assert.equal(f.query().refreshing, true);
+  for (let i = 0; i < 300 && f.codexLaunches().length === 0; i++) await sleep(10);
+  assert.equal(f.codexLaunches().length, 1);
+  const worker = f.lock().pid;
+  process.kill(worker, "SIGKILL");
+  process.kill(f.codexLaunches()[0], "SIGKILL");
+  for (let i = 0; i < 300 && alive(worker); i++) await sleep(10);
+  const report = await f.finish();
+  assert.equal(f.codexLaunches().length, 1);
+  assert.equal(report.programs.find(program => program.program === "codex").usageLimits.state, "error");
+});

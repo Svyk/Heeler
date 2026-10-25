@@ -194,12 +194,15 @@ async function run() {
       snapshot(false);
     }
     snapshot(!pendingPrefix);
+    // Reserve each program's cadence before starting it, so a worker that dies
+    // mid-read still throttles the next one.
     if (!limits.codex || !Number.isFinite(limits.codex.nextAllowedAt) || Date.now() >= limits.codex.nextAllowedAt) {
+      limits.codex = { ...limits.codex, nextAllowedAt: Date.now() + 60_000 };
+      writeJSON(join(directory, "limits.json"), limits);
       limits.codex = { service: await readCodexLimits(runtime, directory), nextAllowedAt: Date.now() + 60_000 };
       heartbeat();
     }
     if (values["claude-limits"] && (!limits.claude || !Number.isFinite(limits.claude.nextAllowedAt) || Date.now() >= limits.claude.nextAllowedAt)) {
-      // Reserve the cadence before starting the program, including a worker crash.
       limits.claude = { ...limits.claude, nextAllowedAt: Date.now() + 60_000 };
       writeJSON(join(directory, "limits.json"), limits);
       limits.claude = cacheClaudeLimits(limits.claude, await readClaudeLimits(runtime, directory));
@@ -207,7 +210,9 @@ async function run() {
     }
     const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(Boolean)
       .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
-    limits.codex.report = codexLimitsWithFallback(limits.codex.service || limits.codex.report, fallback);
+    // A reservation whose read never finished has no reading of its own.
+    limits.codex.report = codexLimitsWithFallback(limits.codex.service || limits.codex.report
+      || { state: "error", reason: "requestFailed" }, fallback);
     writeJSON(join(directory, "limits.json"), limits);
     snapshot(!pendingPrefix);
   } finally { releaseWorker(directory, values["lock-token"]); }

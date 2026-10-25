@@ -471,7 +471,10 @@ size:
    which is still sent. The process is killed after the response or 15
    seconds. Codex owns its credentials and their refresh; the plugin never
    reads `auth.json`. `account/read` returns the account email, which the
-   plugin drops.
+   plugin drops. At most one reading runs per 60 seconds; the worker writes
+   `nextAllowedAt` to `limits.json` before starting `codex`, so a worker
+   that dies mid-read still throttles the next one, which treats the lost
+   reading as `error` with `requestFailed` (subject to the fallback below).
 2. **Shapes:** since 0.56.0, `account/read` answers `{account}` and each
    window is `{usedPercent, windowDurationMins, resetsAt}`. From 0.48.0 to
    0.55 it answered the bare account and windows were
@@ -545,7 +548,8 @@ plugin asks Claude Code itself, as it asks Codex.
   window whose `utilization` is null is left out, and a null `resets_at`
   becomes `resetsAt: null` (the window never expires). Spend and
   `extra_usage` fields are not shown.
-- Throttle: at most one `get_usage` per 60 seconds. Claude Code backs off
+- Throttle: at most one `get_usage` per 60 seconds, reserved in
+  `limits.json` before the program starts. Claude Code backs off
   its own rate-limited requests. Any other failure (another error answer, a
   timeout, or no `rate_limits` while `rate_limits_available` is true) backs
   the plugin off for 5 minutes through `limits.json`'s `nextAllowedAt`;
