@@ -98,6 +98,38 @@ struct AgentUsageLimitsTests {
         }
     }
 
+    @Test func turningClaudeLimitsOnReadsThemInsteadOfSayingTheyAreOff() async throws {
+        let name = "claude-reading-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let withoutLimits = try AgentUsageFixture.report()
+        let withLimits = try ClaudeUsageFixture.report()
+        var requested: [Bool] = []
+        let store = AgentUsageStore(hostID: UUID(), defaults: defaults) { _, claudeLimits in
+            requested.append(claudeLimits)
+            return .available(claudeLimits ? withLimits : withoutLimits)
+        }
+        await store.refresh()
+        store.claudeLimitsEnabled = true
+        guard case .available(let pending) = store.state else { Issue.record("Missing report"); return }
+        let reading = try #require(pending.programs?.first?.usageLimits)
+        #expect(reading.state == "unavailable")
+        #expect(reading.reason == "notReadYet")
+        #expect(pending.programs?.last == withoutLimits.programs?.last)
+        let controller = UIHostingController(rootView: AgentUsageLimitsView(program: "claude", limits: reading)
+            .padding(20).frame(width: 390).environment(\.locale, Locale(identifier: "en_US")))
+        let window = try await makeTestWindow(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 400), rootViewController: controller)
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+        #expect(labels.contains("Reading Usage Limits…"))
+        #expect(!labels.contains("Usage Limits are off."))
+        await store.refresh()
+        #expect(requested == [false, true])
+        #expect(store.state == .available(withLimits))
+    }
+
     @Test func theSharedVectorCarriesClaudeServiceAndNullableModelWindows() throws {
         let report = try AgentUsageReport.decode(AgentUsageFixture.data())
         let limits = try #require(report.programs?.first?.usageLimits)
@@ -200,6 +232,8 @@ struct AgentUsageLimitsTests {
             ("no-plan", try AgentUsageLimitFixture.report(state: "unavailable", reason: "noPlanLimits"), ["This sign-in has no plan Usage Limits."]),
             ("error", try AgentUsageLimitFixture.report(state: "error", reason: "timeout"), ["Usage Limits could not be read. Try refreshing."]),
             ("disabled", try AgentUsageLimitFixture.report(state: "disabled"), ["Usage Limits are off."]),
+            ("not-read-yet", try AgentUsageLimitFixture.report(state: "unavailable", reason: "notReadYet"),
+             ["Reading Usage Limits…"]),
         ]
         for (name, report, expected) in cases {
             let limits = try #require(report.programs?.last?.usageLimits)
@@ -225,6 +259,7 @@ struct AgentUsageLimitsTests {
                 controller.view.layoutIfNeeded()
                 let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
                 for text in expected { #expect(labels.contains(text), "\(name): \(text)") }
+                if name == "not-read-yet" { #expect(!labels.contains("not installed")) }
                 #expect(labels.contains("Codex shows only its default limit group."))
                 #expect(!labels.contains("new-window-id"))
                 #expect(!labels.contains("label-id"))

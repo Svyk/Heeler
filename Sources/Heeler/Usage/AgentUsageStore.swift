@@ -31,9 +31,15 @@ final class AgentUsageStore {
     nonisolated static let maximumRetryInterval: Duration = .seconds(30)
 
     private var snapshotState: State = .idle
+    /// Whether the shown report's query asked for Claude Code limits.
+    private var snapshotIncludesClaudeLimits = false
     var state: State {
-        guard !claudeLimitsEnabled, case .available(let report) = snapshotState else { return snapshotState }
-        return .available(report.hidingClaudeLimits())
+        guard case .available(let report) = snapshotState else { return snapshotState }
+        if !claudeLimitsEnabled { return .available(report.hidingClaudeLimits()) }
+        // The toggle turned on after this report: its "off" reading is no
+        // longer this device's choice while the re-query is underway.
+        if !snapshotIncludesClaudeLimits { return .available(report.readingClaudeLimits()) }
+        return snapshotState
     }
     /// A refresh is running: a read is in flight or polling continues.
     private(set) var isLoading = false
@@ -149,6 +155,7 @@ final class AgentUsageStore {
     func invalidate() {
         endRefresh()
         snapshotState = .idle
+        snapshotIncludesClaudeLimits = false
         refreshFailure = nil
         consecutiveFailures = 0
     }
@@ -240,6 +247,7 @@ final class AgentUsageStore {
             consecutiveFailures += 1
         } else {
             snapshotState = next
+            snapshotIncludesClaudeLimits = claudeLimits
             refreshFailure = nil
             consecutiveFailures = 0
         }

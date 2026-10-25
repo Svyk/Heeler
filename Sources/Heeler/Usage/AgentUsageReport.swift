@@ -97,13 +97,23 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
 
     /// A device that opted out must never show a reading cached by another query.
     func hidingClaudeLimits() -> Self {
+        replacingClaudeLimits(state: "disabled", reason: nil)
+    }
+
+    /// Right after the toggle turns on, this report's query did not ask for
+    /// Claude Code limits; they read as not read yet, not as off.
+    func readingClaudeLimits() -> Self {
+        replacingClaudeLimits(state: "unavailable", reason: "notReadYet")
+    }
+
+    private func replacingClaudeLimits(state: String, reason: String?) -> Self {
         var report = self
         report.programs = programs?.map { program in
             guard program.program == "claude" else { return program }
-            var hidden = program
-            hidden.usageLimits = .init(state: "disabled", reason: nil, source: nil,
+            var replaced = program
+            replaced.usageLimits = .init(state: state, reason: reason, source: nil,
                 observedAt: nil, retryAt: nil, plan: nil, windows: nil)
-            return hidden
+            return replaced
         }
         return report
     }

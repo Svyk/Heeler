@@ -28,6 +28,13 @@ struct AgentUsageLimitsView: View {
                 ForEach(limits.windows ?? []) { window in
                     windowView(window)
                 }
+            } else if limits.state == "unavailable" && limits.reason == "notReadYet" {
+                // Readings follow the Token Usage scan; nothing is known yet.
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Reading Usage Limits…")
+                }
+                .font(.subheadline).foregroundStyle(.secondary)
             } else {
                 Text(unavailableMessage)
                     .font(.subheadline).foregroundStyle(.secondary)
