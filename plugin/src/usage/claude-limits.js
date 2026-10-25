@@ -47,8 +47,10 @@ const atOrBefore = (version, limit) => {
 };
 
 /**
- * The version of the recorded `claude`, asked once per installed executable:
- * the memo is keyed by the file it resolves to, which an update replaces.
+ * The version of the recorded `claude`. A version that supports `get_usage` is
+ * remembered per installed executable, keyed by the file it resolves to. A
+ * version too old or unknown is asked again at every allowed read: the
+ * recorded file may be a shim or wrapper that an update leaves unchanged.
  */
 export async function claudeVersion(runtime, directory, known) {
   if (typeof runtime.claude !== "string" || !runtime.claude.startsWith("/")) return null;
@@ -57,7 +59,7 @@ export async function claudeVersion(runtime, directory, known) {
     const file = statSync(runtime.claude);
     identity = [file.dev, file.ino, file.size, file.mtimeMs].join(":");
   } catch { return null; }
-  if (known?.identity === identity) return known;
+  if (known?.identity === identity && Array.isArray(known.version) && !atOrBefore(known.version, LAST_SILENT_VERSION)) return known;
   const version = await new Promise(resolve => execFile(runtime.claude, ["--version"], {
     cwd: directory, env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
     timeout: 5_000, killSignal: "SIGKILL", maxBuffer: 64 * 1024,

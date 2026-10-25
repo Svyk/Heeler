@@ -218,15 +218,24 @@ test("a Claude Code that leaves unknown requests unanswered is too old without a
   assert.ok(Date.now() - started < 10_000);
   assert.deepEqual(f.requests(), []);
   assert.equal(f.versions(), 1);
-  // The version is asked once per installed executable.
+  // A too-old version is asked again at each allowed request, still without a stream-json process.
   f.setClock(f.now + 60_000);
   assert.deepEqual(reading(await f.finish()), { state: "unavailable", reason: "programTooOld" });
-  assert.equal(f.versions(), 1);
-  // An update replaces the executable and is picked up at the next allowed request.
+  assert.equal(f.versions(), 2);
+  assert.deepEqual(f.requests(), []);
+  // The stub stands in for a shim or wrapper: an update behind it leaves the
+  // recorded file unchanged and is still picked up at the next allowed request.
   writeFileSync(join(f.root, "version"), "2.1.309");
-  appendFileSync(f.executable, "// updated\n");
   f.mode("success");
   f.setClock(f.now + 120_000);
   assert.equal(reading(await f.finish()).state, "ok");
-  assert.equal(f.versions(), 2);
+  assert.equal(f.versions(), 3);
+  // A version that supports get_usage is asked once per installed executable.
+  f.setClock(f.now + 180_000);
+  assert.equal(reading(await f.finish()).state, "ok");
+  assert.equal(f.versions(), 3);
+  appendFileSync(f.executable, "// updated\n");
+  f.setClock(f.now + 240_000);
+  assert.equal(reading(await f.finish()).state, "ok");
+  assert.equal(f.versions(), 4);
 });
