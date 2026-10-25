@@ -513,6 +513,89 @@ struct PaneLayoutSplit: Codable, Equatable, Sendable {
     }
 }
 
+/// herdr schema `$defs/PaneProcessInfo`.
+struct PaneProcessInfo: Codable, Equatable, Sendable {
+    let foregroundProcessGroupID: Int?
+    let foregroundProcesses: [PaneProcessInfoProcess]?
+    let paneID: String
+    let shellPid: Int?
+    let tty: String?
+
+    init(
+        paneID: String,
+        foregroundProcessGroupID: Int? = nil,
+        foregroundProcesses: [PaneProcessInfoProcess]? = nil,
+        shellPid: Int? = nil,
+        tty: String? = nil
+    ) {
+        self.paneID = paneID
+        self.foregroundProcessGroupID = foregroundProcessGroupID
+        self.foregroundProcesses = foregroundProcesses
+        self.shellPid = shellPid
+        self.tty = tty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case foregroundProcessGroupID = "foreground_process_group_id"
+        case foregroundProcesses = "foreground_processes"
+        case paneID = "pane_id"
+        case shellPid = "shell_pid"
+        case tty
+    }
+}
+
+/// herdr schema `$defs/PaneProcessInfoParams`.
+struct PaneProcessInfoParams: Codable, Equatable, Sendable {
+    let paneID: String?
+
+    init(paneID: String? = nil) {
+        self.paneID = paneID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case paneID = "pane_id"
+    }
+}
+
+/// herdr schema `$defs/PaneProcessInfoProcess`.
+struct PaneProcessInfoProcess: Codable, Equatable, Sendable {
+    let argv: [String]?
+    let argv0: String?
+    let cmdline: String?
+    let cwd: String?
+    let name: String
+    let pid: Int
+
+    init(
+        name: String,
+        pid: Int,
+        argv: [String]? = nil,
+        argv0: String? = nil,
+        cmdline: String? = nil,
+        cwd: String? = nil
+    ) {
+        self.name = name
+        self.pid = pid
+        self.argv = argv
+        self.argv0 = argv0
+        self.cmdline = cmdline
+        self.cwd = cwd
+    }
+}
+
+/// The `"type":"pane_process_info"` result payload of herdr's success_response schema.
+struct PaneProcessInfoResponse: Codable, Equatable, Sendable {
+    let processInfo: PaneProcessInfo
+
+    init(processInfo: PaneProcessInfo) {
+        self.processInfo = processInfo
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case processInfo = "process_info"
+    }
+}
+
 /// herdr schema `$defs/PaneReadParams`.
 struct PaneReadParams: Codable, Equatable, Sendable {
     let format: ReadFormat?

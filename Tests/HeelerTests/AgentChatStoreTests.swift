@@ -90,7 +90,8 @@ struct AgentChatStoreTests {
                 activeInterval: .milliseconds(5), idleInterval: .milliseconds(5)),
             adapter: ChatTranscriptAdapter? = nil,
             cachedSession: @escaping @Sendable (Agent) async -> AgentSessionInfo? = { _ in nil },
-            screen: BlockedScreenIO = .unavailable
+            screen: BlockedScreenIO = .unavailable,
+            processInfo: (@Sendable () async throws -> PaneProcessInfo)? = nil
         ) {
             let agent = AgentChatStoreTests.agent(session: session, program: program)
             let server = Server(agent)
@@ -103,7 +104,7 @@ struct AgentChatStoreTests {
                     hostID: AgentChatStoreTests.host, socketLocation: .defaultSession,
                     files: files.hostFiles(), agentInfo: { try await server.read() }, cache: cache,
                     adapter: adapter ?? NumberedChatReducer.adapter(limits: limits, wantsFirstLine: program == .codex),
-                    cachedSession: cachedSession, screen: screen),
+                    cachedSession: cachedSession, processInfo: processInfo, screen: screen),
                 timing: timing, now: { clock.now })
         }
 
@@ -930,6 +931,217 @@ struct AgentChatStoreTests {
     private static func showWithoutLoop(_ store: AgentChatStore) {
         store.show()
         store.suspend()
+    }
+
+    // MARK: Launch
+
+    /// What `pane.process_info` answers, and how often it was asked.
+    private actor Processes {
+        var arguments: [String]
+        var failure: TransportError?
+        private(set) var reads = 0
+
+        init(_ arguments: [String]) {
+            self.arguments = arguments
+        }
+
+        func read() throws -> PaneProcessInfo {
+            reads += 1
+            if let failure { throw failure }
+            return PaneProcessInfo(
+                paneID: "w1:p1",
+                foregroundProcesses: [PaneProcessInfoProcess(name: "codex", pid: 4_242, argv: arguments)])
+        }
+
+        func set(_ arguments: [String]) {
+            self.arguments = arguments
+        }
+
+        func fail(with failure: TransportError?) {
+            self.failure = failure
+        }
+    }
+
+    private static let controlSocket = "/home/dev/.codex/app-server-control/app-server-control.sock"
+
+    private static func launched(
+        _ arguments: [String], session: String? = nil, program: ChatProgram = .codex, serverRuns: Bool = true
+    ) async -> (fixture: Fixture, processes: Processes) {
+        let processes = Processes(arguments)
+        let fixture = Fixture(
+            session: session, program: program, processInfo: { try await processes.read() })
+        if serverRuns { await fixture.files.write("", at: controlSocket) }
+        return (fixture, processes)
+    }
+
+    @Test func aCodexOnTheSharedServerExplainsTheWaitInsteadOfAskingForAPrompt() async {
+        let (fixture, processes) = await Self.launched(["codex"])
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+
+        #expect(await processes.reads == 1)
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+        #expect(fixture.store.conversation.phase == .unavailable(.noSession(.codex)))
+        let reason = ChatUnavailableReason.noSession(.codex)
+        #expect(reason.explanation(launchNotice: .codexSharedServer).contains("codex \(ChatLaunchNotice.unbrokenNoDaemon) resume"))
+        // The placeholder says it, so no banner repeats it.
+        let lines = ChatBannerLine.lines(
+            hostStatus: .connected, conversation: fixture.store.conversation, hasPendingEchoes: false,
+            launchNotice: fixture.store.launchNotice)
+        #expect(lines.isEmpty)
+    }
+
+    @Test func aBoundCodexOnTheSharedServerWarnsOverItsConversation() async {
+        let session = "01a10f87-e025-7fb1-8974-8dd09937767a"
+        let transcript = "/home/dev/.codex/sessions/2026/10/06/rollout-2026-10-06T12-45-25-\(session).jsonl"
+        let (fixture, _) = await Self.launched(["codex", "-m", "gpt-5", "resume", session], session: session)
+        await fixture.files.write(
+            #"{"type":"session_meta","payload":{"id":"\#(session)"}}"# + "\n" + NumberedChatReducer.lines(0..<2),
+            at: transcript)
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+
+        #expect(fixture.store.conversation.phase == .following(path: transcript))
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+        let lines = ChatBannerLine.lines(
+            hostStatus: .connected, conversation: fixture.store.conversation, hasPendingEchoes: false,
+            launchNotice: fixture.store.launchNotice)
+        #expect(lines == [.launch(.codexSharedServer)])
+        #expect(lines.first?.text.contains(ChatLaunchNotice.unbrokenNoDaemon) == true)
+    }
+
+    @Test(arguments: [
+        ["codex", "--no-daemon"], ["codex", "--no-daemon", "resume"], ["codex", "-c", "model=\"o3\""],
+        ["codex", "--profile=work"], ["codex", "-pwork"], ["codex", "--remote", "ws://127.0.0.1:4500"],
+    ])
+    func aCodexOffTheSharedServerShowsNoNotice(arguments: [String]) async {
+        let (fixture, processes) = await Self.launched(arguments)
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+
+        #expect(await processes.reads == 1)
+        #expect(fixture.store.launchNotice == nil)
+    }
+
+    /// Codex before the shared server took no `--no-daemon` either; only a
+    /// running server says the launch is on one.
+    @Test func noRunningServerMeansNoNotice() async {
+        let (fixture, _) = await Self.launched(["codex"], serverRuns: false)
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+
+        #expect(fixture.store.launchNotice == nil)
+    }
+
+    @Test func onlyAShownCodexChatReadsTheLaunch() async {
+        let (hidden, hiddenProcesses) = await Self.launched(["codex"])
+        await hidden.store.step()
+        #expect(await hiddenProcesses.reads == 0)
+
+        let (claude, claudeProcesses) = await Self.launched(["claude"], program: .claude)
+        Self.showWithoutLoop(claude.store)
+        await claude.store.step()
+        #expect(await claudeProcesses.reads == 0)
+        #expect(claude.store.launchNotice == nil)
+    }
+
+    @Test func theNoticeClearsOnceCodexIsStartedAgainWithTheFlag() async {
+        let (fixture, processes) = await Self.launched(["codex"])
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+
+        await processes.set(["codex", "--no-daemon", "resume"])
+        fixture.advance(4)
+        await fixture.store.step()
+        #expect(await processes.reads == 1)
+        fixture.advance(1)
+        await fixture.store.step()
+        #expect(await processes.reads == 2)
+        #expect(fixture.store.launchNotice == nil)
+
+        // Without a notice, only a sign of a new launch asks again.
+        fixture.advance(30)
+        await fixture.store.step()
+        #expect(await processes.reads == 2)
+        fixture.store.retry()
+        await fixture.store.step()
+        #expect(await processes.reads == 3)
+    }
+
+    @Test func aFailedReadKeepsTheNoticeAndATransportWithoutProcessesStopsAsking() async {
+        let (fixture, processes) = await Self.launched(["codex"])
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+
+        await processes.fail(with: .timedOut)
+        fixture.store.retry()
+        await fixture.store.step()
+        #expect(await processes.reads == 2)
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+        #expect(fixture.store.conversation.readFailure == nil)
+
+        // A notice that can't be checked any more doesn't stay up.
+        await processes.fail(with: .hostFeatureUnavailable(feature: "Chat"))
+        fixture.store.retry()
+        await fixture.store.step()
+        #expect(await processes.reads == 3)
+        #expect(fixture.store.launchNotice == nil)
+        fixture.store.retry()
+        fixture.advance(30)
+        await fixture.store.step()
+        #expect(await processes.reads == 3)
+    }
+
+    @Test func aFailedFirstReadIsTriedAgainWithTheSessionRecheck() async {
+        let (fixture, processes) = await Self.launched(["codex"])
+        await processes.fail(with: .timedOut)
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+        #expect(await processes.reads == 1)
+        #expect(fixture.store.launchNotice == nil)
+
+        await processes.fail(with: nil)
+        fixture.advance(5)
+        await fixture.store.step()
+        #expect(await processes.reads == 2)
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+    }
+
+    @Test func aStatusChangeReadsTheLaunchAgain() async {
+        let (fixture, processes) = await Self.launched(["codex", "--no-daemon"])
+        Self.showWithoutLoop(fixture.store)
+        await fixture.store.step()
+        #expect(fixture.store.launchNotice == nil)
+
+        await processes.set(["codex"])
+        fixture.store.agentDidChange(Self.agent(session: nil, status: .working, program: .codex))
+        await fixture.store.step()
+        #expect(await processes.reads == 2)
+        #expect(fixture.store.launchNotice == .codexSharedServer)
+    }
+
+    /// A placeholder saying why there is no conversation shows none to warn
+    /// about; the search for one, and a timeline, carry the banner.
+    @Test func theLaunchBannerShowsOnlyOverAConversationOrItsSearch() {
+        var missing = ChatConversationSnapshot()
+        missing.phase = .unavailable(.notFound(searchedAll: true))
+        #expect(
+            ChatBannerLine.lines(
+                hostStatus: .connected, conversation: missing, hasPendingEchoes: false,
+                launchNotice: .codexSharedServer
+            ).isEmpty)
+        #expect(
+            ChatBannerLine.lines(
+                hostStatus: .connected, conversation: missing, hasPendingEchoes: true,
+                launchNotice: .codexSharedServer
+            ) == [.unavailable(.notFound(searchedAll: true), showingSavedMessages: false), .launch(.codexSharedServer)])
+        #expect(
+            ChatBannerLine.lines(
+                hostStatus: .connected, conversation: ChatConversationSnapshot(), hasPendingEchoes: false,
+                launchNotice: .codexSharedServer
+            ) == [.launch(.codexSharedServer)])
     }
 
     /// `/clear` typed in the terminal moves an Agent that stays idle to a

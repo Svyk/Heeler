@@ -296,6 +296,10 @@ protocol Transport: Sendable {
     /// notice the Agent's session changing, which no event reports.
     func agentInfo(_ target: AgentTarget) async throws -> Agent
 
+    /// The processes in a Pane's foreground job (`pane.process_info`). Chat
+    /// reads how the Agent's program was launched from their arguments.
+    func paneProcessInfo(paneID: String) async throws -> PaneProcessInfo
+
     /// The context window, in tokens, of the model an Agent's session names
     /// as `provider/model`, as the Agent's own CLI on the Host reports it.
     /// `nil` when the CLI is absent or does not know the model; a session
@@ -404,6 +408,10 @@ extension Transport {
     func hostPlatform() async throws -> HostPlatform { .posix }
 
     func agentInfo(_ target: AgentTarget) async throws -> Agent {
+        throw TransportError.hostFeatureUnavailable(feature: "Chat")
+    }
+
+    func paneProcessInfo(paneID: String) async throws -> PaneProcessInfo {
         throw TransportError.hostFeatureUnavailable(feature: "Chat")
     }
 

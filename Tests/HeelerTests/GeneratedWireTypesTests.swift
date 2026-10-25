@@ -191,6 +191,22 @@ import Testing
         #expect(response.read.truncated == false)
     }
 
+    @Test func paneProcessInfoResponseRoundTripsLiveCapture() throws {
+        // `pane.process_info` live capture (herdr 0.9.5), cwd shortened.
+        let json = #"{"type":"pane_process_info","process_info":{"foreground_process_group_id":3082,"foreground_processes":[{"argv":["codex","--no-daemon","resume","01a169c2-de61-7a01-956b-a0c632bc0481"],"argv0":"codex","cmdline":"codex --no-daemon resume 01a169c2-de61-7a01-956b-a0c632bc0481","cwd":"/Users/u/Heeler","name":"codex","pid":3082}],"pane_id":"w29:p1","shell_pid":2785}}"#
+
+        let response = try roundTrip(PaneProcessInfoResponse.self, json)
+        let info = response.processInfo
+
+        #expect(info.paneID == "w29:p1")
+        #expect(info.tty == nil)
+        #expect(info.foregroundProcesses?.first?.name == "codex")
+        #expect(info.foregroundProcesses?.first?.argv?.prefix(2) == ["codex", "--no-daemon"])
+        _ = try roundTrip(
+            PaneProcessInfoResponse.self,
+            #"{"type":"pane_process_info","process_info":{"foreground_processes":[{"name":"zsh","pid":1}],"pane_id":"w1:p1"}}"#)
+    }
+
     @Test func agentExplainResponseCarriesFreeFormJSON() throws {
         // The schema leaves `explain` untyped (`true`); trimmed live capture.
         let json = #"{"type":"agent_explain","explain":{"agent":"codex","evaluated_rules":[{"id":"osc_title_blocked","matched":false,"priority":1100}]}}"#

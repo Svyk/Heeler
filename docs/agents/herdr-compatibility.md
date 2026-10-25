@@ -25,7 +25,10 @@ versions. They are historical evidence, not fresh tests on the installed herdr.
   transcripts over SFTP, and OpenCode's session store with a read-only exec
   ([ADR 0025](../adr/0025-opencode-chat-reads-its-session-store.md)), never
   through herdr. herdr supplies the session id, Agent Status, screen reads,
-  `agent.prompt`, `agent.send_keys` and `pane.send_input`.
+  `agent.prompt`, `agent.send_keys` and `pane.send_input`. For Codex, Chat
+  also reads `pane.process_info` arguments and stats the shared server's
+  control socket, `~/.codex/app-server-control/app-server-control.sock`, to
+  warn when Codex runs on that server (`CodexLaunch`).
 
 ## Versioned observations
 

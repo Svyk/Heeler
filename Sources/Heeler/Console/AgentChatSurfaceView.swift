@@ -566,7 +566,7 @@ struct AgentChatSurfaceView: View {
             ChatEmptyConversationView(description: reason.explanation)
         case .unavailable(let reason):
             ChatUnavailableView(
-                reason: reason,
+                reason: reason, launchNotice: chat?.launchNotice,
                 retry: { chat?.retry() },
                 showAgentTerminal: { showAgentTerminal() })
         case .disconnected:
@@ -610,7 +610,10 @@ struct AgentChatSurfaceView: View {
     private var bannerContent: [Banner] {
         let lines = ChatBannerLine.lines(
             hostStatus: console.hostStatuses[agent.hostID], conversation: chat?.conversation,
-            hasPendingEchoes: !pendingEchoes.isEmpty)
+            hasPendingEchoes: !pendingEchoes.isEmpty, launchNotice: chat?.launchNotice)
+        let terminalOffered = lines.contains {
+            if case .unavailable(let reason, _) = $0 { !reason.isWaiting } else { false }
+        }
         return lines.map { line in
             var banner = Banner(
                 id: line.id, systemImage: line.systemImage, text: line.text, showsProgress: line.showsProgress)
@@ -622,6 +625,11 @@ struct AgentChatSurfaceView: View {
                 banner.action = { chat?.retry() }
             case .unavailable(let reason, _):
                 if !reason.isWaiting {
+                    banner.actionTitle = AgentDetailSurface.terminal.showTitle
+                    banner.action = { showAgentTerminal() }
+                }
+            case .launch:
+                if !terminalOffered {
                     banner.actionTitle = AgentDetailSurface.terminal.showTitle
                     banner.action = { showAgentTerminal() }
                 }

@@ -60,6 +60,7 @@ METHODS = [
     "tab.create",
     "tab.rename",
     "tab.close",
+    "pane.process_info",
     "pane.read",
     "pane.send_input",
     "pane.close",
@@ -97,6 +98,7 @@ RESULT_TAGS = [
     "agent_prompted",  # agent.prompt
     "agent_started",  # agent.start
     "agent_list",  # agent.list
+    "pane_process_info",  # pane.process_info
     "pane_read",  # pane.read, agent.read
     "session_snapshot",  # session.snapshot
     "subscription_started",  # events.subscribe ack

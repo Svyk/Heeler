@@ -64,6 +64,14 @@ extension ChatUnavailableReason {
         }
     }
 
+    /// The explanation, or for a Codex Agent launched on its shared server
+    /// and waiting for a session, what to do about it: a prompt won't help.
+    func explanation(launchNotice: ChatLaunchNotice?) -> String {
+        guard launchNotice == .codexSharedServer, self == .noSession(.codex) else { return explanation }
+        let flag = ChatLaunchNotice.unbrokenNoDaemon
+        return "This Codex was started without \(flag), so herdr can't tell which terminal its conversation is in. Exit Codex, then run codex \(flag) resume in the Agent terminal. Chat will keep checking."
+    }
+
     /// One line for a banner over the timeline. `showingSavedMessages` is
     /// false when the timeline holds only messages sent from this device,
     /// as with a new conversation whose transcript isn't written yet.
@@ -178,12 +186,14 @@ enum ChatBannerLine: Equatable, Identifiable {
     case notConnected(showingSavedMessages: Bool)
     case readFailure(TransportError)
     case unavailable(ChatUnavailableReason, showingSavedMessages: Bool)
+    case launch(ChatLaunchNotice)
 
     var id: String {
         switch self {
         case .connecting, .notConnected: "host"
         case .readFailure: "read"
         case .unavailable: "unavailable"
+        case .launch: "launch"
         }
     }
 
@@ -191,7 +201,8 @@ enum ChatBannerLine: Equatable, Identifiable {
     /// while there is no Chat to read. Saved messages are transcript entries
     /// this device kept; messages sent from it and not yet recorded are not.
     static func lines(
-        hostStatus: EventsSessionStatus?, conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool
+        hostStatus: EventsSessionStatus?, conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool,
+        launchNotice: ChatLaunchNotice? = nil
     ) -> [ChatBannerLine] {
         let showingSaved = conversation?.transcript.entries.isEmpty == false
         switch hostStatus {
@@ -208,6 +219,18 @@ enum ChatBannerLine: Equatable, Identifiable {
             lines.append(
                 .unavailable(reason, showingSavedMessages: !conversation.transcript.entries.isEmpty))
         }
+        // Over a conversation, or the search for one. A placeholder saying
+        // why there is none shows no conversation to warn about, and
+        // Waiting for Conversation explains the notice itself.
+        if let launchNotice {
+            switch conversation.phase {
+            case .following, .locating: lines.append(.launch(launchNotice))
+            case .unavailable:
+                if conversation.showsTimeline(hasPendingEchoes: hasPendingEchoes) {
+                    lines.append(.launch(launchNotice))
+                }
+            }
+        }
         return lines
     }
 
@@ -222,6 +245,8 @@ enum ChatBannerLine: Equatable, Identifiable {
         case .readFailure(let failure): "Couldn't read the conversation. \(failure.presentation.explanation)"
         case .unavailable(let reason, let showingSavedMessages):
             reason.bannerText(showingSavedMessages: showingSavedMessages)
+        case .launch(.codexSharedServer):
+            "Started without \(ChatLaunchNotice.unbrokenNoDaemon), so this may be another terminal's conversation."
         }
     }
 
@@ -231,6 +256,7 @@ enum ChatBannerLine: Equatable, Identifiable {
         case .notConnected: "wifi.slash"
         case .readFailure: "exclamationmark.triangle"
         case .unavailable(let reason, _): reason.systemImage
+        case .launch: "exclamationmark.bubble"
         }
     }
 
@@ -238,7 +264,7 @@ enum ChatBannerLine: Equatable, Identifiable {
         switch self {
         case .connecting: true
         case .unavailable(let reason, _): reason.isWaiting
-        case .notConnected, .readFailure: false
+        case .notConnected, .readFailure, .launch: false
         }
     }
 }
@@ -270,6 +296,7 @@ extension ChatProgram {
 /// In the conversation's place while there is nothing to show.
 struct ChatUnavailableView: View {
     let reason: ChatUnavailableReason
+    var launchNotice: ChatLaunchNotice?
     let retry: () -> Void
     let showAgentTerminal: () -> Void
 
@@ -277,7 +304,7 @@ struct ChatUnavailableView: View {
         ContentUnavailableView {
             Label(reason.title, systemImage: reason.systemImage)
         } description: {
-            Text(reason.explanation)
+            Text(reason.explanation(launchNotice: launchNotice))
         } actions: {
             Button(AgentDetailSurface.terminal.showTitle, action: showAgentTerminal)
                 .buttonStyle(.bordered)
