@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,4 +172,16 @@ test("a worker that dies during the Codex limits read leaves the read throttled"
   const report = await f.finish();
   assert.equal(f.codexLaunches().length, 1);
   assert.equal(report.programs.find(program => program.program === "codex").usageLimits.state, "error");
+});
+
+test("a cache directory the query cannot write still returns the cached report", { skip: process.getuid?.() === 0 && "root ignores directory modes" }, async t => {
+  const f = fixture(t);
+  const cached = await f.finish();
+  f.stale();
+  chmodSync(f.cache(), 0o500);
+  let report;
+  try { report = f.query(); } finally { chmodSync(f.cache(), 0o700); }
+  assert.equal(report.refreshing, false);
+  assert.deepEqual(report.programs, cached.programs);
+  assert.equal(existsSync(join(f.cache(), "worker.lock")), false);
 });

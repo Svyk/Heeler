@@ -729,6 +729,7 @@ tests and decoded by the Swift tests.
 | Transcript older than 30 days deleted; rollout archived, compressed, or decompressed to append | No rebuild |
 | `.zst` rollout with neither Node zstd nor `zstd` on `PATH` | Counted in `skippedArchives`; coverage note |
 | Worker crashed | Stale lock reclaimed; next query restarts it |
+| Cache directory not writable | Cached report, `refreshing: false`; no worker |
 | Codex reading fails (too old, missing, not signed in, error, timeout) | `lastSession` fallback; without a snapshot `unavailable` or `error` |
 | Codex signed in without ChatGPT | `unavailable`, `noPlanLimits` |
 | Reset time of a reading has passed | Window shown expired, usage unknown |
