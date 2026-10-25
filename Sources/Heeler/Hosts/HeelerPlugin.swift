@@ -164,6 +164,76 @@ enum HeelerPluginStatus: Equatable, Sendable {
     }
 }
 
+/// One change Heeler can make to a Host's plugin itself, over the Host's
+/// connection: the typed counterpart of a notice command. Plugin ids are
+/// always `PluginListResult.knownIDs` literals, never Host text.
+enum HeelerPluginStep: Equatable, Sendable {
+    /// `herdr plugin install` from the plugin branch, which also updates a
+    /// GitHub install in place.
+    case install
+    /// Removes an old copy installed under a legacy id.
+    case uninstall(pluginID: String)
+    /// Turns the plugin on in the Host's own session.
+    case enable(pluginID: String)
+
+    /// The herdr CLI arguments for the steps that run the CLI; enable goes
+    /// through the session's `plugin.enable` request instead.
+    var herdrArguments: [String]? {
+        switch self {
+        case .install: HostSetupGuide.pluginInstallArguments
+        case .uninstall(let pluginID): ["plugin", "uninstall", pluginID]
+        case .enable: nil
+        }
+    }
+}
+
+/// Why running a notice action left the plugin sheet with something to do,
+/// in the sheet's words.
+struct HeelerPluginActionFailure: Equatable, Sendable {
+    let message: String
+    /// herdr's own output, when it said why.
+    let detail: String?
+
+    init(message: String, detail: String? = nil) {
+        self.message = message
+        self.detail = detail
+    }
+
+    init(_ error: any Error) {
+        switch error {
+        case let error as HeelerPluginStepError:
+            let message =
+                if error.needsServerRestart {
+                    "herdr on the Host is newer than its running server. Restart the herdr "
+                        + "server, then try again."
+                } else if error.isBuildFailure {
+                    "The plugin's build step (npm ci) failed on the Host. Check that SSH "
+                        + "commands there find Node.js 20 or newer and npm."
+                } else if error.isDownloadFailure {
+                    "herdr could not download the plugin. Check that the Host can reach "
+                        + "github.com."
+                } else if case .uninstall = error.step {
+                    "herdr could not remove the old copy of the plugin."
+                } else {
+                    "herdr could not install the plugin."
+                }
+            self.init(message: message, detail: error.detail())
+        case TransportError.timedOut:
+            self.init(
+                message: "The Host did not finish in time. The change may still complete "
+                    + "there, so run the checks again in a minute.")
+        case let error as TransportError:
+            self.init(message: error.presentation.message)
+        case let error as HerdrAPIError:
+            self.init(
+                message: "herdr could not turn the plugin on.",
+                detail: "\(error.code): \(error.message)")
+        default:
+            self.init(message: "The change failed unexpectedly. (\(error))")
+        }
+    }
+}
+
 /// Host detail copy for the plugin row and, when the user has something to
 /// do, the notice with the commands that do it.
 struct HeelerPluginPresentation: Equatable {
@@ -173,6 +243,12 @@ struct HeelerPluginPresentation: Equatable {
             case info
         }
 
+        /// The notice's commands as steps Heeler can run for the user.
+        struct Action: Equatable {
+            let title: String
+            let steps: [HeelerPluginStep]
+        }
+
         let tone: Tone
         let message: String
         /// Shell commands to run on the Host, in order.
@@ -180,6 +256,11 @@ struct HeelerPluginPresentation: Equatable {
         /// Follow-up sentences: features the current plugin lacks, and
         /// anything to redo afterwards.
         let notes: [String]
+        /// nil when the user has to act on the Host: an install over a plugin
+        /// that is not a GitHub install of this repository, or a change of
+        /// the plugin's id, which Notification Registration only follows
+        /// after reconnecting.
+        var action: Action? = nil
     }
 
     static func installCommand(endpoint: HerdrEndpoint?) -> String {
@@ -231,7 +312,8 @@ struct HeelerPluginPresentation: Equatable {
                 message: "Install the Heeler plugin for notifications, Live Activity updates, "
                     + "and herdr's sidebar fields.",
                 commands: [Self.installCommand(endpoint: endpoint)],
-                notes: [])
+                notes: [],
+                action: Notice.Action(title: "Install Plugin", steps: [.install]))
         case .installed(let installation):
             let described = Self.describe(
                 installation, session: session, endpoint: endpoint, bundled: bundled)
@@ -289,15 +371,22 @@ struct HeelerPluginPresentation: Equatable {
             let removals = installation.leftoverLegacyIDs.map {
                 uninstallCommand($0, endpoint: endpoint)
             }
+            let updates = isOutdated && !isLocal
+            // The action updates first, so a failed update leaves the Host
+            // as it was.
             return (
                 shownValue,
                 Notice(
                     tone: .warning,
                     message: "An old copy of the Heeler plugin is still installed under its "
                         + "former name and may send duplicate notifications. Remove it"
-                        + (isOutdated && !isLocal ? " and update the plugin:" : ":"),
-                    commands: removals + (isOutdated && !isLocal ? [installCommand] : []),
-                    notes: missing))
+                        + (updates ? " and update the plugin:" : ":"),
+                    commands: removals + (updates ? [installCommand] : []),
+                    notes: missing,
+                    action: action(
+                        updates ? "Update Plugin" : "Remove Old Copy", for: installation,
+                        steps: (updates ? [.install] : [])
+                            + installation.leftoverLegacyIDs.map { .uninstall(pluginID: $0) })))
         }
         if !installation.isEnabled {
             // A reinstall keeps a disabled plugin disabled on herdr 0.9.4,
@@ -313,7 +402,10 @@ struct HeelerPluginPresentation: Equatable {
                             + "\(bundled). Update it, then turn it on:",
                         commands: [installCommand, enableCommand(
                             installation.pluginID, session: session, endpoint: endpoint)],
-                        notes: missing))
+                        notes: missing,
+                        action: action(
+                            "Update and Turn On", for: installation,
+                            steps: [.install, .enable(pluginID: installation.pluginID)])))
             }
             return (
                 "\(version) · Disabled",
@@ -322,7 +414,10 @@ struct HeelerPluginPresentation: Equatable {
                     message: "The Heeler plugin is disabled, so this Host sends no notifications "
                         + "or Live Activity updates.",
                     commands: [enableCommand(installation.pluginID, session: session, endpoint: endpoint)],
-                    notes: []))
+                    notes: [],
+                    action: action(
+                        "Turn On Plugin", for: installation,
+                        steps: [.enable(pluginID: installation.pluginID)])))
         }
         if installation.hasManifestWarning {
             return (
@@ -332,7 +427,8 @@ struct HeelerPluginPresentation: Equatable {
                     message: "herdr could not read the plugin's manifest, so its version may be "
                         + (isLocal ? "out of date. Check the linked checkout." : "out of date. Reinstall it."),
                     commands: isLocal ? [] : [installCommand],
-                    notes: []))
+                    notes: [],
+                    action: action("Reinstall Plugin", for: installation, steps: [.install])))
         }
         guard isOutdated, let parsed else { return (shownValue, nil) }
         if isLocal {
@@ -352,6 +448,23 @@ struct HeelerPluginPresentation: Equatable {
                 tone: .warning,
                 message: "Update available: \(parsed) → \(bundled). Run this on the Host:",
                 commands: [installCommand],
-                notes: missing))
+                notes: missing,
+                action: action("Update Plugin", for: installation, steps: [.install])))
+    }
+
+    /// `steps` as a notice action, unless an install would replace a plugin
+    /// that is not a GitHub install of this repository: herdr refuses a
+    /// linked checkout and may refuse an unknown source, and a fork's
+    /// install would quietly move to this repository.
+    private static func action(
+        _ title: String, for installation: HeelerPluginInstallation, steps: [HeelerPluginStep]
+    ) -> Notice.Action? {
+        let replacesOwnInstall =
+            installation.source == .github
+            && installation.repository.map {
+                $0.caseInsensitiveCompare(HostSetupGuide.pluginRepository) == .orderedSame
+            } ?? true
+        guard replacesOwnInstall || !steps.contains(.install) else { return nil }
+        return Notice.Action(title: title, steps: steps)
     }
 }

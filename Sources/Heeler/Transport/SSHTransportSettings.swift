@@ -44,6 +44,9 @@ struct SSHTransportSettings: Sendable {
     /// Chat's store queries (ADR 0025) have their own budget, so calibrating
     /// one feature leaves the other alone.
     static let defaultChatQueryTimeout: Duration = .seconds(10)
+    /// A plugin install fetches the plugin branch and runs its `npm ci`, and
+    /// herdr bounds neither, so a slow network still gets minutes.
+    static let defaultPluginInstallTimeout: Duration = .seconds(180)
 
     static var defaultAgentDiscoveryCommand: String {
         let checks = SupportedAgentKind.allCases.map { kind in
@@ -159,6 +162,9 @@ struct SSHTransportSettings: Sendable {
     /// stops two seconds earlier, so the Host normally ends a slow query
     /// first. Expiry reports `.hostFileTimedOut`, which never redials.
     var chatQueryTimeout: Duration = Self.defaultChatQueryTimeout
+    /// Bounds one `herdr plugin install` or `uninstall` exec run for the
+    /// user. Expiry reports `.timedOut`; the Host may still finish the step.
+    var pluginInstallTimeout: Duration = Self.defaultPluginInstallTimeout
 
     init(
         routes: [SSHRoute],

@@ -120,9 +120,11 @@ struct HostOnboardingView: View {
             HostFormView(store: catalog, editing: store.host)
         }
 
-        .pluginNoticeSheet(pluginPresentation.notice, isPresented: $isShowingPluginNotice) {
-            Task { await store.runChecks() }
-        }
+        .pluginNoticeSheet(
+            pluginPresentation.notice, isPresented: $isShowingPluginNotice,
+            actionState: store.pluginAction,
+            runAction: { action in Task { await store.runPluginAction(action) } },
+            runChecks: { Task { await store.runChecks() } })
         .alert(
             "Trust this Host?",
             isPresented: fingerprintAlertPresented,
@@ -436,6 +438,7 @@ struct HostOnboardingView: View {
                     Button("Run Checks Again") {
                         Task { await store.runChecks() }
                     }
+                    .disabled(store.pluginAction == .running)
                 }
             }
             .font(.subheadline)
@@ -458,8 +461,7 @@ struct HostOnboardingView: View {
     }
 
     private var pluginPresentation: HeelerPluginPresentation {
-        HeelerPluginPresentation(
-            store.pluginStatus, session: store.host.sessionName, endpoint: store.host.herdrEndpoint)
+        store.pluginPresentation
     }
 
     /// The installed version. When the user has something to do on the Host
@@ -475,7 +477,12 @@ struct HostOnboardingView: View {
                 LabeledContent {
                     HStack(spacing: 6) {
                         Text(presentation.value)
-                        PluginNoticeIcon(tone: notice.tone)
+                        if store.pluginAction == .running {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            PluginNoticeIcon(tone: notice.tone)
+                        }
                     }
                 } label: {
                     // Not the button tint: the row reads like its neighbors.

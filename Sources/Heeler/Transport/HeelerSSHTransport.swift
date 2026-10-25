@@ -329,6 +329,7 @@ actor HeelerSSHTransport: Transport {
     private let requestTimeout: Duration
     private let gitExecTimeout: Duration
     private let chatQueryTimeout: Duration
+    private let pluginInstallTimeout: Duration
     /// One OpenCode query at a time (ADR 0025). A query past its deadline
     /// keeps the lane until its exec drains, so polls never stack execs.
     private let chatQueryLane = GitExecGate()
@@ -550,7 +551,8 @@ actor HeelerSSHTransport: Transport {
         socketPath: String,
         requestTimeout: Duration = SSHTransportSettings.defaultRequestTimeout,
         gitExecTimeout: Duration = SSHTransportSettings.defaultGitExecTimeout,
-        chatQueryTimeout: Duration = SSHTransportSettings.defaultChatQueryTimeout
+        chatQueryTimeout: Duration = SSHTransportSettings.defaultChatQueryTimeout,
+        pluginInstallTimeout: Duration = SSHTransportSettings.defaultPluginInstallTimeout
     ) {
         self.connection = connection
         routeID = nil
@@ -558,6 +560,7 @@ actor HeelerSSHTransport: Transport {
         self.requestTimeout = requestTimeout
         self.gitExecTimeout = gitExecTimeout
         self.chatQueryTimeout = chatQueryTimeout
+        self.pluginInstallTimeout = pluginInstallTimeout
         wakeCommand = SSHTransportSettings.defaultWakeCommand
         sessionListCommand = SSHTransportSettings.defaultSessionListCommand
         agentDiscoveryCommand = SSHTransportSettings.defaultAgentDiscoveryCommand
@@ -579,6 +582,7 @@ actor HeelerSSHTransport: Transport {
         requestTimeout = settings.requestTimeout
         gitExecTimeout = settings.gitExecTimeout
         chatQueryTimeout = settings.chatQueryTimeout
+        pluginInstallTimeout = settings.pluginInstallTimeout
         wakeCommand = settings.wakeCommand
         sessionListCommand = settings.sessionListCommand
         agentDiscoveryCommand = settings.agentDiscoveryCommand
@@ -1736,6 +1740,63 @@ actor HeelerSSHTransport: Transport {
         return HeelerPluginInstallation(result)
     }
 
+    func runHeelerPluginStep(_ step: HeelerPluginStep) async throws {
+        try await requirePOSIXHost(feature: "Changing the Heeler plugin")
+        guard let arguments = step.herdrArguments else {
+            if case .enable(let pluginID) = step {
+                _ = try await request(
+                    method: "plugin.enable",
+                    params: PluginSetEnabledParams(pluginID: pluginID),
+                    decoding: PluginEnabledResult.self)
+            }
+            return
+        }
+        let session = if case .namedSession(let name) = socketLocation { name } else { "" }
+        let command = Self.heelerPluginCommand(
+            arguments: arguments, session: session, launcher: herdrLauncher)
+        let result = try await runExec(
+            Self.cLocaleCommand(command), timeout: pluginInstallTimeout)
+        try Self.checkHeelerPluginStep(
+            step, result: result,
+            bareCommand: HerdrCommandLine.render(session: session, arguments: arguments),
+            launcher: herdrLauncher)
+    }
+
+    /// `herdr <arguments>` as a plugin step runs it: through an endpoint's
+    /// launcher, else the bare `herdr` with the app's PATH prefixes, which
+    /// the plugin's `npm ci` build also needs. It names the Host's session,
+    /// so herdr's protocol check before an install asks the server Heeler
+    /// uses; a session without a server falls back to the shared registry.
+    /// `arguments` are literal words Heeler chose.
+    static func heelerPluginCommand(
+        arguments: [String], session: String, launcher: HerdrLauncher?
+    ) -> String {
+        if let launcher {
+            return launcher.herdrCommand(arguments: arguments.joined(separator: " "))
+        }
+        return HerdrHostPath.wrappingBareHerdr(
+            HerdrCommandLine.render(session: session, arguments: arguments))
+    }
+
+    /// Throws unless `result` is a plugin step that herdr finished. Exit 127
+    /// means a missing `herdr` only for the bare command, so the check sees
+    /// `bareCommand`, the command before the PATH wrap.
+    static func checkHeelerPluginStep(
+        _ step: HeelerPluginStep, result: SSHExecResult, bareCommand: String,
+        launcher: HerdrLauncher?
+    ) throws {
+        if let missing = HerdrHostPath.missingBinaryError(
+            exitStatus: result.exitStatus, command: bareCommand, launcher: launcher)
+        {
+            throw missing
+        }
+        guard result.exitStatus == 0, result.reachedEOF else {
+            throw HeelerPluginStepError(
+                step: step, exitStatus: result.exitStatus, stderr: result.stderr,
+                stdout: result.stdout)
+        }
+    }
+
     private func runNotificationPluginProbe(command: String) async throws -> Data {
         do {
             let result = try await runExec(
@@ -2635,12 +2696,12 @@ actor HeelerSSHTransport: Transport {
         return input
     }
 
-    private func runExec(_ command: String) async throws -> SSHExecResult {
+    private func runExec(_ command: String, timeout: Duration? = nil) async throws -> SSHExecResult {
         try await channelAdmission.withChannel(.ordinarySession) {
             do {
                 return try await self.connection.execute(
                     command,
-                    timeout: self.requestTimeout)
+                    timeout: timeout ?? self.requestTimeout)
             } catch {
                 throw await self.mapOperationError(error)
             }

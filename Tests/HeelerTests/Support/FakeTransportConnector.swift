@@ -8,18 +8,33 @@ final actor FakeTransport: Transport {
     private let sessions: [HerdrSession]
     /// nil leaves the plugin read unscripted, like a transport without
     /// herdr's plugin registry.
-    private let plugin: Result<HeelerPluginInstallation?, TransportError>?
+    private var plugin: Result<HeelerPluginInstallation?, TransportError>?
+    private let pluginSteps: FakePluginSteps
     private(set) var isClosed = false
     /// Whether the connection was still open at each plugin read.
     private(set) var pluginReadsWhileOpen: [Bool] = []
+    /// The plugin steps run, in order.
+    private(set) var ranPluginSteps: [HeelerPluginStep] = []
 
     init(
         pingResult: Result<ServerInfo, TransportError>, sessions: [HerdrSession] = [],
-        plugin: Result<HeelerPluginInstallation?, TransportError>? = nil
+        plugin: Result<HeelerPluginInstallation?, TransportError>? = nil,
+        pluginSteps: FakePluginSteps = FakePluginSteps()
     ) {
         self.pingResult = pingResult
         self.sessions = sessions
         self.plugin = plugin
+        self.pluginSteps = pluginSteps
+    }
+
+    func runHeelerPluginStep(_ step: HeelerPluginStep) async throws {
+        ranPluginSteps.append(step)
+        if let after = pluginSteps.pluginAfterStep[ranPluginSteps.count - 1] {
+            plugin = after
+        }
+        if let failure = pluginSteps.failures[ranPluginSteps.count - 1] {
+            throw failure
+        }
     }
 
     func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
@@ -167,18 +182,21 @@ final actor FakeTransportConnector: TransportConnector {
     private let presentedKeyBlob: Data?
     private let sessions: [HerdrSession]
     private let plugin: Result<HeelerPluginInstallation?, TransportError>?
+    private let pluginSteps: FakePluginSteps
     private(set) var capturedSettings: [SSHTransportSettings] = []
     private(set) var transports: [FakeTransport] = []
 
     init(
         outcome: Outcome, presentedKeyBlob: Data? = nil,
         sessions: [HerdrSession] = [],
-        plugin: Result<HeelerPluginInstallation?, TransportError>? = nil
+        plugin: Result<HeelerPluginInstallation?, TransportError>? = nil,
+        pluginSteps: FakePluginSteps = FakePluginSteps()
     ) {
         self.outcome = outcome
         self.presentedKeyBlob = presentedKeyBlob
         self.sessions = sessions
         self.plugin = plugin
+        self.pluginSteps = pluginSteps
     }
 
     func connect(settings: SSHTransportSettings) async throws -> any Transport {
@@ -195,7 +213,8 @@ final actor FakeTransportConnector: TransportConnector {
             throw TransportError.timedOut
         case .connects(let pingResult):
             let transport = FakeTransport(
-                pingResult: pingResult, sessions: sessions, plugin: plugin)
+                pingResult: pingResult, sessions: sessions, plugin: plugin,
+                pluginSteps: pluginSteps)
             transports.append(transport)
             return transport
         }
@@ -230,6 +249,14 @@ final actor FakeTransportConnector: TransportConnector {
         }
         await policy.knownHosts.setFingerprint(fingerprint, host: key.host, port: key.port)
     }
+}
+
+/// How a `FakeTransport` answers plugin steps, by the step's index on
+/// that connection: the plugin a step leaves on the Host, and the error it
+/// throws after.
+struct FakePluginSteps: Sendable {
+    var pluginAfterStep: [Int: Result<HeelerPluginInstallation?, TransportError>] = [:]
+    var failures: [Int: any Error] = [:]
 }
 
 extension KnownHostsStore {

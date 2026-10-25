@@ -188,7 +188,9 @@ struct HerdrLauncher: Sendable, Equatable {
             + "'\(target)' \(socket) \(quotedExecutablePath)"
     }
 
-    private func herdrCommand(arguments: String) -> String {
+    /// The endpoint's `herdr <arguments>`. `arguments` is spliced into the
+    /// `-c` body as is, so it must be literal shell words Heeler chose.
+    func herdrCommand(arguments: String) -> String {
         "/bin/sh -c 'export HERDR_SOCKET_PATH=\"$2\"; exec \"$1\" \(arguments)' "
             + "herdr \(quotedExecutablePath) \(quotedSocketPath)"
     }

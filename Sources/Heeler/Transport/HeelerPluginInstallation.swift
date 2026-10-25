@@ -8,6 +8,9 @@ struct PluginListResult: Decodable, Sendable {
     struct Entry: Decodable, Sendable {
         struct Source: Decodable, Sendable {
             let kind: String?
+            /// A GitHub install's repository.
+            let owner: String?
+            let repo: String?
         }
 
         let pluginID: String?
@@ -48,6 +51,60 @@ struct PluginListResult: Decodable, Sendable {
     }
 }
 
+/// `plugin.enable`'s `plugin_enabled` result. Heeler rereads the plugin
+/// list afterwards, so the entry itself is not needed.
+struct PluginEnabledResult: Decodable, Sendable {}
+
+/// herdr failed or refused one `HeelerPluginStep` it ran through its CLI.
+struct HeelerPluginStepError: Error, Equatable, Sendable {
+    let step: HeelerPluginStep
+    let exitStatus: Int32
+    /// What herdr printed, stderr first: the CLI reports failures there.
+    let output: String
+
+    init(step: HeelerPluginStep, exitStatus: Int32, stderr: Data, stdout: Data) {
+        self.step = step
+        self.exitStatus = exitStatus
+        let errors = String(decoding: stderr, as: UTF8.self)
+        output =
+            errors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? String(decoding: stdout, as: UTF8.self) : errors
+    }
+
+    /// The build step (`npm ci`) failed, typically because SSH commands do
+    /// not find Node.js on the Host.
+    var isBuildFailure: Bool { output.contains("plugin build failed") }
+    /// git could not fetch the plugin branch.
+    var isDownloadFailure: Bool { output.contains("git failed") }
+    /// The CLI is newer than the session's running server, which herdr asks
+    /// to restart first (`protocol_guard.rs`).
+    var needsServerRestart: Bool { output.contains("restart the Herdr server") }
+
+    /// herdr's own words without the install preview it prints first, or
+    /// what the Host's shell setup printed before them (a tool's warnings,
+    /// say): from herdr's first `error` line when there is one, then the
+    /// last `lineLimit` non-empty lines, at most `characterLimit` long.
+    func detail(lineLimit: Int = 10, characterLimit: Int = 800) -> String? {
+        var lines: [Substring] = []
+        var isInPreview = false
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("Plugin ") && line.hasSuffix("preview:") {
+                isInPreview = true
+                continue
+            }
+            if isInPreview, line.first?.isWhitespace == true { continue }
+            isInPreview = false
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty { lines.append(line) }
+        }
+        if let firstError = lines.firstIndex(where: { $0.hasPrefix("error") }) {
+            lines.removeSubrange(..<firstError)
+        }
+        let text = lines.suffix(lineLimit).joined(separator: "\n")
+        guard !text.isEmpty else { return nil }
+        return text.count > characterLimit ? "…" + text.suffix(characterLimit - 1) : text
+    }
+}
+
 /// The Heeler plugin as herdr reports it on one Host.
 struct HeelerPluginInstallation: Equatable, Sendable {
     enum Source: Equatable, Sendable {
@@ -81,6 +138,8 @@ struct HeelerPluginInstallation: Equatable, Sendable {
     /// id, disabled: that plugin's source. Once the legacy id is removed,
     /// it is the plugin to turn on, and a linked one cannot be reinstalled.
     let disabledCurrentIDSource: Source?
+    /// `owner/repo` of a GitHub install, when herdr reports it.
+    let repository: String?
 
     /// Installed under a name the plugin used before 0.4.0.
     var isLegacyID: Bool { pluginID != SSHTransportSettings.notificationPluginID }
@@ -111,7 +170,11 @@ struct HeelerPluginInstallation: Equatable, Sendable {
                 $0.hasPrefix("manifest unavailable")
             } == true,
             leftoverLegacyIDs: leftovers,
-            disabledCurrentIDSource: disabledCurrentEntry.map { Source($0.source) })
+            disabledCurrentIDSource: disabledCurrentEntry.map { Source($0.source) },
+            repository: entry.source.flatMap { source in
+                guard let owner = source.owner, let repo = source.repo else { return nil }
+                return "\(owner)/\(repo)"
+            })
     }
 
     init(
@@ -121,7 +184,8 @@ struct HeelerPluginInstallation: Equatable, Sendable {
         source: Source = .github,
         hasManifestWarning: Bool = false,
         leftoverLegacyIDs: [String] = [],
-        disabledCurrentIDSource: Source? = nil
+        disabledCurrentIDSource: Source? = nil,
+        repository: String? = nil
     ) {
         self.pluginID = pluginID
         self.version = version
@@ -130,5 +194,6 @@ struct HeelerPluginInstallation: Equatable, Sendable {
         self.hasManifestWarning = hasManifestWarning
         self.leftoverLegacyIDs = leftoverLegacyIDs
         self.disabledCurrentIDSource = disabledCurrentIDSource
+        self.repository = repository
     }
 }

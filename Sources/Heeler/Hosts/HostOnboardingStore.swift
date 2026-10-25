@@ -30,6 +30,13 @@ final class HostOnboardingStore {
         case finished
     }
 
+    /// The plugin notice's action, once the user runs it.
+    enum PluginActionState: Equatable {
+        case idle
+        case running
+        case failed(HeelerPluginActionFailure)
+    }
+
     private(set) var phase: Phase = .idle
     /// Set while the transport waits on the user's first-connect trust
     /// decision; the UI renders it as the fingerprint confirmation sheet.
@@ -44,6 +51,7 @@ final class HostOnboardingStore {
     /// The Heeler plugin as the preflight connection found it. Read after a
     /// passing ping, so an unreachable Host reports `.unavailable`.
     private(set) var pluginStatus: HeelerPluginStatus = .checking
+    private(set) var pluginAction: PluginActionState = .idle
     /// Set when the last run stopped at an Overlay Network that needs an
     /// interactive sign-in; the UI offers to open it.
     private(set) var overlayLoginURL: URL?
@@ -84,8 +92,9 @@ final class HostOnboardingStore {
     /// Runs the preflight once: connect + ping, rendered into `report`.
     /// `cancelChecks()` (or cancelling the caller) ends it at once.
     func runChecks() async {
-        guard phase != .running else { return }
+        guard phase != .running, pluginAction != .running else { return }
         phase = .running
+        pluginAction = .idle
         report = nil
         serverInfo = nil
         availableSessions = []
@@ -213,6 +222,91 @@ final class HostOnboardingStore {
             captureHostKeyReplacement(error)
             report = failureReport(error)
         }
+    }
+
+    var pluginPresentation: HeelerPluginPresentation {
+        HeelerPluginPresentation(
+            pluginStatus, session: host.sessionName, endpoint: host.herdrEndpoint)
+    }
+
+    /// Runs the plugin notice's action on the Host, then rereads the plugin,
+    /// so the notice goes away once there is nothing left to do. Steps stop
+    /// at the first failure, which herdr leaves the plugin as it was after.
+    func runPluginAction(_ action: HeelerPluginPresentation.Notice.Action) async {
+        guard phase != .running, pluginAction != .running else { return }
+        pluginAction = .running
+        let failure = await performPluginAction(action)
+        pluginAction = failure.map(PluginActionState.failed) ?? .idle
+    }
+
+    /// The action over a connection of its own, like the preflight's: the
+    /// Console's redials after a timeout and would run a step twice.
+    private func performPluginAction(
+        _ action: HeelerPluginPresentation.Notice.Action
+    ) async -> HeelerPluginActionFailure? {
+        let resolved: SSHCredentials
+        do {
+            resolved = try credentials.credentials(for: host)
+        } catch {
+            return HeelerPluginActionFailure(
+                message: "Could not load this Host's credentials. (\(error))")
+        }
+        // The preflight already settled the Host key, so a key that still
+        // needs trusting is declined rather than asked about mid-change.
+        let policy = HostKeyPolicy(knownHosts: knownHosts) { _ in false }
+        let settings = SSHTransportSettings(
+            host: host, credentials: resolved, hostKeyPolicy: policy, overlays: overlays)
+        let transport: any Transport
+        do {
+            transport = try await connector.connect(settings: settings)
+        } catch {
+            return HeelerPluginActionFailure(
+                message: "Heeler could not connect to the Host, so nothing changed.",
+                detail: (error as? TransportError)?.presentation.message ?? "\(error)")
+        }
+        var stepError: (any Error)?
+        for step in action.steps {
+            do {
+                try await transport.runHeelerPluginStep(step)
+            } catch {
+                stepError = error
+                break
+            }
+        }
+        // herdr's registry is the answer either way: a step that timed out
+        // may still have finished, and two devices may update at once.
+        let status = await HeelerPluginStatus.read(over: transport)
+        try? await transport.close()
+        switch status {
+        case .installed, .notInstalled:
+            pluginStatus = status
+        case .checking, .unsupportedPlatform, .unavailable:
+            // An unreadable plugin keeps the last status in place. A step
+            // whose connection dropped may have finished all the same.
+            guard let stepError else {
+                return HeelerPluginActionFailure(
+                    message: "The change finished, but the plugin could not be read back. "
+                        + "Run the checks again.")
+            }
+            if let error = stepError as? TransportError, error != .timedOut {
+                return HeelerPluginActionFailure(
+                    message: "The connection ended during the change, which may still "
+                        + "finish on the Host. Run the checks again.",
+                    detail: error.presentation.message)
+            }
+            return HeelerPluginActionFailure(stepError)
+        }
+        guard pluginPresentation.notice != nil else { return nil }
+        if let stepError { return HeelerPluginActionFailure(stepError) }
+        let bundled = HeelerPluginCompatibility.bundled
+        if let version = pluginStatus.confirmedVersion, version < bundled {
+            return HeelerPluginActionFailure(
+                message: "herdr installed plugin \(version), the newest it found, but this "
+                    + "app expects \(bundled).")
+        }
+        return HeelerPluginActionFailure(
+            message: "The change finished, but the plugin still needs the attention "
+                + "described above.")
     }
 
     /// The user's verdict on the pending fingerprint.
