@@ -237,3 +237,15 @@ test("a pre-limits checkpoint rescans unchanged Transcripts to find the fallback
   assert.equal(f.query().refreshing, true);
   assert.equal(codexLimits(await f.finish()).windows[0].usedPercent, 7);
 });
+
+test("the rollout fallback skips newer snapshots without any window", async t => {
+  const f = fixture(t, "missing");
+  f.transcript([
+    rolloutLimits(new Date(Date.now() - 120_000).toISOString(), {used_percent: 7, window_minutes: 300, resets_at: f.expires}),
+    rolloutLimits(new Date(Date.now() - 60_000).toISOString(), null),
+  ]);
+  const limits = codexLimits(await f.finish());
+  assert.equal(limits.source, "lastSession");
+  assert.equal(limits.windows.length, 1);
+  assert.equal(limits.windows[0].usedPercent, 7);
+});

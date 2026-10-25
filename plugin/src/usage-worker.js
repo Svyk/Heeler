@@ -271,7 +271,7 @@ async function run() {
         ...(version ? { version } : {}) };
       heartbeat();
     }
-    const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(Boolean)
+    const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(reading => reading?.windows?.length)
       .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
     // A reservation whose read never finished has no reading of its own.
     limits.codex.report = codexLimitsWithFallback(limits.codex.service || limits.codex.report

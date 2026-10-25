@@ -563,7 +563,8 @@ size:
 6. **Fallback:** when the reading fails otherwise (`codex` missing or not
    runnable, the method unknown, no account signed in, an error answer, a
    timeout, or an unknown shape), use the newest `token_count.rate_limits`
-   seen during the scan whose `limit_id` is `codex` or absent, reported with
+   seen during the scan whose `limit_id` is `codex` or absent and that holds
+   at least one window, reported with
    `source: "lastSession"` and its `observedAt`. `resets_at` is in epoch
    seconds; Codex releases from 2025-09-24 to 2025-10-17 wrote
    `resets_in_seconds`, relative to the record's `timestamp`; older

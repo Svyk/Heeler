@@ -46,7 +46,8 @@ export function codexRolloutLimits(line) {
   if (!Number.isFinite(timestamp)) return null;
   const observedAt = new Date(timestamp).toISOString();
   const windows = windowsFrom(group, observedAt);
-  if (windows === null) return null;
+  // A snapshot without any window says nothing about the limits; an older one may.
+  if (!windows?.length) return null;
   const plan = group.plan_type ?? group.planType;
   return { state: "ok", source: "lastSession", observedAt, ...(typeof plan === "string" ? { plan } : {}), windows };
 }
