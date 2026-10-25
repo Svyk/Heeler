@@ -13,9 +13,10 @@ export function priceContribution(record) {
   const tokens = record.tokens;
   const context = tokens.input + tokens.cacheRead + tokens.cacheWrite;
   const tier = model.longContext && context > model.longContext.threshold ? model.longContext : model;
+  // Claude records carry no tier; an unknown Codex tier has no rates here.
   const mode = record.speed === "fast" || ["priority", "fast"].includes(record.tier) ? "fast"
-    : record.tier === "flex" ? "flex" : "base";
-  const rates = tier[mode];
+    : record.tier === "flex" ? "flex" : record.tier === undefined || record.tier === "standard" ? "base" : null;
+  const rates = mode && tier[mode];
   if (!rates) return { ...record, estimatedCostUSD: null, unpricedTokens: tokens.total };
   const cacheRead = rates.cacheRead ?? rates.input;
   const cacheWrite = rates.cacheWrite ?? rates.input;

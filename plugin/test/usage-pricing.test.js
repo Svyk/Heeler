@@ -146,6 +146,20 @@ test("unknown models and missing service-tier prices stay unpriced while mixed t
   assert.equal(usage(await h.finish(), "codex").totals.today.estimatedCostUSD, null);
 });
 
+test("Codex service tiers without a known price stay unpriced while default routing is standard", async t => {
+  const fast = { input: 0.000002, output: 0.000008, cacheRead: 0.0000002, cacheWrite: 0.0000025 };
+  const flex = { input: 0.0000005, output: 0.000002, cacheRead: 0.00000005, cacheWrite: 0.000000625 };
+  for (const [tier, expected] of [["ultrafast", null], ["default", 0.00014], [null, 0.00014]]) {
+    const f = fixture(t, { "gpt-fixture": { base, fast, flex } });
+    f.transcript("codex", codex("gpt-fixture", tier, [{ input_tokens: 100, output_tokens: 10 }]));
+    const today = usage(await f.finish(), "codex").totals.today;
+    if (expected === null) {
+      assert.equal(today.estimatedCostUSD, null, tier);
+      assert.equal(today.unpricedTokens, 110, tier);
+    } else assert.ok(Math.abs(today.estimatedCostUSD - expected) < 1e-12, String(tier));
+  }
+});
+
 test("a changed bundled price rebuilds unchanged transcripts even within the refresh interval", async t => {
   const f = fixture(t);
   f.transcript("claude", [claude("one", "claude-fixture", { input_tokens: 100, output_tokens: 10 })]);

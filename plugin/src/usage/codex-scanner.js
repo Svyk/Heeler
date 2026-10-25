@@ -71,8 +71,11 @@ export function consumeCodexLine(state, line, offset, cutoff, parentTotals = nul
   if (line.type === "turn_context" && typeof payload.model === "string") state.model = payload.model;
   if (line.type === "event_msg" && payload.type === "thread_settings_applied") {
     if (typeof payload.thread_settings?.model === "string") state.model = payload.thread_settings.model;
+    // The thread's requested tier. Absent or "default" is standard routing;
+    // a tier this table cannot price stays unknown instead of standard.
     const tier = payload.thread_settings?.service_tier;
-    state.tier = tier === "priority" || tier === "fast" ? "fast" : tier === "flex" ? "flex" : "standard";
+    state.tier = tier == null || tier === "default" || tier === "standard" ? "standard" : tier === "priority" || tier === "fast" ? "fast"
+      : tier === "flex" ? "flex" : `unknown:${typeof tier === "string" ? tier : ""}`;
     if (!state.leadingClosed && payload.thread_id === state.threadId) {
       state.pending = [];
       state.inheritedEnded = true;

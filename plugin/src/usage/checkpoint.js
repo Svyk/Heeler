@@ -13,9 +13,10 @@ export const CHECKPOINT_VERSION = 3;
 /**
  * Bump whenever a change to parsing, deduplication or attribution changes what
  * a Transcript counts: every cache built under another version rebuilds once.
- * Version 2 recovers rollout tails appended before Codex compressed them.
+ * Version 2 recovers rollout tails appended before Codex compressed them;
+ * version 3 leaves unknown Codex service tiers unpriced.
  */
-export const SCANNER_VERSION = 2;
+export const SCANNER_VERSION = 3;
 const CHUNK = 1 << 20;
 
 const digest = text => createHash("sha256").update(text).digest("hex");

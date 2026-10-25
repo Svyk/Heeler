@@ -330,8 +330,13 @@ file's own thread id is `session_meta.payload.id`.
   were later rolled back, because they were used.
 - The model is the latest `turn_context.model` or
   `thread_settings_applied.thread_settings.model` before the usage. The
-  service tier comes from `thread_settings_applied`: `priority` or `fast`
-  means Fast pricing, `flex` means Flex pricing.
+  service tier is the latest `thread_settings_applied`'s
+  `thread_settings.service_tier`: absent or `default` is standard,
+  `priority` or `fast` means Fast pricing, `flex` means Flex pricing, and any
+  other tier is unpriced. This is the tier the thread requested; Codex may
+  filter or override it for a turn (a model or account that does not offer
+  it), and neither `token_usage_record` nor `token_count` records the tier a
+  response actually used, so the estimate follows the request.
 - Directory: `session_meta.cwd`.
 
 ### Normalized tokens
@@ -383,7 +388,8 @@ size:
 - Codex: `input × input + cacheRead × (cacheRead, else input) + cacheWrite ×
   (cacheWrite, else input) + output × output`; reasoning is already inside
   output. The Fast (`priority`) and Flex service tiers use the model's Fast
-  or Flex rates.
+  or Flex rates; a tier without rates, or one the table does not know, is
+  unpriced.
 - Regional price uplifts are ignored.
 - A model with no price adds its tokens to `unpricedTokens` and nothing to
   cost; it is reported with `priced: false` and `estimatedCostUSD: null`,
