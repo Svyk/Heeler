@@ -175,6 +175,17 @@ test("old deletions, same-inode archival and compression transitions keep increm
   const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
 });
 
+test("a rollout tail appended before compression is read from the saved offset",{skip:!zlib.zstdCompressSync},async t=>{
+  const f=fixture(t);const path=rollout(f,"cold",[meta("cold"),count(9,9)]);
+  assert.equal(tokens(await f.finish(),"codex"),9);const initial=generation(f);
+  appendFileSync(path,records([count(15,6),count(40,25)]));const appended=new Date(Date.now()+1000);
+  // Codex compresses a cold rollout and copies the mtime of its last append.
+  writeFileSync(path+".zst",zlib.zstdCompressSync(readFileSync(path)));utimesSync(path+".zst",appended,appended);rmSync(path);
+  f.clearReads();f.stale();assert.equal(tokens(await f.finish(),"codex"),40);assert.equal(generation(f),initial);
+  assert.deepEqual(f.reads().filter(r=>r.path===path+".zst").length,1);
+  const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
+});
+
 test("expired keys and buckets are pruned without rereading unchanged Transcripts",async t=>{
   const f=fixture(t);const now=Date.now();f.setClock(now);
   const path=f.transcript("prune.jsonl",[assistant("aging",100,{timestamp:new Date(now-30.9*86400000).toISOString()}),assistant("recent",7)]);

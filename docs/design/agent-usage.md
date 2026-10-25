@@ -421,8 +421,10 @@ size:
     who sets it lower gets a rebuild after each cleanup.
   - The same `dev/ino` at a new path, such as a rollout archived from
     `sessions/` to `archived_sessions/`. Its state moves with it.
-  - A plain rollout replaced by its `.jsonl.zst`. Codex compresses only cold
-    rollouts, so the logical file keeps its state and is not read again.
+  - A plain rollout replaced by its `.jsonl.zst`. The logical file keeps its
+    state. Codex copies the source mtime when it compresses, so an unchanged
+    `mtimeMs` means the file is not read again; otherwise lines appended after
+    the last read are read from `offset` in the decompressed stream.
   - A `.jsonl.zst` replaced by a plain file at its logical path, at least
     `offset` bytes long: Codex decompressed it to append. The logical file
     keeps its state and is read from `offset`.

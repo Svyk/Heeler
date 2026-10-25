@@ -103,7 +103,11 @@ export function matchFiles(files, previous, now) {
         || (file.mtimeMs !== old.mtimeMs && file.size === old.size)
         || (file.compressed && file.size !== old.size)) rebuild = true;
     states[path] = { ...old, dev: file.dev, ino: file.ino, size: file.size, mtimeMs: file.mtimeMs, compressed: Boolean(file.compressed),
-      finished: old.finished && (representationChanged ? file.compressed : file.size === old.size) };
+      // Codex copies the source mtime when it compresses, so an unchanged mtime
+      // means nothing was appended since the last read. A copy coarser than a
+      // millisecond only costs one read from the saved offset.
+      finished: old.finished && (representationChanged
+        ? file.compressed && Math.abs(file.mtimeMs - old.mtimeMs) < 1 : file.size === old.size) };
   }
   for (const [path, state] of Object.entries(previous)) if (!claimed.has(path) && state.mtimeMs >= now - 30 * DAY) rebuild = true;
   return { states, rebuild };
