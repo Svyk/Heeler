@@ -166,10 +166,12 @@ struct AgentUsageCoverage: View {
                 Text("No Transcript coverage recorded on this Host yet.")
             }
             if let skipped = report.scan?.skippedArchives, skipped > 0 {
-                Text("\(skipped.formatted()) compressed archives skipped.")
+                Text("\(skipped.formatted()) compressed \(skipped == 1 ? "archive" : "archives") skipped.")
             }
             if let unreadable = report.scan?.unreadableFiles, unreadable > 0 {
-                Text("\(unreadable.formatted()) Transcripts or folders could not be read. They are retried on the next refresh.")
+                Text(unreadable == 1
+                    ? "\(unreadable.formatted()) Transcript or folder could not be read. It is retried on the next refresh."
+                    : "\(unreadable.formatted()) Transcripts or folders could not be read. They are retried on the next refresh.")
             }
             if let pricingVersion = report.pricingVersion {
                 Text("Price table: \(pricingVersion)")
