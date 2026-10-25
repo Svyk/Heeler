@@ -581,3 +581,43 @@ struct ClaudeUsagePreferenceTests {
         #expect(!AgentUsageStore(hostID: hostID, transports: provider, defaults: defaults).claudeLimitsEnabled)
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+    @MainActor
+    @Suite("Demo Usage")
+    struct DemoUsageTests {
+        @Test func demoHostsShowSampleUsageInsteadOfAPlatformNote() async throws {
+            let host = try #require(DemoScreenshotFixture.hosts.first)
+            let transport = try DemoScreenshotFixture.transport(for: host)
+            for claudeLimits in [false, true] {
+                let state = try await AgentUsageStore.read(
+                    over: transport, timeZone: "Asia/Kolkata", claudeLimits: claudeLimits)
+                guard case .available(let report) = state else {
+                    Issue.record("Demo Usage must be sample data, not \(state)")
+                    return
+                }
+                #expect(report.programs?.map(\.program) == ["claude", "codex"])
+                #expect(report.timeZone == "Asia/Kolkata")
+                #expect(report.programs?.first?.usageLimits.state == (claudeLimits ? "ok" : "disabled"))
+                #expect(report.programs?.last?.usageLimits.windows?.allSatisfy { !$0.expired } == true)
+                var calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = try #require(TimeZone(identifier: "Asia/Kolkata"))
+                let today = calendar.dateComponents([.year, .month, .day], from: Date())
+                let todayText = String(
+                    format: "%04d-%02d-%02d", today.year ?? 0, today.month ?? 0, today.day ?? 0)
+                for program in report.programs ?? [] {
+                    let usage = program.tokenUsage
+                    let daily = try #require(usage.daily)
+                    #expect(usage.state == "ok")
+                    #expect(daily.count == 30)
+                    #expect(daily.last?.date == todayText)
+                    #expect(usage.totals?.today.tokens.total == daily.last?.tokens.total)
+                    #expect(usage.totals?.last7Days.tokens.total
+                        == daily.suffix(7).reduce(0) { $0 + $1.tokens.total })
+                    #expect(usage.totals?.last30Days.tokens.total
+                        == daily.reduce(0) { $0 + $1.tokens.total })
+                }
+            }
+        }
+    }
+#endif

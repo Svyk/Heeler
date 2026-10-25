@@ -261,9 +261,13 @@
 
         /// One Host per plugin state, named for it. Only with
         /// `DemoScreenshotMode.pluginStatesArgument`.
+        /// Where demo Hosts report the plugin; nothing is ever run there.
+        static let pluginRoot = "/demo/herdr/plugins/heeler"
+
         static let pluginStates: [(name: String, plugin: Result<HeelerPluginInstallation?, TransportError>)] = [
             ("Plugin current (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2"))),
-            ("Plugin newer than app (0.7.0)", .success(HeelerPluginInstallation(version: "0.7.0"))),
+            ("Plugin newer than app (0.7.0)",
+             .success(HeelerPluginInstallation(pluginRoot: pluginRoot, version: "0.7.0"))),
             ("Plugin outdated (0.5.0)", .success(HeelerPluginInstallation(version: "0.5.0"))),
             ("Plugin outdated (0.4.0)", .success(HeelerPluginInstallation(version: "0.4.0"))),
             ("Plugin outdated (0.3.0)", .success(HeelerPluginInstallation(version: "0.3.0"))),
@@ -646,7 +650,9 @@
         var snapshotFailure: TransportError?
         /// What `plugin.list` reports for the Heeler plugin.
         var plugin: Result<HeelerPluginInstallation?, TransportError> = .success(
-            HeelerPluginInstallation(version: HeelerPluginCompatibility.bundled.description))
+            HeelerPluginInstallation(
+                pluginRoot: DemoScreenshotFixture.pluginRoot,
+                version: HeelerPluginCompatibility.bundled.description))
     }
 
     /// Preflight for screenshot Hosts: the Host detail's own connection,
@@ -1214,6 +1220,133 @@
         }
     }
 
+    /// Invented Usage for screenshot Hosts: both programs over 30 days that
+    /// end today in the requested time zone, with Usage Limits that reset
+    /// in the future so no demo window reads as expired.
+    enum DemoUsageSample {
+        private static let claudeDays = [
+            41, 0, 0, 63, 72, 58, 80, 35, 0, 66, 91, 77, 84, 52, 12, 0, 70, 88, 95, 61,
+            74, 30, 0, 82, 99, 76, 90, 68, 85, 47,
+        ]
+        private static let codexDays = [
+            12, 0, 0, 18, 25, 9, 31, 14, 0, 22, 27, 35, 19, 16, 4, 0, 26, 30, 21, 33,
+            24, 8, 0, 29, 38, 27, 34, 22, 31, 17,
+        ]
+
+        static func report(
+            timeZone identifier: String, claudeLimits: Bool, now: Date = Date()
+        ) throws -> AgentUsageReport {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: identifier) ?? .gmt
+            let timestamp = ISO8601DateFormatter()
+            func day(_ index: Int) -> String {
+                let date = calendar.date(byAdding: .day, value: index - 29, to: now) ?? now
+                let parts = calendar.dateComponents([.year, .month, .day], from: date)
+                return String(
+                    format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            }
+            let limits: (String, [[String: Any]]) -> [String: Any] = { source, windows in
+                [
+                    "state": "ok", "source": source, "plan": "max",
+                    "observedAt": timestamp.string(from: now.addingTimeInterval(-90)),
+                    "windows": windows,
+                ]
+            }
+            let window: (String, Int, Double, TimeInterval) -> [String: Any] = {
+                id, minutes, percent, reset in
+                [
+                    "id": id, "durationMinutes": minutes, "usedPercent": percent,
+                    "resetsAt": timestamp.string(from: now.addingTimeInterval(reset)),
+                    "expired": false,
+                ]
+            }
+            let claude = program(
+                "claude", days: claudeDays, unit: 9_500, costPerToken: 0.000_001_1, day: day,
+                models: ["claude-opus-4-5", "claude-sonnet-4-5"],
+                directories: ["/Users/demo/src/storefront", "/Users/demo/src/payments-api"],
+                limits: claudeLimits
+                    ? limits("service", [
+                        window("fiveHour", 300, 34, 2 * 3_600),
+                        window("sevenDay", 10_080, 61, 3 * 86_400),
+                    ])
+                    : ["state": "disabled"])
+            let codex = program(
+                "codex", days: codexDays, unit: 7_000, costPerToken: 0.000_000_9, day: day,
+                models: ["gpt-5.3-codex"],
+                directories: ["/Users/demo/src/payments-api", "/Users/demo/src/product-docs"],
+                limits: limits("service", [
+                    window("primary", 300, 22, 3 * 3_600),
+                    window("secondary", 10_080, 47, 4 * 86_400),
+                ]))
+            let object: [String: Any] = [
+                "version": 1, "runtime": "recorded",
+                "generatedAt": timestamp.string(from: now),
+                "timeZone": calendar.timeZone.identifier, "refreshing": false,
+                "pricingVersion": day(29),
+                "scan": [
+                    "state": "complete", "coveredFrom": day(0),
+                    "coveredThrough": timestamp.string(from: now.addingTimeInterval(-60)),
+                    "skippedArchives": 0,
+                ],
+                "programs": [claude, codex],
+            ]
+            return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+        }
+
+        private static func program(
+            _ name: String, days: [Int], unit: Int, costPerToken: Double,
+            day: (Int) -> String, models: [String], directories: [String],
+            limits: [String: Any]
+        ) -> [String: Any] {
+            func tokens(_ total: Int) -> [String: Any] {
+                let input = total / 20
+                let output = total / 25
+                let cacheRead = total * 4 / 5
+                return [
+                    "input": input, "cacheRead": cacheRead,
+                    "cacheWrite": total - input - output - cacheRead, "output": output,
+                    "reasoning": 0, "total": total,
+                ]
+            }
+            func summary(_ total: Int) -> [String: Any] {
+                [
+                    "tokens": tokens(total), "estimatedCostUSD": Double(total) * costPerToken,
+                    "unpricedTokens": 0,
+                ]
+            }
+            let totals = days.map { $0 * unit }
+            let last30 = totals.reduce(0, +)
+            func split(_ shares: [String], key: String) -> [[String: Any]] {
+                shares.enumerated().map { index, value in
+                    let total = index == 0 ? last30 * 7 / 10 : last30 * 3 / 10
+                    var entry = summary(total)
+                    entry[key] = value
+                    if key == "model" { entry["priced"] = true }
+                    return entry
+                }
+            }
+            return [
+                "program": name,
+                "usageLimits": limits,
+                "tokenUsage": [
+                    "state": "ok",
+                    "totals": [
+                        "today": summary(totals[29]),
+                        "last7Days": summary(totals.suffix(7).reduce(0, +)),
+                        "last30Days": summary(last30),
+                    ],
+                    "daily": totals.enumerated().map { index, total in
+                        var entry = summary(total)
+                        entry["date"] = day(index)
+                        return entry
+                    },
+                    "models": split(models, key: "model"),
+                    "directories": split(directories, key: "path"),
+                ],
+            ]
+        }
+    }
+
     private actor DemoScreenshotTransport: Transport {
         private let profile: DemoHostProfile
         private let hostID: Host.ID
@@ -1251,6 +1384,12 @@
 
         func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
             try profile.plugin.get()
+        }
+
+        func readAgentUsage(
+            timeZone: String, claudeLimits: Bool, pluginRoot: String
+        ) async throws -> AgentUsageReport {
+            try DemoUsageSample.report(timeZone: timeZone, claudeLimits: claudeLimits)
         }
 
         /// Plugin config files exist only where an enabled plugin would
