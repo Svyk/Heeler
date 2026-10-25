@@ -5,18 +5,20 @@ import { jsonLines } from "./json-lines.js";
 
 /**
  * Transcripts in the window. An entry that cannot be listed is skipped and its
- * path returned in `unreadable`; only a `projects/` root that cannot be listed
- * sets `rootFailed`. `older` tells whether a Transcript older than the window
- * exists, which means the Host kept records from before it.
+ * path returned in `unreadable`, and so is a `projects/` root while another
+ * root can be listed; `rootFailed` means no existing root could be. `older`
+ * tells whether a Transcript older than the window exists, which means the
+ * Host kept records from before it.
  */
 export async function claudeFiles(roots, cutoff) {
   const files = [];
   const unreadable = [];
-  let rootFailed = false;
+  const failedRoots = [];
+  let listedRoot = false;
   let older = false;
   const seenDirectories = new Set();
   const seenFiles = new Set();
-  const skip = (path, root) => { if (root) rootFailed = true; else unreadable.push(path); };
+  const skip = (path, root) => (root ? failedRoots : unreadable).push(path);
   async function visit(path, root) {
     let actual;
     let entries;
@@ -26,6 +28,7 @@ export async function claudeFiles(roots, cutoff) {
       seenDirectories.add(actual);
       entries = await readdir(actual, { withFileTypes: true });
     } catch (error) { if (error.code !== "ENOENT") skip(actual || path, root); return; }
+    if (root) listedRoot = true;
     for (const entry of entries) {
       const child = join(actual, entry.name);
       if (entry.isDirectory()) await visit(child, false);
@@ -41,6 +44,8 @@ export async function claudeFiles(roots, cutoff) {
     }
   }
   for (const root of roots) await visit(join(root, "projects"), true);
+  const rootFailed = failedRoots.length > 0 && !listedRoot;
+  if (!rootFailed) unreadable.push(...failedRoots);
   return { files: files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path)), unreadable, rootFailed, older };
 }
 export async function* transcriptEntries(path, onChunk = () => {}, start = 0) {

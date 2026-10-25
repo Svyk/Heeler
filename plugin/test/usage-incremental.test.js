@@ -30,7 +30,10 @@ function fixture(t) {
 import fs from 'node:fs';
 import {syncBuiltinESMExports} from 'node:module';
 import {Readable} from 'node:stream';
+import zlib from 'node:zlib';
 const root=${JSON.stringify(root)};
+// A Node without a zstd decoder, as before 22.15.0.
+if(fs.existsSync(root+'/no-zstd'))delete zlib.createZstdDecompress;
 const clockPath=root+'/clock.json';
 if(fs.existsSync(clockPath)) {
   const time=JSON.parse(fs.readFileSync(clockPath));
@@ -261,12 +264,44 @@ test("an unreadable directory keeps its known Transcripts without a rebuild",asy
   rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,restored.programs);
 });
 
+test("an unreadable Claude root is counted while another root can be listed",{skip:process.getuid?.()===0&&"root ignores directory modes"},async t=>{
+  const f=fixture(t);f.transcript("main.jsonl",[assistant("main",5)]);
+  // ~/.claude is the second root beside CLAUDE_CONFIG_DIR.
+  const second=join(f.env.HOME,".claude","projects");mkdirSync(join(second,"-work-two"),{recursive:true});
+  writeFileSync(join(second,"-work-two","two.jsonl"),records([assistant("two",7)]));
+  assert.equal(tokens(await f.finish()),12);const initial=generation(f);
+  const main=join(f.env.CLAUDE_CONFIG_DIR,"projects");
+  let hidden;let failed;
+  try{
+    chmodSync(second,0);f.stale();hidden=await f.finish();
+    chmodSync(main,0);f.stale();failed=await f.finish();
+  }finally{chmodSync(second,0o700);chmodSync(main,0o700);}
+  assert.equal(hidden.programs[0].tokenUsage.state,"ok");assert.equal(tokens(hidden),12);
+  assert.equal(hidden.scan.unreadableFiles,1);assert.equal(generation(f),initial);
+  // With no Claude root listed, the program reports the error.
+  assert.equal(failed.programs[0].tokenUsage.state,"error");
+  f.stale();const restored=await f.finish();assert.equal(tokens(restored),12);assert.equal(restored.scan.unreadableFiles,0);
+});
+
 test("a truncated rollout archive is skipped and counted without hiding Codex",{skip:!zlib.zstdCompressSync},async t=>{
   const f=fixture(t);rollout(f,"whole",[meta("whole"),count(9,9)]);
   const cut=rollout(f,"cut",[meta("cut"),count(50,50)]);const archive=zlib.zstdCompressSync(readFileSync(cut));
   writeFileSync(cut+".zst",archive.subarray(0,archive.length-2));rmSync(cut);
   const report=await f.finish();assert.equal(report.programs[1].tokenUsage.state,"ok");
   assert.equal(tokens(report,"codex"),9);assert.equal(report.scan.unreadableFiles,1);
+});
+
+test("an archive skipped for want of a decoder and later found truncated counts only as its latest failure",{skip:!zlib.zstdCompressSync},async t=>{
+  const f=fixture(t);
+  // No external zstd either: the recorded PATH names an empty directory.
+  const runtimePath=join(f.env.HERDR_PLUGIN_CONFIG_DIR,"runtime.json");const runtime=JSON.parse(readFileSync(runtimePath));
+  runtime.env.PATH=join(f.root,"no-programs");writeFileSync(runtimePath,JSON.stringify(runtime));
+  const cut=rollout(f,"cut",[meta("cut"),count(50,50)]);const archive=zlib.zstdCompressSync(readFileSync(cut));
+  writeFileSync(cut+".zst",archive.subarray(0,archive.length-2));rmSync(cut);
+  const coverage=report=>[report.scan.skippedArchives,report.scan.unreadableFiles];
+  writeFileSync(join(f.root,"no-zstd"),"");assert.deepEqual(coverage(await f.finish()),[1,0]);
+  rmSync(join(f.root,"no-zstd"));f.stale();assert.deepEqual(coverage(await f.finish()),[0,1]);
+  writeFileSync(join(f.root,"no-zstd"),"");f.stale();assert.deepEqual(coverage(await f.finish()),[1,0]);
 });
 
 test("coverage starts at the first recorded day, not the first day with usage",async t=>{
@@ -407,9 +442,11 @@ async function killScenario(t,change){
   const shared=assistant("shared",11,{timestamp:iso(now-2*day)});const parent=f.transcript("parent.jsonl",[shared]);
   const copy=f.transcript("copy.jsonl",[{...shared,sessionId:"copy"}]);
   await f.finish();const initial=generation(f);
-  // A day later: 2026-09-19 expires whole, a streamed snapshot grows, a
-  // sidechain replay loses to its parent and a Codex line releases a burst.
-  f.setClock(now+0.6*day);
+  // Later: a streamed snapshot grows, a sidechain replay loses to its parent
+  // and a Codex line releases a burst. At 0.6 days 2026-09-19 expires whole
+  // and the log is rewritten; at 0.3 days a key expires but the run keeps the
+  // generation and appends to the log it has.
+  const later=now+(change==="incremental"?0.3:0.6)*day;f.setClock(later);
   const streamed=assistant("streamed",3,{timestamp:iso(now)});
   appendFileSync(main,records([streamed,{...streamed,message:{...streamed.message,usage:{input_tokens:9}}}]));
   appendFileSync(copy,records([{...shared,sessionId:"copy",isSidechain:true,requestId:"replayed",message:{...shared.message,usage:{input_tokens:1000}}}]));
@@ -419,11 +456,18 @@ async function killScenario(t,change){
   if(change==="rebuild"){const later=new Date(now+day);utimesSync(parent,later,later);}
   const template=join(f.root,"template");cpSync(f.cache(),template,{recursive:true});
   rmSync(f.cache(),{recursive:true});const expected=(await f.finish()).programs;
+  // A recovered cache must also take a further run: one more record and a
+  // larger streamed snapshot that replaces a counted one.
+  const further=()=>f.transcript("further.jsonl",[{...streamed,message:{...streamed.message,usage:{input_tokens:40}}},assistant("further",4,{timestamp:iso(now)})]);
+  const furtherPath=further();rmSync(f.cache(),{recursive:true});const expectedFurther=(await f.finish()).programs;rmSync(furtherPath);
+  // Each snapshot's age follows the fixture clock, not the test's.
+  const age=()=>{const path=join(f.cache(),"buckets.json");writeFileSync(path,JSON.stringify({...JSON.parse(readFileSync(path)),generatedAt:iso(later-61_000)}));};
   // Every line boundary commits, so the run passes through every kind of write.
   writeFileSync(join(f.root,"tick"),"");
   const restore=()=>{rmSync(f.cache(),{recursive:true});cpSync(template,f.cache(),{recursive:true});rmSync(join(f.root,"fault-reached"),{force:true});};
   restore();assert.deepEqual((await f.finish()).programs,expected);
-  assert.notEqual(generation(f),initial);assert.equal(readFileSync(join(f.cache(),"keys.log"),"utf8").includes("aging"),false);
+  const pruned=!readFileSync(join(f.cache(),"keys.log"),"utf8").includes("aging");
+  assert.equal(generation(f)!==initial,change!=="incremental");assert.equal(pruned,change!=="incremental");
   const writes=Number(readFileSync(join(f.root,"events"),"utf8"));
   // Poll the lock file rather than spawning a query every few milliseconds,
   // but query again periodically: only a query reclaims the lock of a killed
@@ -444,6 +488,10 @@ async function killScenario(t,change){
     rmSync(join(f.root,"fault.json"));
     assert.deepEqual((await settle()).programs,expected,`${change}: killed at write ${k} of ${writes}`);
     assert.deepEqual(readdirSync(f.cache()).filter(name=>name.endsWith(".tmp")),[]);
+    // No latent corruption: the next run's appends still match a fresh full scan.
+    const path=further();age();
+    try{assert.deepEqual((await settle()).programs,expectedFurther,`${change}: further run after a kill at write ${k} of ${writes}`);}
+    finally{rmSync(path);}
   };
   return { change, writes, expected, killAt };
 }
@@ -451,7 +499,7 @@ async function killScenario(t,change){
 test("a worker killed at any cache write recovers the totals of a fresh full scan",async t=>{
   // Two lanes per change share its write points; all lanes run at once.
   const lanes=[];
-  for(const change of ["prune","rebuild"])for(let lane=0;lane<2;lane++)lanes.push(await killScenario(t,change));
+  for(const change of ["incremental","prune","rebuild"])for(let lane=0;lane<2;lane++)lanes.push(await killScenario(t,change));
   for(const lane of lanes){
     const twin=lanes.find(other=>other.change===lane.change);
     assert.equal(lane.writes,twin.writes);assert.deepEqual(lane.expected,twin.expected);assert.ok(lane.writes>=15,`${lane.writes} writes`);

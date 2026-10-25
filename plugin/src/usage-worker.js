@@ -203,9 +203,10 @@ async function run() {
           state.unreadable = false;
         } catch (error) {
           if (runFailure(error)) throw error;
-          // The file stays unfinished and is retried by the next run.
-          if (error instanceof ArchiveUnavailableError) state.skipped = true;
-          else state.unreadable = true;
+          // The file stays unfinished and is retried by the next run. Only
+          // this run's failure counts, so a file is never skipped and unreadable.
+          state.skipped = error instanceof ArchiveUnavailableError;
+          state.unreadable = !state.skipped;
         }
         snapshotDue();
         continue;
