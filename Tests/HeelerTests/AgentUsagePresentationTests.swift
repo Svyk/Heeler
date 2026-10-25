@@ -104,6 +104,49 @@ struct AgentUsagePresentationTests {
         }
     }
 
+    @Test func eachHostStateShowsItsCopy() async throws {
+        let available = try AgentUsageFixture.report(refreshing: true)
+        let cases: [(AgentUsageContent, [String])] = [
+            (.init(state: .loading), ["Loading Usage…"]),
+            (.init(state: .requirement("Usage needs plugin 0.7.0 or newer; this Host has 0.6.2.")),
+             ["Usage needs plugin 0.7.0 or newer; this Host has 0.6.2."]),
+            (.init(state: .unsupportedPlatform), ["Not supported on Windows"]),
+            (.init(state: .runtimeMissing),
+             ["Use any Agent on this computer once, or restart herdr, then refresh Usage."]),
+            (.init(state: .updateRequired), ["Update Heeler to read this Host's Usage format."]),
+            (.init(state: .failed(AgentUsageStore.connectionFailureMessage)),
+             [AgentUsageStore.connectionFailureMessage]),
+            (.init(state: .failed(AgentUsageStore.pluginFailureMessage)), [AgentUsageStore.pluginFailureMessage]),
+            (.init(state: .available(try AgentUsageFixture.noDataReport())),
+             ["Claude Code", "Codex", "No Token Usage recorded on this Host yet."]),
+            (.init(state: .available(available)),
+             ["Refreshing", "Today: 882,000 tokens"]),
+            (.init(state: .available(available), refreshFailure: AgentUsageStore.connectionFailureMessage,
+                isRetryingRefresh: true),
+             ["Last refresh failed", AgentUsageStore.connectionFailureMessage,
+              "Showing the last report while Heeler retries.", "Today: 882,000 tokens"]),
+            (.init(state: .available(try AgentUsageFixture.report()),
+                refreshFailure: AgentUsageStore.timeoutMessage),
+             ["Last refresh failed", "Showing the last report. Pull to try again."]),
+        ]
+        for (content, expected) in cases {
+            let controller = UIHostingController(rootView:
+                VStack(alignment: .leading, spacing: 16) { content }
+                    .padding(20)
+                    .frame(width: 390, alignment: .leading)
+                    .environment(\.locale, Locale(identifier: "en_US")))
+            let window = try await makeTestWindow(
+                frame: CGRect(x: 0, y: 0, width: 390, height: 1_600), rootViewController: controller)
+            defer { window.isHidden = true }
+            controller.view.layoutIfNeeded()
+            let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view)
+                .joined(separator: "\n")
+            for text in expected {
+                #expect(labels.contains(text), "Missing \(text) for \(content.state): \(labels)")
+            }
+        }
+    }
+
     @Test func hostStatesRenderAtStandardAndAccessibleSizes() throws {
         let states: [(String, AgentUsageStore.State)] = [
             ("old-plugin", .requirement("Usage needs plugin 0.7.0 or newer; this Host has 0.6.2.")),

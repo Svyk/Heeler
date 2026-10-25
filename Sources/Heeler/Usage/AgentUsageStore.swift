@@ -186,13 +186,27 @@ final class AgentUsageStore {
         return report.runtime == "missing" ? .runtimeMissing : .available(report)
     }
 
+    /// Link failures ask the user to check the connection. A Host that
+    /// answered, but not with a readable report, would answer the same way
+    /// over any connection, so its copy does not blame the link.
     nonisolated static func state(for error: any Error) -> State {
         switch error {
         case AgentUsageError.unsupportedVersion: .updateRequired
         case TransportError.hostFeatureUnavailable: .unsupportedPlatform
-        default: .failed("Could not read Usage. Check the Host connection and try again.")
+        case TransportError.hostFileTimedOut: .failed(timeoutMessage)
+        case AgentUsageError.invalidReport, is DecodingError,
+            TransportError.malformedResponse, TransportError.apiRejected:
+            .failed(pluginFailureMessage)
+        default: .failed(connectionFailureMessage)
         }
     }
+
+    nonisolated static let connectionFailureMessage =
+        "Could not read Usage. Check the Host connection and try again."
+    nonisolated static let pluginFailureMessage =
+        "The Heeler plugin on this Host could not report Usage. Try again, or update the plugin."
+    nonisolated static let timeoutMessage =
+        "The Host took too long to report Usage. Try again in a moment."
 
     /// Polling continues while the shown report is refreshing; a failed
     /// refresh backs off. nil stops polling.

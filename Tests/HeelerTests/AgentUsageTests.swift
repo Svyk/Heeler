@@ -65,6 +65,17 @@ struct AgentUsageStoreTests {
         #expect(await transport.agentUsageReads == 0)
     }
 
+    @Test func aHostWithoutRecordedTokenUsageReportsNoDataForEachProgram() async throws {
+        let (store, transport) = await readyStore()
+        let report = try AgentUsageFixture.noDataReport()
+        await transport.setAgentUsage(.success(report))
+        await store.refresh()
+        #expect(store.state == .available(report.hidingClaudeLimits()))
+        #expect(report.programs?.map(\.program) == ["claude", "codex"])
+        #expect(report.programs?.allSatisfy { $0.tokenUsage.state == "noData" && $0.tokenUsage.totals == nil } == true)
+        #expect(!store.isLoading)
+    }
+
     @Test func aMissingRuntimeAsksForAgentActivity() async throws {
         let (store, transport) = await readyStore()
         await transport.setAgentUsage(.success(try AgentUsageReport.decode(
@@ -274,6 +285,32 @@ struct AgentUsageStoreTests {
         #expect(store.state == .available(complete))
         #expect(store.refreshFailure == nil)
         #expect(!store.isLoading)
+    }
+
+    @Test func failuresTheHostRepeatsDoNotBlameTheConnection() throws {
+        let decoding = try #require(throws: DecodingError.self) {
+            try JSONDecoder().decode(AgentUsageReport.self, from: Data("{}".utf8))
+        }
+        let cases: [(any Error, AgentUsageStore.State)] = [
+            (TransportError.sshUnreachable(detail: "gone"), .failed(AgentUsageStore.connectionFailureMessage)),
+            (TransportError.timedOut, .failed(AgentUsageStore.connectionFailureMessage)),
+            (TransportError.channelFailed(detail: "closed"), .failed(AgentUsageStore.connectionFailureMessage)),
+            (TransportError.hostFileTimedOut, .failed(AgentUsageStore.timeoutMessage)),
+            (TransportError.malformedResponse("The Host did not finish its Usage response."),
+             .failed(AgentUsageStore.pluginFailureMessage)),
+            (TransportError.apiRejected(code: "plugin_error", message: "boom"),
+             .failed(AgentUsageStore.pluginFailureMessage)),
+            (AgentUsageError.invalidReport, .failed(AgentUsageStore.pluginFailureMessage)),
+            (decoding, .failed(AgentUsageStore.pluginFailureMessage)),
+            (AgentUsageError.unsupportedVersion, .updateRequired),
+            (TransportError.hostFeatureUnavailable(feature: "Usage"), .unsupportedPlatform),
+        ]
+        for (error, expected) in cases {
+            #expect(AgentUsageStore.state(for: error) == expected, "\(error)")
+        }
+        for message in [AgentUsageStore.pluginFailureMessage, AgentUsageStore.timeoutMessage] {
+            #expect(!message.contains("connection"))
+        }
     }
 
     @Test func aFirstReadThatFailsStillShowsTheFailure() async {
