@@ -152,6 +152,37 @@ test("the clock can close an old fork's pending burst without a later record", a
   assert.deepEqual(saved[0].carry.pending, []);
 });
 
+test("a forked subagent does not read its parent file while a fork without a marker does", async t => {
+  const f = fixture(t);
+  f.transcript("parent", [meta("parent", {}, at(0)), count(usage(100), usage(100), at(100))]);
+  f.transcript("subagent", [meta("subagent", { session_id: "root", forked_from_id: "parent" }, at(1000)),
+    count(usage(100), usage(100), at(1100)), line("inter_agent_communication_metadata", { trigger_turn: true }, at(3000)),
+    count(usage(107), usage(7), at(3100))]);
+  const opened = join(f.root, "opened");
+  const preload = join(f.root, "count-reads.mjs");
+  writeFileSync(preload, `import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
+const original=fs.createReadStream;
+fs.createReadStream=function(path,...args){fs.appendFileSync(${JSON.stringify(opened)},String(path)+'\\n');return original.call(this,path,...args);};syncBuiltinESMExports();`);
+  const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  const node = join(f.root, "recorded-node");
+  writeFileSync(node, `#!/bin/sh\nexec ${shellQuote(process.execPath)} --import ${shellQuote(preload)} "$@"\n`);
+  chmodSync(node, 0o700);
+  const runtimePath = join(f.env.HERDR_PLUGIN_CONFIG_DIR, "runtime.json");
+  const runtime = JSON.parse(readFileSync(runtimePath));
+  runtime.node = node;
+  writeFileSync(runtimePath, JSON.stringify(runtime));
+  writeFileSync(join(f.env.HERDR_PLUGIN_CONFIG_DIR, "runtime-node"), node + "\n");
+  const reads = () => readFileSync(opened, "utf8").trim().split("\n").filter(path => path.endsWith("/rollout-parent.jsonl")).length;
+  assert.equal(codex(await f.finish()).totals.today.tokens.total, 107);
+  // Its header and its own read; no third read to match the subagent's prefix.
+  assert.equal(reads(), 2);
+  f.transcript("fork", [meta("fork", { forked_from_id: "parent" }, at(5000)), count(usage(100), usage(100), at(5100)),
+    count(usage(104), usage(4), at(5200))]);
+  f.stale();
+  assert.equal(codex(await f.finish()).totals.today.tokens.total, 111);
+  assert.equal(reads(), 3);
+});
+
 test("a trigger inside an old subagent burst starts own usage when no own-thread marker exists", async t => {
   const f = fixture(t);
   f.transcript("trigger", [meta("trigger", { session_id: "root" }, at(0)), count(usage(100), usage(100), at(100)),

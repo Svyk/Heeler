@@ -173,7 +173,10 @@ async function run() {
       if (state.finished && !state.carry.pending?.length) continue;
       if (file.program === "codex") {
         const carry = state.carry;
-        let parent = carry.parentId && !carry.inheritedEnded ? await totalsForParent(carry.parentId) : null;
+        // Only a copied fork whose inherited prefix has not ended is matched
+        // against its parent; a forked subagent ends on its own markers.
+        const needsParent = () => carry.inheritance === "fork" && !carry.inheritedEnded;
+        let parent = needsParent() ? await totalsForParent(carry.parentId) : null;
         const countContributions = contributions => {
           for (const contribution of contributions) {
             const candidate = priceContribution(contribution);
@@ -191,7 +194,7 @@ async function run() {
             if (reading && (!carry.latestLimits || reading.observedAt >= carry.latestLimits.observedAt)) carry.latestLimits = reading;
             countContributions(consumeCodexLine(carry, entry.line, state.offset, cutoff, parent));
             snapshotDue();
-            if (carry.parentId && parent === null) parent = await totalsForParent(carry.parentId);
+            if (parent === null && needsParent()) parent = await totalsForParent(carry.parentId);
           }
           countContributions(finishCodexRead(carry, Date.now(), parent));
           pendingPrefix ||= carry.pending.length > 0;
