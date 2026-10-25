@@ -4,6 +4,8 @@ import SwiftUI
 struct AgentUsageLimitsView: View {
     let program: String
     let limits: AgentUsageReport.Program.UsageLimits
+    /// The Usage Limits sheet names the section itself.
+    var showsTitle = true
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -16,7 +18,9 @@ struct AgentUsageLimitsView: View {
 
     private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Usage Limits").font(.subheadline.weight(.semibold))
+            if showsTitle {
+                Text("Usage Limits").font(.subheadline.weight(.semibold))
+            }
             if limits.state == "ok" || limits.state == "throttled" {
                 if limits.state == "throttled" {
                     Text("Last reading · \(retrySummary)")
@@ -100,6 +104,12 @@ struct AgentUsageLimitsView: View {
     }
 
     private func windowName(_ window: AgentUsageReport.Program.UsageLimits.Window) -> String {
+        Self.windowName(window, program: program)
+    }
+
+    nonisolated static func windowName(
+        _ window: AgentUsageReport.Program.UsageLimits.Window, program: String
+    ) -> String {
         if let label = window.label, !label.isEmpty { return label }
         if program == "claude" {
             switch window.id {

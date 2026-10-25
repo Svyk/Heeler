@@ -101,7 +101,9 @@ final class ConsoleStore {
     let rowLayouts: AgentRowLayoutStore
     let sidebarSnapshots = HerdrSidebarSnapshotStore()
     let pluginStatuses = HeelerPluginStatusStore()
-    private var agentUsageStores: [Host.ID: AgentUsageStore] = [:]
+    /// Made on demand while a view reads them, so not observed: each store
+    /// is observable itself.
+    @ObservationIgnored private var agentUsageStores: [Host.ID: AgentUsageStore] = [:]
     let terminalConnections: TerminalConnectionPool
     let agentTerminals: AgentTerminalCache
     /// Chat's saved conversations. Volatile unless the app passes the file

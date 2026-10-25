@@ -203,6 +203,8 @@ struct HostListView: View {
     let store: HostStore
     private let initialHostID: Host.ID?
     private let usageStore: ((Host.ID) -> AgentUsageStore)?
+    /// Shows a Host on the Usage tab.
+    private let openUsage: ((Host.ID) -> Void)?
     private let connectionStatuses: [Host.ID: EventsSessionStatus]
     private let standingFailures: [Host.ID: TransportError]
     private let latencies: [Host.ID: Duration]
@@ -248,6 +250,7 @@ struct HostListView: View {
         store: HostStore,
         initialHostID: Host.ID? = nil,
         usageStore: ((Host.ID) -> AgentUsageStore)? = nil,
+        openUsage: ((Host.ID) -> Void)? = nil,
         showsSetupGuide: Bool = false,
         connectionStatuses: [Host.ID: EventsSessionStatus] = [:],
         standingFailures: [Host.ID: TransportError] = [:],
@@ -263,6 +266,7 @@ struct HostListView: View {
         self.store = store
         self.initialHostID = initialHostID
         self.usageStore = usageStore
+        self.openUsage = openUsage
         _isShowingSetupGuide = State(initialValue: showsSetupGuide)
         self.connectionStatuses = connectionStatuses
         self.standingFailures = standingFailures
@@ -357,6 +361,7 @@ struct HostListView: View {
                         host: host,
                         catalog: store,
                         usage: usageStore?(id),
+                        openUsage: openUsage.map { open in { open(id) } },
                         connectionStatus: connectionStatuses[id],
                         standingFailure: standingFailures[id],
                         connectedRouteID: routeIDs[id],

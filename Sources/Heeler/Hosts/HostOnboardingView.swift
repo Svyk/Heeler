@@ -7,6 +7,9 @@ struct HostOnboardingView: View {
     /// The Host catalog, for the Edit sheet.
     let catalog: HostStore
     let usage: AgentUsageStore?
+    /// Shows this Host on the Usage tab; nil where the Host detail stands
+    /// outside the Console.
+    let openUsage: (() -> Void)?
     let connectionStatus: EventsSessionStatus?
     let standingFailure: TransportError?
     /// The route the Console's connection reached (ADR 0022).
@@ -35,6 +38,7 @@ struct HostOnboardingView: View {
         host: Host,
         catalog: HostStore,
         usage: AgentUsageStore? = nil,
+        openUsage: (() -> Void)? = nil,
         connectionStatus: EventsSessionStatus? = nil,
         standingFailure: TransportError? = nil,
         connectedRouteID: HostRoute.ID? = nil,
@@ -46,6 +50,7 @@ struct HostOnboardingView: View {
     ) {
         self.catalog = catalog
         self.usage = usage
+        self.openUsage = openUsage
         self.connectionStatus = connectionStatus
         self.standingFailure = standingFailure
         self.connectedRouteID = connectedRouteID
@@ -97,7 +102,11 @@ struct HostOnboardingView: View {
                 }
             }
 
-            if let usage { AgentUsageSection(store: usage) }
+            if let usage {
+                AgentUsageSection(
+                    hostID: store.host.id, hostName: store.host.displayName, store: usage,
+                    openUsage: openUsage)
+            }
 
             availableSessionsSection
 

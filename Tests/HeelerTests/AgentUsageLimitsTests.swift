@@ -64,16 +64,17 @@ struct AgentUsageLimitsTests {
         }
     }
 
-    @Test func claudeDisclosureAppearsOnTheHostAndUsagePage() async throws {
-        for detailed in [false, true] {
+    @Test func claudeDisclosureAppearsBesideEachHostsLimits() async throws {
+        do {
             let name = "claude-disclosure-\(UUID())"
             let defaults = try #require(UserDefaults(suiteName: name))
             defer { defaults.removePersistentDomain(forName: name) }
             let report = try ClaudeUsageFixture.report()
             let store = AgentUsageStore(hostID: UUID(), defaults: defaults) { _, _ in .available(report) }
-            let content = detailed
-                ? AnyView(NavigationStack { AgentUsageView(store: store) })
-                : AnyView(NavigationStack { Form { AgentUsageSection(store: store) } })
+            await store.refresh()
+            let content = AnyView(AgentUsageLimitsSheet(entries: [
+                AgentUsageHostEntry(id: UUID(), name: "Studio Mac", store: store, isConnected: true),
+            ]))
             let controller = UIHostingController(rootView: content.environment(\.locale, Locale(identifier: "en_US")))
             let window = try await makeTestWindow(
                 frame: CGRect(x: 0, y: 0, width: 390, height: 844), rootViewController: controller)
@@ -92,7 +93,7 @@ struct AgentUsageLimitsTests {
             let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
                 #expect(controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true))
             }
-            let filename = detailed ? "page.png" : "host.png"
+            let filename = "limits-sheet.png"
             Attachment.record(image, named: filename, as: .png)
             try #require(image.pngData()).write(to: directory.appendingPathComponent(filename))
         }
@@ -160,7 +161,9 @@ struct AgentUsageLimitsTests {
         await store.refresh()
         for surface in [
             AnyView(VStack { AgentUsageContent(state: store.state) }),
-            AnyView(NavigationStack { AgentUsageView(store: store) }),
+            AnyView(AgentUsageLimitsSheet(entries: [
+                AgentUsageHostEntry(id: UUID(), name: "Studio Mac", store: store, isConnected: true),
+            ])),
         ] {
             let controller = UIHostingController(rootView: surface.environment(\.locale, Locale(identifier: "en_US")))
             let window = try await makeTestWindow(

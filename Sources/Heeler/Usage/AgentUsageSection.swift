@@ -111,22 +111,155 @@ struct AgentUsageEstimatedCost: View {
     }
 }
 
+/// The Host detail's Usage summary: this Host's 30 days at a glance, the
+/// tightest Usage Limits window, and the way into the Usage tab.
 struct AgentUsageSection: View {
+    let hostID: Host.ID
+    let hostName: String
     let store: AgentUsageStore
+    /// Shows this Host on the Usage tab.
+    var openUsage: (() -> Void)?
+    @Environment(\.locale) private var locale
 
     var body: some View {
         Section("Usage") {
-            ClaudeUsageSettings(store: store)
-            NavigationLink("View Usage Details") {
-                AgentUsageView(store: store)
+            if case .available(let report) = store.state {
+                summary(report)
+            } else {
+                AgentUsageContent(state: store.state, refreshFailure: store.refreshFailure,
+                    isRetryingRefresh: store.isRetryingRefresh)
             }
-            AgentUsageContent(state: store.state, refreshFailure: store.refreshFailure,
-                isRetryingRefresh: store.isRetryingRefresh)
+            if let openUsage {
+                Button(action: openUsage) { openLabel }
+                    .accessibilityIdentifier("usage.open")
+            }
         }
         .task(id: store.refreshKey) { await store.refresh() }
     }
+
+    private var entry: AgentUsageHostEntry {
+        AgentUsageHostEntry(id: hostID, name: hostName, store: store, isConnected: true)
+    }
+
+    private var openLabel: some View {
+        HStack {
+            Label("Open in Usage", systemImage: "chart.bar.xaxis")
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private func summary(_ report: AgentUsageReport) -> some View {
+        let scope = AgentUsageScope(readings: [entry.reading])
+        let total = scope.total(.last30Days)
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Estimated API cost · Last 30 days")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(AgentUsageStyle.cost(total.estimatedCostUSD, locale: locale))
+                    .font(.system(size: 28, weight: .semibold))
+                    .monospacedDigit()
+                Text("\(AgentUsageStyle.tokens(total.tokens.total, locale: locale)) tokens on this Host")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            if !scope.dates.isEmpty {
+                AgentUsageDayStrip(scope: scope).padding(.top, 10)
+            }
+            if report.refreshing == true {
+                Text("Refreshing").font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+            }
+            if let failure = store.refreshFailure {
+                AgentUsageRefreshFailureNote(message: failure, isRetrying: store.isRetryingRefresh)
+                    .padding(.top, 6)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        if let chip = AgentUsageLimitChip.chips(in: scope).first {
+            AgentUsageLimitRow(chip: chip)
+        }
+    }
 }
 
+/// The last 30 days as one row of cells, oldest first.
+struct AgentUsageDayStrip: View {
+    let scope: AgentUsageScope
+    @Environment(\.locale) private var locale
+    @Environment(\.calendar) private var calendar
+
+    var body: some View {
+        let dates = Array(scope.dates.suffix(30))
+        let values = dates.map { scope.day($0).estimatedCostUSD ?? 0 }
+        let maximum = values.max() ?? 0
+        VStack(spacing: 5) {
+            HStack(spacing: 2) {
+                ForEach(Array(values.enumerated()), id: \.offset) { index, value in
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .fill(AgentUsageCalendar.ramp(maximum > 0 ? Int((value / maximum * 4).rounded(.up)) : 0))
+                        .overlay {
+                            if index == values.count - 1 {
+                                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                            }
+                        }
+                }
+            }
+            .frame(height: 26)
+            HStack {
+                Text(dates.first.map {
+                    AgentUsageCalendarDay.text($0, locale: locale, calendar: calendar, includesYear: false)
+                } ?? "")
+                Spacer()
+                Text("Today")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The tightest Usage Limits window on one Host.
+struct AgentUsageLimitRow: View {
+    let chip: AgentUsageLimitChip
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().stroke(Color(uiColor: .tertiarySystemFill), lineWidth: 3.5)
+                if let percent = chip.percent {
+                    Circle()
+                        .trim(from: 0, to: min(max(percent / 100, 0), 1))
+                        .stroke(AgentUsageStyle.color(for: chip.program),
+                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+            }
+            .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(chip.title)
+                Text(AgentUsageReport.Program.displayName(for: chip.program))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if let percent = chip.percent {
+                Text((percent / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale)))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
 
 struct ClaudeUsageSettings: View {
     @Bindable var store: AgentUsageStore
