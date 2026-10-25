@@ -79,6 +79,11 @@ struct HeelerPluginStepError: Error, Equatable, Sendable {
     /// The CLI is newer than the session's running server, which herdr asks
     /// to restart first (`protocol_guard.rs`).
     var needsServerRestart: Bool { output.contains("restart the Herdr server") }
+    /// The install stopped before herdr ran because the Host has no usable
+    /// Node.js (``NodeToolchainProbe``).
+    var nodeProblem: NodeToolchainProblem? {
+        NodeToolchainProblem(exitStatus: exitStatus, output: output)
+    }
 
     /// herdr's own words without the install preview it prints first, or
     /// what the Host's shell setup printed before them (a tool's warnings,

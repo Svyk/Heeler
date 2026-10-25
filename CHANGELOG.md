@@ -11,8 +11,9 @@ Entries reference the pull request that made the change.
 
 - Update the Heeler plugin from a Host's page: when the plugin is missing,
   outdated or turned off, the plugin sheet runs the fix on the Host over SSH
-  and says why when it cannot finish, such as a Host where SSH commands do
-  not find Node.js. (#TBD)
+  and says why when it cannot finish. The install finds Node.js from nvm,
+  fnm, Volta, asdf, mise and other version managers, system packages, or the
+  login shell's setup. (#TBD)
 - Pairing Codes can advertise addresses the plugin cannot see on the
   machine's interfaces, such as a NAS address for herdr running in a Docker
   container behind a published port, via `addresses` in the plugin's

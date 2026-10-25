@@ -1753,7 +1753,8 @@ actor HeelerSSHTransport: Transport {
         }
         let session = if case .namedSession(let name) = socketLocation { name } else { "" }
         let command = Self.heelerPluginCommand(
-            arguments: arguments, session: session, launcher: herdrLauncher)
+            arguments: arguments, session: session, launcher: herdrLauncher,
+            findsNode: step == .install)
         let result = try await runExec(
             Self.cLocaleCommand(command), timeout: pluginInstallTimeout)
         try Self.checkHeelerPluginStep(
@@ -1763,19 +1764,25 @@ actor HeelerSSHTransport: Transport {
     }
 
     /// `herdr <arguments>` as a plugin step runs it: through an endpoint's
-    /// launcher, else the bare `herdr` with the app's PATH prefixes, which
-    /// the plugin's `npm ci` build also needs. It names the Host's session,
-    /// so herdr's protocol check before an install asks the server Heeler
-    /// uses; a session without a server falls back to the shared registry.
-    /// `arguments` are literal words Heeler chose.
+    /// launcher, else the bare `herdr` with the app's PATH prefixes. It names
+    /// the Host's session, so herdr's protocol check before an install asks
+    /// the server Heeler uses; a session without a server falls back to the
+    /// shared registry. With `findsNode`, ``NodeToolchainProbe`` first puts
+    /// the Host's Node.js on `PATH` for the plugin's `npm ci` build, for a
+    /// launcher too, which herdr still runs by its path. `arguments` are
+    /// literal words Heeler chose.
     static func heelerPluginCommand(
-        arguments: [String], session: String, launcher: HerdrLauncher?
+        arguments: [String], session: String, launcher: HerdrLauncher?, findsNode: Bool
     ) -> String {
         if let launcher {
-            return launcher.herdrCommand(arguments: arguments.joined(separator: " "))
+            return launcher.herdrCommand(
+                arguments: arguments.joined(separator: " "),
+                prelude: findsNode ? NodeToolchainProbe.script : "")
         }
-        return HerdrHostPath.wrappingBareHerdr(
-            HerdrCommandLine.render(session: session, arguments: arguments))
+        let command = HerdrCommandLine.render(session: session, arguments: arguments)
+        return findsNode
+            ? NodeToolchainProbe.wrappingBareHerdr(command)
+            : HerdrHostPath.wrappingBareHerdr(command)
     }
 
     /// Throws unless `result` is a plugin step that herdr finished. Exit 127

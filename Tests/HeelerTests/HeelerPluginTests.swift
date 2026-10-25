@@ -518,30 +518,66 @@ struct HeelerPluginActionTests {
         }
     }
 
+    /// An install finds Node.js first for its `npm ci` build; an uninstall
+    /// builds nothing. scripts/test-node-toolchain-probe.py runs the probe.
     @Test func stepsRunHerdrWithTheNoticesArgumentsInTheHostsSession() {
         let install = HeelerPluginStep.install.herdrArguments ?? []
         #expect(
-            HeelerSSHTransport.heelerPluginCommand(arguments: install, session: "", launcher: nil)
-                == "/bin/sh -c '\(HerdrHostPath.pathExport); exec herdr plugin install "
-                + #"'\''ZingerLittleBee/Heeler'\'' --ref plugin --yes'"#)
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: install, session: "", launcher: nil, findsNode: true)
+                == "/bin/sh -c '\(HerdrHostPath.pathExport); "
+                + "__h_herdr=$(command -v herdr) || exit 127; \(NodeToolchainProbe.script)"
+                + #"exec "$__h_herdr" plugin install '\''ZingerLittleBee/Heeler'\'' --ref plugin --yes'"#)
         #expect(
-            HeelerSSHTransport.heelerPluginCommand(arguments: install, session: "work", launcher: nil)
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: ["plugin", "uninstall", "herdr-mobile.pairing"], session: "work",
+                launcher: nil, findsNode: false)
                 == "/bin/sh -c '\(HerdrHostPath.pathExport); exec herdr --session work plugin "
-                + #"install '\''ZingerLittleBee/Heeler'\'' --ref plugin --yes'"#)
+                + "uninstall herdr-mobile.pairing'")
         #expect(HeelerPluginStep.uninstall(pluginID: "herdr-mobile.pairing").herdrArguments
             == ["plugin", "uninstall", "herdr-mobile.pairing"])
         #expect(HeelerPluginStep.enable(pluginID: "heeler").herdrArguments == nil)
+        // The probe sits inside single quotes.
+        #expect(!NodeToolchainProbe.script.contains("'"))
     }
 
-    /// The launcher runs with the endpoint's socket and no PATH prefixes (ADR 0023).
+    /// The launcher runs with the endpoint's socket and no PATH prefixes (ADR
+    /// 0023); an install still looks for Node.js before it.
     @Test func anEndpointRunsItsLauncher() throws {
         let launcher = try #require(
             HerdrLauncher(executablePath: "/opt/herdr/launch", socketPath: "/tmp/h/herdr.sock"))
         #expect(
             HeelerSSHTransport.heelerPluginCommand(
                 arguments: ["plugin", "uninstall", "herdr-mobile.pairing"], session: "work",
-                launcher: launcher)
+                launcher: launcher, findsNode: false)
                 == #"/bin/sh -c 'export HERDR_SOCKET_PATH="$2"; exec "$1" plugin uninstall herdr-mobile.pairing' herdr '/opt/herdr/launch' '/tmp/h/herdr.sock'"#)
+        #expect(
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: ["plugin", "install"], session: "", launcher: launcher, findsNode: true)
+                == #"/bin/sh -c 'export HERDR_SOCKET_PATH="$2"; "#
+                + NodeToolchainProbe.script
+                + #"exec "$1" plugin install' herdr '/opt/herdr/launch' '/tmp/h/herdr.sock'"#)
+    }
+
+    @Test func anInstallWithoutUsableNodeSaysWhatHeelerFound() throws {
+        func failure(_ stderr: String, status: Int32 = 3) -> HeelerPluginStepError {
+            HeelerPluginStepError(
+                step: .install, exitStatus: status, stderr: Data(stderr.utf8), stdout: Data())
+        }
+        let missing = failure("mise WARN noise\n\(NodeToolchainProbe.missingMarker)\n")
+        #expect(missing.nodeProblem == .missing)
+        #expect(HeelerPluginActionFailure(missing).message.hasPrefix(
+            "Heeler could not find Node.js 20 or newer on the Host"))
+        #expect(HeelerPluginActionFailure(missing).detail?.contains("nvm") == true)
+        let old = failure("\(NodeToolchainProbe.tooOldMarker)18.19.0\n")
+        #expect(old.nodeProblem == .tooOld(version: "18.19.0"))
+        #expect(HeelerPluginActionFailure(old).message.contains("is 18.19.0"))
+        let npmless = failure("\(NodeToolchainProbe.npmMissingMarker)20.19.2\n")
+        #expect(npmless.nodeProblem == .npmMissing(nodeVersion: "20.19.2"))
+        #expect(HeelerPluginActionFailure(npmless).message.contains("Node.js 20.19.2 but no npm"))
+        // Only the probe's own exit status counts.
+        #expect(failure(NodeToolchainProbe.missingMarker, status: 1).nodeProblem == nil)
+        #expect(failure("error: plugin build failed").nodeProblem == nil)
     }
 
     @Test func onlyAFinishedZeroExitCompletesAStep() throws {

@@ -40,11 +40,47 @@ because herdr bounds neither the fetch nor `npm ci`. When the budget runs out,
 the sheet says the change may still finish, since it can.
 
 The install inherits the exec's `PATH`, and so does the plugin's `npm ci`
-build. A bare `herdr` gets the app's `PATH` prefixes (`HerdrHostPath`); an
-endpoint launcher gets none (ADR 0023) and must provide Node.js itself.
-A Host whose Node.js only appears in interactive shell setup fails the build,
-and the sheet says so with herdr's own output. The user fixes the Host;
-Heeler does not fall back to typing the command into a terminal.
+build. SSH exec reads no interactive shell setup, where most Node.js installs
+put themselves on `PATH`, so an install first runs `NodeToolchainProbe` in
+the same exec. It takes the first directory whose `npm` runs and whose
+`node`, the one `PATH` finds with that directory first as npm's
+`#!/usr/bin/env node` does, is 20 or newer (the plugin's `engines`). An npm
+upgraded into its own prefix, such as `/usr/local/bin` after
+`npm install -g npm`, therefore still pairs with the system's node. The
+places, in the order an interactive shell usually ends up with:
+
+1. Version managers' defaults: mise, Volta, fnm, nvm (`nvm which default`),
+   asdf, nodenv, nvs, nodebrew, n, proto and pnpm, each at its own
+   environment override or default location.
+2. The exec's `PATH` with the app's prefixes (`HerdrHostPath`): Homebrew and
+   system packages.
+3. Homebrew's own directories (an endpoint launcher gets no prefixes) and
+   versioned formulae, Nix profiles, snap and MacPorts.
+4. The login shell's `PATH` (`$SHELL -lic /usr/bin/env` for bash, zsh, fish
+   or ksh), kept whole behind npm's directory because shims may need other
+   tools on it, with a 10 s watchdog because rc files can wait for input.
+   The watchdog ends the login shell and the commands it started directly;
+   without a terminal, dash and busybox have no job control, so anything
+   those started in turn runs on.
+
+Running `npm --version` rejects a shim with no version selected and a broken
+install. That directory goes first on `PATH`; `herdr` itself is resolved
+before, so a `herdr` beside Node.js cannot replace it. Without one, the
+probe stops before herdr fetches anything and the sheet says Node.js is
+missing, names the old version it found, or names a new enough node that
+has no npm (Debian and Ubuntu package them apart). The probe also runs before an
+endpoint launcher, which herdr still reaches by its path; ADR 0023's rule is
+about which `herdr` runs, not about `npm`. The user fixes the Host; Heeler
+does not fall back to typing the command into a terminal.
+
+`scripts/test-node-toolchain-probe.py` (`make test-tools`) runs the probe
+against fake layouts under each POSIX shell present, including dash in CI.
+Observed on Debian 12, with each manager's own installer and the probe run
+under `env -i` with `PATH=/usr/bin:/bin`: nvm, fnm, Volta, asdf 0.14 and
+0.16, nodenv, n, mise, pnpm and Node.js on `PATH` only through `.bashrc` or
+`.zshrc` were found; Debian's Node.js 18 was reported as too old. On Debian
+13, Node.js 20 without the `npm` package was reported as missing npm, and an
+npm upgraded into `/usr/local/bin` ran with `/usr/bin/node`.
 
 No install is offered over a plugin that is not a GitHub install of this
 repository: herdr refuses to replace a linked checkout and may refuse an
@@ -76,6 +112,12 @@ that directory until it reconnects.
   shell would find Node.js more often, but it needs a running session,
   takes the Host's one interactive terminal, and leaves a tab behind.
   Reporting the failure was preferred.
+- **Run the whole install in the login shell** (`$SHELL -lic`): it would see
+  what a terminal sees, but every rc file then runs around herdr for the
+  whole install, a prompt such as mise's trust check can hold it until the
+  budget runs out, and the `herdr` it finds may differ from the one Heeler
+  uses elsewhere. The probe asks the login shell only for `PATH`, last and
+  bounded.
 - **A detached install polled through a log file**: survives the app being
   suspended, at the cost of log locations, orphan cleanup and polling. A
   plain exec leaves the Host on one version or the other when interrupted,

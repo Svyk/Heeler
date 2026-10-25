@@ -87,7 +87,10 @@ come from; update it on every Host along with the app (see
 [Updating to 0.6.0](#updating-to-060)). The app's Host details show the
 installed version and offer this command when it is older than the plugin
 the app was built alongside, and can run it on the Host over SSH (ADR 0027).
-That SSH command must find Node.js 20 or newer for the `npm ci` build.
+The app first looks for Node.js 20 or newer for the `npm ci` build where
+version managers (nvm, fnm, Volta, asdf, mise and others), Homebrew, Nix and
+system packages keep their default, then on the login shell's `PATH`, and
+reports the Host's Node.js as missing or too old instead of installing.
 
 On herdr 0.9.4, reinstalling a disabled plugin keeps it disabled, where
 herdr 0.9.3 turned it back on. Turn it on afterwards:

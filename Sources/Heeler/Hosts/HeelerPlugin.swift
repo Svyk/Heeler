@@ -202,6 +202,10 @@ struct HeelerPluginActionFailure: Equatable, Sendable {
     init(_ error: any Error) {
         switch error {
         case let error as HeelerPluginStepError:
+            if let problem = error.nodeProblem {
+                self.init(problem)
+                return
+            }
             let message =
                 if error.needsServerRestart {
                     "herdr on the Host is newer than its running server. Restart the herdr "
@@ -230,6 +234,26 @@ struct HeelerPluginActionFailure: Equatable, Sendable {
                 detail: "\(error.code): \(error.message)")
         default:
             self.init(message: "The change failed unexpectedly. (\(error))")
+        }
+    }
+
+    private init(_ problem: NodeToolchainProblem) {
+        switch problem {
+        case .missing:
+            self.init(
+                message: "Heeler could not find Node.js \(NodeToolchainProbe.minimumMajorVersion) "
+                    + "or newer on the Host, so nothing changed. Install it, or make it the "
+                    + "default version in your version manager, then try again.",
+                detail: "Looked in \(NodeToolchainProbe.searchedPlaces).")
+        case .tooOld(let version):
+            self.init(
+                message: "The Node.js Heeler found on the Host is \(version), and the "
+                    + "plugin needs \(NodeToolchainProbe.minimumMajorVersion) or newer, so nothing "
+                    + "changed. Install a newer version or make it the default, then try again.")
+        case .npmMissing(let nodeVersion):
+            self.init(
+                message: "The Host has Node.js \(nodeVersion) but no npm, so nothing changed. "
+                    + "Install npm (a separate package on Debian and Ubuntu), then try again.")
         }
     }
 }
