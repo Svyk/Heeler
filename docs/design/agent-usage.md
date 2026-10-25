@@ -700,8 +700,10 @@ tests and decoded by the Swift tests.
   the plugin release that ships it (0.7.0). Older plugins show the
   feature's requirement note; native Windows Hosts show "Not supported on
   Windows" as other plugin features do.
-- **Transport:** `Transport.readAgentUsage(timeZone:claudeLimits:)` returning a
-  decoded `AgentUsageReport`; POSIX only via `requirePOSIXHost`.
+- **Transport:** each read lists plugins once (`readHeelerPlugin`), checks
+  the feature gate, and passes the resolved `plugin_root` to
+  `Transport.readAgentUsage(timeZone:claudeLimits:pluginRoot:)`, which
+  returns a decoded `AgentUsageReport`; POSIX only via `requirePOSIXHost`.
 - **State:** an `AgentUsageStore` per Host owns the report, its freshness, and
   the refreshing re-query loop.
 - **Toggle:** "Claude Code limits" per Host, stored on the device, default
@@ -719,10 +721,21 @@ tests and decoded by the Swift tests.
 - **Refresh:** query when the section or page appears, on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the
   Usage Limits requests; polling stops when it turns false. One "Refreshing"
-  indicator covers the whole run. No timers otherwise.
+  indicator covers the whole run; pull to refresh ends after its own read.
+  A failed read while a report is shown keeps the report with a "Last
+  refresh failed" note; a refreshing report is retried with a backoff that
+  doubles from 3 to at most 30 seconds, and a Host that reconnects is
+  retried at once. A first read that fails shows the failure. Link
+  failures ask the user to check the connection; a timeout or an
+  unreadable plugin answer does not. Limit ages and expiry re-render every
+  minute while the page is open. No other timers.
 - **Copy rules:** cost is always "Estimated API cost"; Token Usage never
   claims to be the account's usage; a `lastSession` reading shows "as of
-  <time>"; an expired window shows "Expired · current usage unknown"; windows
+  <time>"; limits not read yet (`notReadYet`, or Claude Code limits right
+  after the toggle turns on) show "Reading Usage Limits…"; an expired
+  window shows "Expired · current usage unknown"; calendar days are shown
+  in the reader's locale without shifting the plugin's day; a program this
+  build does not know is named by its id; windows
   are named by length, not by id; `runtime: "missing"` asks the user to use
   any Agent on the computer once, or to restart herdr; no other product
   names.
