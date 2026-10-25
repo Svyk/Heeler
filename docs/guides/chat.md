@@ -30,6 +30,14 @@ codex --no-daemon
 
 Codex's shared background server can't tell herdr which terminal a conversation is in, so Chat could keep waiting or show another Agent's conversation. Turning off `daemon_auto_start` in Codex's settings isn't enough.
 
+Until Codex fixes this, add an alias to your shell's startup file (such as `~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`). It also covers Agents that herdr brings back after a restart:
+
+```sh
+alias codex='codex --no-daemon'
+```
+
+With the alias, run plain `codex` and `codex resume`: Codex refuses `--no-daemon` given twice.
+
 ## Open Chat
 
 1. Open an Agent from **Agents**.
