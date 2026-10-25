@@ -58,8 +58,12 @@ Native iOS companion app for [herdr](https://herdr.dev), an agent console over S
   uploads it. `make bump && make testflight` stays a local
   interim upload. The release runner owns version edits and tags; a failed
   release that published nothing keeps its version (re-run or re-cut).
-  `make plugin` publishes the herdr plugin to the `plugin` branch on its own,
-  before any app release that bundles a newer plugin version.
+- The herdr plugin ships from the generated, append-only `plugin` branch
+  ([ADR 0026](docs/adr/0026-plugin-distribution-branch.md)). Bump every
+  version the plugin README's "Releasing a plugin version" lists, merge, then
+  run `make plugin` before the `make publish` that bundles it. Content
+  changed without a bump stays on `main` until the next bump. `plugin/` on
+  `main` stays directly installable, because older apps install from it.
 - Commits and PRs carry no attribution trailers or email addresses; local hooks
   and CI enforce the [contribution policy](CONTRIBUTING.md#commit-attribution).
   Commits reference issues with `refs #<n>`; a PR that resolves an issue ends
