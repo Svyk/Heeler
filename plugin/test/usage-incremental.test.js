@@ -297,6 +297,20 @@ test("a worker killed after a batch snapshot keeps every contribution of the lin
   const recovered=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,recovered.programs);
 });
 
+test("a routine incremental run keeps the finished scan state until it finishes",async t=>{
+  const f=fixture(t);const newer=f.transcript("newer.jsonl",[assistant("newer",5)]);const older=f.transcript("older.jsonl",[assistant("older",7)]);
+  const first=await f.finish();assert.equal(tokens(first),12);assert.equal(first.scan.state,"complete");
+  appendFileSync(older,records([assistant("older-more",100)]));appendFileSync(newer,records([assistant("newer-more",3)]));
+  const later=new Date(Date.now()+2000);utimesSync(newer,later,later);
+  f.stale();writeFileSync(join(f.root,"fault.json"),JSON.stringify("buckets"));
+  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"fault-reached"));rmSync(join(f.root,"fault.json"));
+  // The worker died after committing only the newest file's append.
+  const during=f.query();assert.equal(tokens(during),15);
+  assert.equal(during.scan.state,"complete");assert.equal(during.scan.coveredThrough,first.scan.coveredThrough);
+  const finished=await f.finish();assert.equal(tokens(finished),115);assert.equal(finished.scan.state,"complete");
+  assert.ok(finished.scan.coveredThrough>first.scan.coveredThrough);
+});
+
 test("a rebuild keeps the previous snapshot visible until its replacement is complete",async t=>{
   const f=fixture(t);const path=f.transcript("rebuild.jsonl",[assistant("old",10)]);
   assert.equal(tokens(await f.finish()),10);

@@ -665,11 +665,14 @@ tests and decoded by the Swift tests.
 - `refreshing`: true while a worker run (scan and Usage Limits) is in
   progress, including the run this query just started.
 - `scan.state`: `partial` (a full scan or rebuild has not reached every file
-  in the window yet) or `complete`.
+  in the window yet) or `complete`. A routine incremental run keeps the
+  previous run's `state` and `coveredThrough` until it finishes, while its
+  totals grow.
 - `scan.coveredFrom`: the first day of the requested time zone's calendar
   that the remaining Transcripts cover, as `YYYY-MM-DD`, or null without
-  data. `scan.coveredThrough`: the UTC time the last finished scan started;
-  records written after it are not counted yet.
+  data. `scan.coveredThrough`: the UTC time the last finished scan started,
+  or null before the first one finishes; records written after it are not
+  counted yet.
 - `scan.skippedArchives`: `.zst` rollouts skipped for want of a decoder.
   `scan.unreadableFiles`: Transcripts, rollouts or directories under a root
   that could not be listed or read in the last run; 0 when none. They are

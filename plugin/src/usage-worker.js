@@ -92,17 +92,22 @@ async function run() {
     const keysPath = join(directory, "keys.log");
     const generation = rebuilding || previous.expired ? startLog(keysPath, keys, groups) : previous.generation;
     const fileStates = rebuilding ? {} : match.states;
-    const snapshot = complete => {
+    const snapshot = (complete, final = false) => {
       heartbeat();
+      // A routine incremental run only adds to the totals: until it finishes,
+      // it keeps the previous run's scan state, coverage and age, so the next
+      // query restarts a worker that died mid-run.
+      const scan = final ? { complete, coveredThrough: new Date(now).toISOString(), generatedAt: new Date().toISOString() }
+        : { complete: !rebuilding && previousSnapshot?.complete === true, coveredThrough: previousSnapshot?.coveredThrough ?? null,
+          generatedAt: previousSnapshot?.generatedAt ?? new Date().toISOString() };
       // Commit parser progress even when a rebuild is still resolving a burst.
       // The query keeps the old aggregates; the next worker resumes the new log.
-      const progress = { generatedAt: new Date().toISOString(), coveredThrough: new Date(now).toISOString(),
-        complete, pricingVersion, breakdownsVersion: 1, buckets: [...buckets.values()], errors,
+      const progress = { ...scan, pricingVersion, breakdownsVersion: 1, buckets: [...buckets.values()], errors,
         limitsVersion: 1, usageLimits: { codex: limits.codex?.report, claude: limits.claude?.report },
         nextLimitsAt: limits.codex?.nextAllowedAt, nextClaudeLimitsAt: limits.claude?.nextAllowedAt,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length,
         unreadableFiles: unlistedPaths.length + files.filter(file => fileStates[file.logicalPath || file.path]?.unreadable).length };
-      cacheWrite(() => saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !complete
+      cacheWrite(() => saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !scan.complete
         ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
           usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt, nextClaudeLimitsAt: progress.nextClaudeLimitsAt }
         : { ...progress, rebuilding: false }));
@@ -229,7 +234,7 @@ async function run() {
       }
       snapshot(false);
     }
-    snapshot(!pendingPrefix);
+    snapshot(!pendingPrefix, true);
     // Reserve each program's cadence before starting it, so a worker that dies
     // mid-read still throttles the next one.
     if (!limits.codex || !Number.isFinite(limits.codex.nextAllowedAt) || Date.now() >= limits.codex.nextAllowedAt) {
@@ -250,7 +255,7 @@ async function run() {
     limits.codex.report = codexLimitsWithFallback(limits.codex.service || limits.codex.report
       || { state: "error", reason: "requestFailed" }, fallback);
     writeJSON(join(directory, "limits.json"), limits);
-    snapshot(!pendingPrefix);
+    snapshot(!pendingPrefix, true);
     clearFailures(directory);
   } catch (error) {
     // A displaced worker did not fail; its successor owns the refresh.
