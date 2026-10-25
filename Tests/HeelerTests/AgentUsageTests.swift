@@ -117,6 +117,16 @@ struct AgentUsageStoreTests {
         #expect(store.state == .updateRequired)
     }
 
+    @Test(arguments: ["Asia/Kolkata", "US/Pacific"])
+    func theDeviceTimeZoneReachesTheTransportUnchanged(timeZone: String) async throws {
+        let (store, transport) = await readyStore()
+        let report = try AgentUsageFixture.report()
+        await transport.setAgentUsage(.success(report))
+        await store.refresh(timeZone: timeZone)
+        #expect(store.state == .available(report))
+        #expect(await transport.agentUsageTimeZones == [timeZone])
+    }
+
     @Test func aDisabledPluginDoesNotRunUsage() async {
         let hostID = UUID()
         let transport = ScriptedTransport()

@@ -163,8 +163,10 @@ app with only validated arguments interpolated:
    reads `runtime.json` itself and reports `runtime: "missing"` without it.
 
 `plugin_root` comes from `plugin.list`; the app's `PluginListResult` decoder
-gains `plugin_root`. The time zone is validated against the device's IANA
-identifier set before interpolation. A recorded `node` that no longer runs
+gains `plugin_root`. Before interpolation the time zone must resolve with
+`TimeZone(identifier:)` and match the plugin's identifier grammar; the
+listed `knownTimeZoneIdentifiers` omit names iOS reports, such as
+`Asia/Kolkata` and `US/Pacific`. A recorded `node` that no longer runs
 (exit 126 or 127) maps to the same state as a missing file, since the next
 hook run records the current one.
 

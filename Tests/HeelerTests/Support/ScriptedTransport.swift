@@ -454,6 +454,7 @@ final actor ScriptedTransport: Transport {
     private var agentUsage: Result<AgentUsageReport, any Error> = .failure(AgentUsageError.invalidReport)
     private(set) var agentUsageReads = 0
     private(set) var agentUsageClaudeLimits: [Bool] = []
+    private(set) var agentUsageTimeZones: [String] = []
     private var nextAgentUsageGate: ScriptedTransportCallGate?
 
     func gateNextAgentUsageRead(_ gate: ScriptedTransportCallGate) {
@@ -467,6 +468,7 @@ final actor ScriptedTransport: Transport {
     func readAgentUsage(timeZone: String, claudeLimits: Bool) async throws -> AgentUsageReport {
         agentUsageReads += 1
         agentUsageClaudeLimits.append(claudeLimits)
+        agentUsageTimeZones.append(timeZone)
         let result = agentUsage
         let gate = nextAgentUsageGate
         nextAgentUsageGate = nil

@@ -7,7 +7,7 @@ enum AgentUsageProbe {
         pluginRoot: String, timeZone: String, claudeLimits: Bool,
         nonce: String, launcher: HerdrLauncher?
     ) throws -> Data {
-        guard TimeZone.knownTimeZoneIdentifiers.contains(timeZone) || timeZone == "UTC",
+        guard isQueryableTimeZone(timeZone),
             pluginRoot.hasPrefix("/"), !pluginRoot.utf8.contains(0),
             !nonce.isEmpty, nonce.utf8.allSatisfy({
                 (48...57).contains($0) || (65...90).contains($0)
@@ -62,6 +62,22 @@ enum AgentUsageProbe {
             ) | head -c 1048576
             """
         return Data((script + "\n").utf8)
+    }
+
+    /// `knownTimeZoneIdentifiers` omits identifiers iOS itself reports, such
+    /// as `Asia/Kolkata` and `US/Pacific`, so the check asks Foundation to
+    /// resolve the identifier. The character grammar is the plugin's own and
+    /// keeps the single-quoted shell argument safe on its own.
+    static func isQueryableTimeZone(_ identifier: String) -> Bool {
+        let segments = identifier.split(separator: "/", omittingEmptySubsequences: false)
+        let grammar = segments.enumerated().allSatisfy { index, segment in
+            !segment.isEmpty && segment.utf8.allSatisfy { byte in
+                (65...90).contains(byte) || (97...122).contains(byte)
+                    || byte == 95 || byte == 43 || byte == 45
+                    || (index > 0 && (48...57).contains(byte))
+            }
+        }
+        return grammar && TimeZone(identifier: identifier) != nil
     }
 
     static func parse(stdout: Data, nonce: String) throws -> AgentUsageReport {

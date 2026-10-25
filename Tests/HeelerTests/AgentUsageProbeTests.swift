@@ -14,6 +14,21 @@ struct AgentUsageProbeTests {
         }
     }
 
+    @Test("usage passes device time zones Foundation resolves but does not list",
+        arguments: ["Asia/Kolkata", "US/Pacific", "Asia/Saigon", "America/Argentina/Buenos_Aires", "Etc/GMT+5", "UTC"])
+    func deviceTimeZonesReachTheScript(timeZone: String) throws {
+        let script = try AgentUsageProbe.script(
+            pluginRoot: "/plugins/heeler", timeZone: timeZone,
+            claudeLimits: false, nonce: "test", launcher: nil)
+        #expect(String(decoding: script, as: UTF8.self).contains("--tz '\(timeZone)'"))
+    }
+
+    @Test("usage rejects identifiers Foundation cannot resolve or the plugin would refuse",
+        arguments: ["Mars/Olympus_Mons", "Asia/Kolkata'", "Asia//Kolkata", "GMT+0530", "", "/UTC", "UTC/"])
+    func unresolvableTimeZonesAreRejected(timeZone: String) {
+        #expect(!AgentUsageProbe.isQueryableTimeZone(timeZone))
+    }
+
     @Test("usage accepts only its complete nonce-framed response")
     func nonceMarkersBoundTheResponse() throws {
         let json = #"{"version":1,"runtime":"missing"}"#
