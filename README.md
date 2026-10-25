@@ -52,6 +52,10 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
   scrollback, momentum touch scrolling that also drives full-screen TUIs,
   long-press selection, takeover of a stale terminal owner, and quietly
   collected web links to open later.
+- **Chat** — read an Agent's conversation as native messages instead of a
+  terminal screen, reply from the Composer, and answer a Blocked Agent with
+  buttons; for Claude Code, Codex, Pi, Oh My Pi, Grok Build, and OpenCode
+  ([Read more](https://docs.heeler.bybee.dev/chat)).
 - **Composer** — draft locally with the full iOS keyboard (autocorrect, IME,
   dictation), then Send once; the tools keyboard adds Agent control keys,
   Agent Skills, reusable Snippets, and terminal appearance.
@@ -122,42 +126,6 @@ code carries the addresses, the host key fingerprint, and SSH key enrollment.
 The same [plugin](plugin/README.md) delivers the encrypted notifications once
 you enable them for the Host in the app. For every step, the popup's keys, and
 troubleshooting, see the [pairing guide](https://docs.heeler.bybee.dev/pairing).
-
-## Native Chat
-
-On macOS and Linux Hosts, Chat displays Claude Code, Codex, Pi, Oh My Pi, Grok Build and OpenCode conversations from what each program records on the Host, read over SSH. Saved conversations remain readable while reconnecting. Chat needs the conversation reference reported by herdr to identify the correct transcript; installing the integration alone does not prove that the current Agent has reported one.
-
-For Pi and Oh My Pi, install the corresponding `herdr integration install pi`
-or `herdr integration install omp` on the Host and restart that Agent to load
-its extension. Chat reads the v2/v3 JSONL file the integration reports, including
-custom session directories. Messages, reasoning, tool results and compaction
-boundaries use the native timeline. Custom editors and extension dialogs stay
-available in the terminal. See [format and compatibility details](docs/research/pi-transcript-format.md).
-
-For Grok Build, run `herdr integration install grok` on the Host and restart
-the Agent. Chat reads `~/.grok/sessions`; a custom `GROK_HOME` isn't found.
-herdr follows `/new`, `/clear` and a message sent from the dashboard, but not
-`/resume`, `/fork` or going back from the dashboard, so Chat holds a message
-when Grok Build shows another session. See [format and compatibility details](docs/research/grok-build-transcript-format.md).
-
-For OpenCode 2.x, Chat reads the conversation from OpenCode's own database with
-a short read-only query on the Host, so the Host needs `sqlite3` or `python3`.
-herdr's OpenCode integration must be installed, with
-`herdr integration install opencode` on the Host before starting OpenCode, and
-Chat follows the session it reports. Chat sends while OpenCode is idle; steer a
-running turn from the terminal. After `/new` in the terminal, Chat says
-OpenCode has left the conversation and shows none until you open one or send a
-first message there. Add Image and Add File put the file's path into the draft
-as text, and OpenCode can take a message that is only a path as an attachment,
-so add a few words before the path. See [how Chat reads OpenCode](docs/adr/0025-opencode-chat-reads-its-session-store.md).
-
-### Start Codex with `--no-daemon`
-
-For Chat, start Codex inside the herdr pane with `codex --no-daemon`, and resume with `codex --no-daemon resume`. Keep your other flags alongside it, such as `codex --no-daemon --yolo`.
-
-Codex CLI normally starts or reuses a shared background server. Its hooks run with the environment of whichever terminal started that server, so herdr's Codex integration can report a conversation to the wrong pane: Chat keeps waiting, or shows another Agent's conversation. Codex gives hooks no way to tell which terminal a conversation belongs to, so Heeler can't support the shared server. `--no-daemon` runs the backend inside the terminal's own process, with your existing login, configuration, and saved conversations. Setting `[features] daemon_auto_start = false` isn't a substitute, because Codex still joins a server that is already running.
-
-The flag applies only when launching Codex: exit a running session and resume it with the flag. Until Codex fixes this ([openai/codex#48500](https://github.com/openai/codex/issues/48500), tracked by herdr in [herdrdev/herdr#4649](https://github.com/herdrdev/herdr/issues/4649)), `alias codex='codex --no-daemon'` in your shell's startup file adds it every time, including to Agents that herdr restores after a restart, which it types into the pane's shell. With the alias, run plain `codex resume`: Codex refuses the flag given twice. See the [versioned compatibility observations](docs/agents/herdr-compatibility.md#versioned-observations) and [Chat troubleshooting](docs/guides/chat-troubleshooting.md).
 
 ## Opening an Agent from another app
 

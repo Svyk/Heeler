@@ -51,6 +51,9 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 - **Attach** —— libghostty 渲染的 Agent 真实终端：原生历史回看、也能驱动全屏
   TUI 的惯性触摸滚动、长按选择、接管失效的终端占用者，并静默收集网页链接
   供稍后打开。
+- **Chat** —— 以原生消息而不是终端画面阅读 Agent 的对话，在 Composer 里
+  回复，并用按钮回答 Blocked 的 Agent；支持 Claude Code、Codex、Pi、
+  Oh My Pi、Grok Build 和 OpenCode（[了解更多](https://docs.heeler.bybee.dev/zh/chat)）。
 - **Composer** —— 在本地用完整的 iOS 键盘起草（自动纠错、输入法、听写），
   一次 Send 投递；工具键盘另有 Agent 控制键、Agent Skills、可复用的
   Snippets 和终端外观。
@@ -111,24 +114,6 @@ herdr plugin action invoke heeler.pair
 host key 指纹和 SSH 密钥注册全部由配对码承载。在应用里为该 Host 启用通知
 后，同一个[插件](plugin/README.md)负责投递加密通知。完整步骤、弹窗按键和排错
 方法见[扫码配对指南](https://docs.heeler.bybee.dev/zh/pairing)。
-
-## 原生 Chat
-
-在 macOS 和 Linux Host 上，Chat 通过 SSH 读取各程序在 Host 上的记录，显示 Claude Code、Codex、Pi、Oh My Pi、Grok Build 和 OpenCode 的对话。重新连接期间，已保存的对话仍可阅读。Chat 需要 herdr 报告的对话引用来找到正确的 transcript；只安装集成，并不能说明当前 Agent 已经报告过。
-
-对于 Pi 和 Oh My Pi，在 Host 上运行对应的 `herdr integration install pi` 或 `herdr integration install omp`，然后重启该 Agent 以加载扩展。Chat 读取集成报告的 v2/v3 JSONL 文件，包括自定义的会话目录。消息、推理、工具结果和压缩边界使用原生时间线显示。自定义编辑器和扩展对话框仍在终端中使用。详见[格式与兼容性说明](docs/research/pi-transcript-format.md)。
-
-对于 Grok Build，在 Host 上运行 `herdr integration install grok` 并重启 Agent。Chat 读取 `~/.grok/sessions`，找不到自定义的 `GROK_HOME`。herdr 会跟随 `/new`、`/clear` 和从 dashboard 发送的消息，但不跟随 `/resume`、`/fork` 或从 dashboard 返回，所以 Grok Build 显示另一个会话时，Chat 会暂缓发送消息。详见[格式与兼容性说明](docs/research/grok-build-transcript-format.md)。
-
-对于 OpenCode 2.x，Chat 在 Host 上用一条简短的只读查询从 OpenCode 自己的数据库读取对话，因此 Host 需要 `sqlite3` 或 `python3`。必须先在 Host 上运行 `herdr integration install opencode` 安装 herdr 的 OpenCode 集成，再启动 OpenCode；Chat 跟随它报告的会话。Chat 在 OpenCode 空闲时发送；正在运行的回合请在终端中引导。在终端执行 `/new` 后，Chat 会提示 OpenCode 已离开该对话，并且在你打开一个对话或在那里发送第一条消息之前不显示任何对话。Add Image 和 Add File 会把文件路径作为文本放进草稿，而 OpenCode 可能把只有路径的消息当作附件，所以请在路径前加几个字。详见 [Chat 如何读取 OpenCode](docs/adr/0025-opencode-chat-reads-its-session-store.md)。
-
-### 用 `--no-daemon` 启动 Codex
-
-使用 Chat 时，在 herdr pane 里用 `codex --no-daemon` 启动 Codex，用 `codex --no-daemon resume` 恢复对话。其他参数照常一起加，例如 `codex --no-daemon --yolo`。
-
-Codex CLI 默认会启动或复用一个共享的后台服务。它的 hooks 使用启动该服务的那个终端的环境运行，因此 herdr 的 Codex 集成可能把对话报告到错误的 pane：Chat 一直等待，或显示另一个 Agent 的对话。Codex 没有给 hooks 提供判断对话属于哪个终端的方法，所以 Heeler 无法支持共享服务。`--no-daemon` 让后端在终端自己的进程中运行，沿用你现有的登录、配置和已保存的对话。设置 `[features] daemon_auto_start = false` 不能替代它，因为 Codex 仍会加入已经在运行的服务。
-
-这个参数只在启动 Codex 时生效：请退出正在运行的会话，再带上参数恢复。在 Codex 修复之前（[openai/codex#48500](https://github.com/openai/codex/issues/48500)，herdr 在 [herdrdev/herdr#4649](https://github.com/herdrdev/herdr/issues/4649) 中跟踪），可以在 shell 的启动文件中加入 `alias codex='codex --no-daemon'`，每次都会自动带上参数；herdr 重启后恢复的 Agent 也会用上它，因为 herdr 是把恢复命令输入到 pane 的 shell 中。用了别名后直接运行 `codex resume`：Codex 不接受重复两次的参数。详见[分版本的兼容性观察](docs/agents/herdr-compatibility.md#versioned-observations)和 [Chat 疑难排解](docs/guides/zh/chat-troubleshooting.md)。
 
 ## 从其他应用打开 Agent
 
