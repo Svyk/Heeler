@@ -8,25 +8,28 @@ import { reportFromSnapshot } from "./usage/buckets.js";
 import { checkpointCurrent } from "./usage/checkpoint.js";
 import { readUsageRuntime } from "./usage-runtime.js";
 
-/** Start one detached worker unless another holds the lock; true while one runs. */
+/**
+ * Start one detached worker unless another holds the lock; true while one runs.
+ * Throws when no worker can start (an unwritable cache, a full disk).
+ */
 function startWorker(runtime, directory, claudeLimits) {
   const lock = reserveWorker(directory);
-  if (!lock) return true;
+  if (!lock) return Boolean(activeLock(directory));
   try {
     const worker = spawn(runtime.node, [fileURLToPath(new URL("./usage-worker.js", import.meta.url)), "--config", process.env.HERDR_PLUGIN_CONFIG_DIR, "--lock-token", lock.token, ...(claudeLimits ? ["--claude-limits"] : [])], {
       detached: true, stdio: "ignore", env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
     });
     worker.on("error", () => { try { releaseWorker(directory, lock.token); } catch { /* The lock goes stale. */ } });
-    if (!worker.pid) { releaseWorker(directory, lock.token); return false; }
+    if (!worker.pid) throw new Error("The worker did not start.");
     lock.pid = worker.pid;
     lock.processStart = processStart(worker.pid);
     writeJSON(join(directory, "worker.lock"), lock);
     worker.unref();
     return true;
-  } catch {
+  } catch (error) {
     // A worker that never sees its pid in the lock exits on its own.
-    releaseWorker(directory, lock.token);
-    return false;
+    try { releaseWorker(directory, lock.token); } catch { /* The lock goes stale. */ }
+    throw error;
   }
 }
 
@@ -46,23 +49,27 @@ try {
     const directory = cacheDirectory(runtime);
     const snapshot = readJSON(join(directory, "buckets.json"));
     const failures = refreshFailures(directory);
+    const stale = !snapshot?.complete || !checkpointCurrent(snapshot?.checkpoint)
+      || snapshot?.breakdownsVersion !== 1 || !(Date.now() - Date.parse(snapshot.generatedAt) <= 60_000);
     let refreshing = false;
+    let startFailed = false;
     try {
       refreshing = Boolean(activeLock(directory));
-      if (!refreshing && !failures.paused && (!snapshot?.complete || !checkpointCurrent(snapshot?.checkpoint)
-          || snapshot?.breakdownsVersion !== 1 || Date.now() - Date.parse(snapshot.generatedAt) > 60_000
+      if (!refreshing && !failures.paused && (stale
           || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt
           || (values["claude-limits"] && (!snapshot.nextClaudeLimitsAt || Date.now() >= snapshot.nextClaudeLimitsAt)))) {
         refreshing = startWorker(runtime, directory, values["claude-limits"]);
       }
     } catch {
-      // A cache the query cannot write still serves the report it already has.
+      // The cache cannot be written (read-only, a full disk), so no worker runs.
       refreshing = false;
+      startFailed = true;
     }
-    // Cached aggregates may be stale without saying so; report the failing
-    // refresh instead, keeping a program's own scan error when it has one.
-    const failed = "The background refresh failed repeatedly.";
-    const served = failures.failing ? { ...snapshot, errors: { claude: failed, codex: failed, ...snapshot?.errors } } : snapshot;
+    // Cached aggregates that no refresh will bring up to date are reported as
+    // a failing refresh instead, keeping a program's own scan error.
+    const failed = failures.failing ? "The background refresh failed repeatedly."
+      : startFailed && stale ? "The background refresh could not start." : null;
+    const served = failed ? { ...snapshot, errors: { claude: failed, codex: failed, ...snapshot?.errors } } : snapshot;
     report = reportFromSnapshot(served, timeZone, refreshing, Date.now(), values["claude-limits"]);
   }
   console.log(JSON.stringify(report));

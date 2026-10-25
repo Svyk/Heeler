@@ -81,8 +81,10 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
       models: [...models.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.model.localeCompare(b.model)).map(model => ({ ...pricedSummary(model), priced: model.unpricedTokens === 0 })),
       directories: [...directories.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.path.localeCompare(b.path)).slice(0, 10).map(pricedSummary),
     } : { state: "noData" }, usageLimits: program === "claude" && !claudeLimits ? { state: "disabled" }
-      // A program whose limits will be read but have no reading yet is not missing.
-      : expireLimitWindows(snapshot?.usageLimits?.[program] || { state: "unavailable", reason: "notReadYet" }, now) };
+      // Without a reading, limits are not read yet while a run will read them;
+      // with no run (failures paused it, or none could start) that read failed.
+      : expireLimitWindows(snapshot?.usageLimits?.[program]
+        || (refreshing ? { state: "unavailable", reason: "notReadYet" } : { state: "error", reason: "requestFailed" }), now) };
   });
   // Clamp the first recorded day into the requested 30-day calendar.
   const since = Number.isFinite(snapshot?.coveredSince) ? dayInZone(snapshot.coveredSince) : null;

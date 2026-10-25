@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const DAY = 86_400_000;
@@ -62,6 +62,26 @@ export function activeLock(directory, now = Date.now()) {
   if (!lock || !Number.isFinite(lock.heartbeat) || now - lock.heartbeat > 10 * 60_000) return null;
   return ownerRunning(lock) ? lock : null;
 }
+/**
+ * Create a file that must not exist yet. A write that fails (a full disk)
+ * removes the file it created, so no empty lock outlives the error.
+ */
+function createExclusive(path, contents) {
+  const descriptor = openSync(path, "wx", 0o600);
+  let written = false;
+  try {
+    writeFileSync(descriptor, contents);
+    written = true;
+  } finally {
+    try { closeSync(descriptor); } finally { if (!written) rmSync(path, { force: true }); }
+  }
+}
+const pause = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+/**
+ * Reserve the next worker run, or return null when a worker already holds the
+ * lock or another query keeps admission past a short wait. Throws when the
+ * cache cannot be written.
+ */
 export function reserveWorker(directory) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, "worker.lock");
@@ -69,17 +89,25 @@ export function reserveWorker(directory) {
   const admission = { pid: process.pid, processStart: processStart(process.pid), token: randomUUID(), heartbeat: Date.now() };
   // Serialize stale-lock reclamation as well as creation. Otherwise two queries
   // could both decide to remove the old lock and one could remove the new one.
-  try { writeFileSync(admissionPath, JSON.stringify(admission), { flag: "wx", mode: 0o600 }); }
-  catch (error) {
-    if (error.code !== "EEXIST") throw error;
+  // Admission lasts milliseconds: wait for a live holder, so the lock it
+  // writes decides whether a worker is running.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      createExclusive(admissionPath, JSON.stringify(admission));
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    if (attempt >= 50) return null;
     const previous = readJSON(admissionPath);
     let age;
-    try { age = Date.now() - statSync(admissionPath).mtimeMs; } catch { return null; /* Another query finished admission. */ }
-    // Admission lasts milliseconds: a dead owner or an old file was abandoned.
+    try { age = Date.now() - statSync(admissionPath).mtimeMs; } catch { continue; /* Another query finished admission. */ }
+    // A dead owner or an old file was abandoned.
     if (age > 10_000 || (previous && !ownerRunning(previous))) {
       if (!previous || readJSON(admissionPath)?.token === previous.token) rmSync(admissionPath, { force: true });
+      continue;
     }
-    return null;
+    pause(10);
   }
   try {
     if (activeLock(directory)) return null;
@@ -89,7 +117,7 @@ export function reserveWorker(directory) {
       try { recordFailure(directory); } catch { /* The lock write below reports it. */ }
     }
     rmSync(path, { force: true });
-    writeFileSync(path, JSON.stringify(admission), { flag: "wx", mode: 0o600 });
+    createExclusive(path, JSON.stringify(admission));
     return admission;
   } finally {
     if (readJSON(admissionPath)?.token === admission.token) rmSync(admissionPath, { force: true });
