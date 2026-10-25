@@ -259,11 +259,11 @@
             ] + (DemoScreenshotMode.showsHostProblems ? problemHosts : [])
             + (DemoScreenshotMode.showsPluginStates ? pluginStateHosts : [])
 
-        /// One Host per plugin state, named for it. Only with
-        /// `DemoScreenshotMode.pluginStatesArgument`.
         /// Where demo Hosts report the plugin; nothing is ever run there.
         static let pluginRoot = "/demo/herdr/plugins/heeler"
 
+        /// One Host per plugin state, named for it. Only with
+        /// `DemoScreenshotMode.pluginStatesArgument`.
         static let pluginStates: [(name: String, plugin: Result<HeelerPluginInstallation?, TransportError>)] = [
             ("Plugin current (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2"))),
             ("Plugin newer than app (0.7.0)",
