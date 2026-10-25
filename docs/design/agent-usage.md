@@ -384,7 +384,8 @@ size:
   reports the earliest day actually covered.
 - The cache directory (`<stateDir>/usage/<rootsKey>/`) holds:
   - `files.json`: per logical file `{dev, ino, size, mtimeMs, offset,
-    carry}`, where `offset` counts decompressed bytes and `carry` is per-file
+    firstAt, carry}`, where `offset` counts decompressed bytes, `firstAt` is
+    the time of its first record (for `scan.coveredFrom`) and `carry` is per-file
     parser state (previous Codex total, current model and tier, own thread
     id, whether the inherited prefix has ended and the `token_count` events
     still pending on it, whether a record arrived since the last advancing
@@ -669,8 +670,10 @@ tests and decoded by the Swift tests.
   previous run's `state` and `coveredThrough` until it finishes, while its
   totals grow.
 - `scan.coveredFrom`: the first day of the requested time zone's calendar
-  that the remaining Transcripts cover, as `YYYY-MM-DD`, or null without
-  data. `scan.coveredThrough`: the UTC time the last finished scan started,
+  that the remaining Transcripts cover, as `YYYY-MM-DD`: the day of the
+  earliest record any of them holds, whether or not it carries usage, or the
+  window's first day when a Transcript older than the window remains. Null
+  when no Transcript has been read. `scan.coveredThrough`: the UTC time the last finished scan started,
   or null before the first one finishes; records written after it are not
   counted yet.
 - `scan.skippedArchives`: `.zst` rollouts skipped for want of a decoder.

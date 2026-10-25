@@ -85,11 +85,9 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
       : { state: "disabled" })
       : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
   });
-  let covered = null;
-  for (const bucket of snapshot?.buckets || []) {
-    const date = dayInZone(bucket.timestamp);
-    if (date >= dates[0] && date <= today && (covered === null || date < covered)) covered = date;
-  }
+  // Clamp the first recorded day into the requested 30-day calendar.
+  const since = Number.isFinite(snapshot?.coveredSince) ? dayInZone(snapshot.coveredSince) : null;
+  const covered = since === null ? null : since < dates[0] ? dates[0] : since > today ? today : since;
   return { version: 1, pricingVersion: snapshot?.pricingVersion || pricingVersion, generatedAt: new Date(now).toISOString(), timeZone, runtime: "recorded", refreshing,
     scan: { state: snapshot?.complete ? "complete" : "partial", coveredFrom: covered, coveredThrough: snapshot?.coveredThrough || null, skippedArchives: snapshot?.skippedArchives || 0,
       unreadableFiles: snapshot?.unreadableFiles || 0 }, programs };

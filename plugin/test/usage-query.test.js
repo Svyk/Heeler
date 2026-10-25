@@ -218,7 +218,7 @@ test("a cached 30-day report with 60480 buckets completes within the SSH deadlin
   assert.equal(buckets.length, 60480);
   writeFileSync(join(directory, "buckets.json"), JSON.stringify({
     complete: true, generatedAt: new Date(now).toISOString(), coveredThrough: new Date(now).toISOString(),
-    checkpoint: { pricingFingerprint }, breakdownsVersion: 1, limitsVersion: 1,
+    coveredSince: start, checkpoint: { pricingFingerprint }, breakdownsVersion: 1, limitsVersion: 1,
     nextLimitsAt: now + 60_000, buckets,
   }));
   // Exercise the real query process, including JSON decoding and encoding, under

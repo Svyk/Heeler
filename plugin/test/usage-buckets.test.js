@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { reportFromSnapshot } from "../src/usage/buckets.js";
 
 function snapshotFor(timestamps) {
-  return { complete: true, buckets: timestamps.flatMap(timestamp =>
+  return { complete: true, coveredSince: Date.parse(timestamps[0]), buckets: timestamps.flatMap(timestamp =>
     ["claude", "codex"].flatMap(program =>
       [{ model: "model" }, { directory: "/project" }].map(dimension => ({
         timestamp, program, ...dimension,
@@ -23,12 +23,22 @@ test("calendar conversion work scales with timestamps, not bucket dimensions", (
   const timestamps = ["2026-03-08T09:30:00Z", "2026-03-08T10:30:00Z"];
   const snapshot = snapshotFor(timestamps);
   // Multiple models/directories and both programs share each hourly timestamp;
-  // coverage must reuse the conversions already needed for daily totals.
+  // only coverage and now add a conversion of their own.
   const report = reportFromSnapshot(snapshot, "America/Los_Angeles", false, Date.parse("2026-03-08T12:00:00Z"));
   assert.equal(report.programs[0].tokenUsage.totals.today.tokens.total, 2);
   assert.equal(report.scan.coveredFrom, "2026-03-08");
   assert.equal(formatters, 1);
-  assert.ok(conversions <= timestamps.length + 1, `${conversions} calendar conversions for two bucket timestamps and now`);
+  assert.ok(conversions <= timestamps.length + 2, `${conversions} calendar conversions for two bucket timestamps, coverage and now`);
+});
+
+test("coverage is the first recorded day clamped to the calendar, with or without usage", () => {
+  const now = Date.parse("2026-03-09T00:30:00Z");
+  const report = coveredSince => reportFromSnapshot({ complete: true, buckets: [], coveredSince }, "UTC", false, now);
+  assert.equal(report(Date.parse("2026-03-01T23:00:00Z")).scan.coveredFrom, "2026-03-01");
+  assert.equal(report(Date.parse("2026-03-01T23:00:00Z")).programs[0].tokenUsage.state, "noData");
+  assert.equal(report(Date.parse("2025-12-01T00:00:00Z")).scan.coveredFrom, "2026-02-08");
+  assert.equal(report(Date.parse("2026-03-10T00:00:00Z")).scan.coveredFrom, "2026-03-09");
+  assert.equal(report(undefined).scan.coveredFrom, null);
 });
 
 test("daily totals and coverage honor DST and remain isolated between query time zones", () => {

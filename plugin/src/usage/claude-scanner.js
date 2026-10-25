@@ -6,12 +6,14 @@ import { jsonLines } from "./json-lines.js";
 /**
  * Transcripts in the window. An entry that cannot be listed is skipped and its
  * path returned in `unreadable`; only a `projects/` root that cannot be listed
- * sets `rootFailed`.
+ * sets `rootFailed`. `older` tells whether a Transcript older than the window
+ * exists, which means the Host kept records from before it.
  */
 export async function claudeFiles(roots, cutoff) {
   const files = [];
   const unreadable = [];
   let rootFailed = false;
+  let older = false;
   const seenDirectories = new Set();
   const seenFiles = new Set();
   const skip = (path, root) => { if (root) rootFailed = true; else unreadable.push(path); };
@@ -31,6 +33,7 @@ export async function claudeFiles(roots, cutoff) {
         let metadata;
         try { metadata = await stat(child); }
         catch (error) { if (error.code !== "ENOENT") skip(child, false); continue; }
+        if (metadata.mtimeMs < cutoff) older = true;
         if (metadata.mtimeMs < cutoff || seenFiles.has(child)) continue;
         seenFiles.add(child);
         files.push({ path: child, ...metadata });
@@ -38,7 +41,7 @@ export async function claudeFiles(roots, cutoff) {
     }
   }
   for (const root of roots) await visit(join(root, "projects"), true);
-  return { files: files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path)), unreadable, rootFailed };
+  return { files: files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path)), unreadable, rootFailed, older };
 }
 export async function* transcriptEntries(path, onChunk = () => {}, start = 0) {
   yield* jsonLines(createReadStream(path, { start }), start, 0, onChunk);

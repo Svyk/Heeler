@@ -34,9 +34,10 @@ test("Codex discovery prefers live and plain rollouts and ignores old files", t 
   f.write("one/sessions/unrelated.jsonl");
   const other = f.write("two/sessions/rollout-other.jsonl", "{}\n", 500);
   symlinkSync(join(f.root, "one"), join(f.root, "alias"));
-  const result = f.run(`console.log(JSON.stringify((await files.codexFiles(${JSON.stringify([join(f.root, "one"), join(f.root, "alias"), join(f.root, "two"), join(f.root, "missing")])}, Date.now() - 31 * 86400000)).files));`);
+  const result = f.run(`console.log(JSON.stringify((await files.codexFiles(${JSON.stringify([join(f.root, "one"), join(f.root, "alias"), join(f.root, "two"), join(f.root, "missing")])}, Date.now() - 31 * 86400000))));`);
   assert.equal(result.status, 0, result.stderr);
-  const discovered = JSON.parse(result.stdout);
+  const { files: discovered, ...listing } = JSON.parse(result.stdout);
+  assert.deepEqual(listing, { unreadable: [], rootFailed: false, older: true });
   assert.deepEqual(discovered.map(file => file.path), [archive, other, live]);
   assert.equal(discovered[0].compressed, true);
   assert.equal(discovered[0].logicalPath, archive.slice(0, -4));

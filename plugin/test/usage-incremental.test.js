@@ -235,6 +235,21 @@ test("a truncated rollout archive is skipped and counted without hiding Codex",{
   assert.equal(tokens(report,"codex"),9);assert.equal(report.scan.unreadableFiles,1);
 });
 
+test("coverage starts at the first recorded day, not the first day with usage",async t=>{
+  const f=fixture(t);const now=Date.parse("2026-10-20T12:00:00Z");f.setClock(now);const day=86400000;
+  const iso=time=>new Date(time).toISOString();
+  // Ten days ago the Transcript only has a user message; usage starts later.
+  const path=f.transcript("quiet.jsonl",[{type:"user",sessionId:"one",timestamp:iso(now-10*day),cwd:"/work/é",message:{content:"hi"}},assistant("late",4,{timestamp:iso(now-2*day)})]);
+  utimesSync(path,new Date(now),new Date(now));
+  const quiet=await f.finish();assert.equal(tokens(quiet),4);assert.equal(quiet.scan.coveredFrom,"2026-10-10");
+  const codex=rollout(f,"quiet",[meta("quiet",{},iso(now-15*day)),count(6,6,iso(now-day))]);utimesSync(codex,new Date(now),new Date(now));
+  const snapshotPath=join(f.cache(),"buckets.json");writeFileSync(snapshotPath,JSON.stringify({...JSON.parse(readFileSync(snapshotPath)),generatedAt:iso(now-61_000)}));
+  const both=await f.finish();assert.equal(tokens(both,"codex"),6);assert.equal(both.scan.coveredFrom,"2026-10-05");
+  // A Transcript older than the window means the Host kept records before it.
+  const old=f.transcript("old.jsonl",[assistant("old",9,{timestamp:iso(now-40*day)})]);utimesSync(old,new Date(now-40*day),new Date(now-40*day));
+  rmSync(f.cache(),{recursive:true});const kept=await f.finish();assert.equal(tokens(kept),4);assert.equal(kept.scan.coveredFrom,"2026-09-21");
+});
+
 test("expired keys and buckets are pruned without rereading unchanged Transcripts",async t=>{
   const f=fixture(t);const now=Date.now();f.setClock(now);
   const path=f.transcript("prune.jsonl",[assistant("aging",100,{timestamp:new Date(now-30.9*86400000).toISOString()}),assistant("recent",7)]);

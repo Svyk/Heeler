@@ -11,7 +11,8 @@ const digest = text => createHash("sha256").update(text).digest("hex");
 /** A committed snapshot binds offsets to exactly one prefix of the contribution log. */
 export async function loadCheckpoint(directory, snapshot, heartbeat) {
   const checkpoint = snapshot?.checkpoint;
-  if (checkpoint?.version !== 1 || checkpoint.pricingFingerprint !== pricingFingerprint) return null;
+  // Version 2 records each file's first timestamp for scan coverage.
+  if (checkpoint?.version !== 2 || checkpoint.pricingFingerprint !== pricingFingerprint) return null;
   try {
     const filesText = readFileSync(join(directory, "files.json"), "utf8");
     const logPath = join(directory, "keys.log");
@@ -70,7 +71,7 @@ export function saveCheckpoint(directory, files, generation, snapshot) {
   writeJSON(join(directory, "files.json"), files);
   const filesText = readFileSync(join(directory, "files.json"), "utf8");
   writeJSON(join(directory, "buckets.json"), { ...snapshot, checkpoint: {
-    version: 1, pricingFingerprint, generation, filesHash: digest(filesText), keyBytes: statSync(join(directory, "keys.log")).size,
+    version: 2, pricingFingerprint, generation, filesHash: digest(filesText), keyBytes: statSync(join(directory, "keys.log")).size,
   } });
 }
 

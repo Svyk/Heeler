@@ -13,7 +13,8 @@ export class ArchiveUnavailableError extends Error {
  * One physical representation per rollout, with the live plain file preferred.
  * An entry that cannot be listed is skipped and its logical path returned in
  * `unreadable`; only a Codex home, `sessions/` or `archived_sessions/` that
- * cannot be listed sets `rootFailed`.
+ * cannot be listed sets `rootFailed`. `older` tells whether a rollout older
+ * than the window exists.
  */
 export async function codexFiles(roots, cutoff) {
   const selected = new Map();
@@ -55,7 +56,7 @@ export async function codexFiles(roots, cutoff) {
   const files = [...selected.values()].filter(file => file.mtimeMs >= cutoff)
     .sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path))
     .map(({ priority, ...file }) => file);
-  return { files, unreadable, rootFailed };
+  return { files, unreadable, rootFailed, older: [...selected.values()].some(file => file.mtimeMs < cutoff) };
 }
 
 /**

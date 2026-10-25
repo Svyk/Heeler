@@ -21,6 +21,12 @@ class CacheWriteError extends Error {}
 const cacheWrite = write => {
   try { return write(); } catch (error) { throw new CacheWriteError("Could not write the usage cache.", { cause: error }); }
 };
+/** Transcripts are append-only, so the first timestamped line is the earliest. */
+function noteFirstRecord(state, line) {
+  if (Number.isFinite(state.firstAt) || typeof line?.timestamp !== "string") return;
+  const timestamp = Date.parse(line.timestamp);
+  if (Number.isFinite(timestamp)) state.firstAt = timestamp;
+}
 const runFailure = error => error instanceof LockLostError || error instanceof CacheWriteError;
 /** A cache's last write: its snapshot, or, before a first commit, its newest entry. */
 function lastWritten(directory) {
@@ -69,6 +75,7 @@ async function run() {
     const files = [];
     const unlistedPaths = [];
     const failedPrograms = new Set();
+    let olderTranscripts = false;
     // One unreadable entry is skipped and counted; only a root that cannot be
     // listed hides its program. Neither makes its known files look deleted.
     for (const [program, list, programRoots, reason] of [
@@ -76,7 +83,8 @@ async function run() {
       ["codex", codexFiles, roots.codex, "Could not read the Codex Transcripts."],
     ]) {
       let listing;
-      try { listing = await list(programRoots, cutoff); } catch { listing = { files: [], unreadable: [], rootFailed: true }; }
+      try { listing = await list(programRoots, cutoff); } catch { listing = { files: [], unreadable: [], rootFailed: true, older: false }; }
+      olderTranscripts ||= listing.older;
       files.push(...listing.files.map(file => ({ ...file, program })));
       unlistedPaths.push(...listing.unreadable);
       if (listing.rootFailed) { failedPrograms.add(program); errors[program] = reason; }
@@ -106,7 +114,11 @@ async function run() {
         limitsVersion: 1, usageLimits: { codex: limits.codex?.report, claude: limits.claude?.report },
         nextLimitsAt: limits.codex?.nextAllowedAt, nextClaudeLimitsAt: limits.claude?.nextAllowedAt,
         skippedArchives: Object.values(fileStates).filter(file => file.skipped).length,
-        unreadableFiles: unlistedPaths.length + files.filter(file => fileStates[file.logicalPath || file.path]?.unreadable).length };
+        unreadableFiles: unlistedPaths.length + files.filter(file => fileStates[file.logicalPath || file.path]?.unreadable).length,
+        // Coverage starts at the earliest record any remaining Transcript holds;
+        // one older than the window covers the window's start.
+        coveredSince: Object.values(fileStates).reduce((earliest, file) => Number.isFinite(file.firstAt) && (earliest === null || file.firstAt < earliest)
+          ? file.firstAt : earliest, olderTranscripts ? cutoff : null) };
       cacheWrite(() => saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !scan.complete
         ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
           usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt, nextClaudeLimitsAt: progress.nextClaudeLimitsAt }
@@ -171,6 +183,7 @@ async function run() {
         try {
           if (!state.finished) for await (const entry of codexLines(file, runtime, maintainHeartbeat, state.offset)) {
             state.offset = entry.offset;
+            noteFirstRecord(state, entry.line);
             const reading = codexRolloutLimits(entry.line);
             if (reading && (!carry.latestLimits || reading.observedAt >= carry.latestLimits.observedAt)) carry.latestLimits = reading;
             countContributions(consumeCodexLine(carry, entry.line, state.offset, cutoff, parent));
@@ -193,6 +206,7 @@ async function run() {
       try {
         if (!state.finished) for await (const { line, offset } of transcriptEntries(file.path, maintainHeartbeat, state.offset)) {
           state.offset = offset;
+          noteFirstRecord(state, line);
           if (typeof line?.cwd === "string") state.carry.directory = line.cwd;
           const contribution = claudeContribution(line, file.path, cutoff, state.carry.directory);
           if (!contribution) continue;
