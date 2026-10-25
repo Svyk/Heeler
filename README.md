@@ -28,13 +28,13 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
 
 ## Screenshots
 
-| Agent Console | Direct Input + Terminal keyboard | Live terminal |
+| Agent Console | Live terminal | Chat |
 | --- | --- | --- |
-| <img src="docs/images/console-iphone.png" width="240" alt="Agent Console listing Agents across Hosts with their status on iPhone" /> | <img src="docs/images/agent-iphone.png" width="240" alt="Agent Direct Input with shortcuts and a full Terminal keyboard on iPhone" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="Agent's live terminal with Direct Input on iPhone" /> |
+| <img src="docs/images/console-iphone.png" width="240" alt="Agent Console listing Agents across Hosts with their status on iPhone" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="Agent's live terminal with Direct Input on iPhone" /> | <img src="docs/images/chat-iphone.png" width="240" alt="Chat showing an Agent's conversation as native messages on iPhone" /> |
 
-| Changes | File diff | Terminals |
+| Direct Input + Terminal keyboard | Changes | Terminals |
 | --- | --- | --- |
-| <img src="docs/images/changes-iphone.png" width="240" alt="Changes listing a Checkout's staged and unstaged files on iPhone" /> | <img src="docs/images/diff-iphone.png" width="240" alt="A changed JSON file with its edited words highlighted on iPhone" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="Terminals tab listing shell panes by Host and Workspace on iPhone" /> |
+| <img src="docs/images/agent-iphone.png" width="240" alt="Agent Direct Input with shortcuts and a full Terminal keyboard on iPhone" /> | <img src="docs/images/changes-iphone.png" width="240" alt="Changes listing a Checkout's staged and unstaged files on iPhone" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="Terminals tab listing shell panes by Host and Workspace on iPhone" /> |
 
 | Skills | Hosts | Live Activity |
 | --- | --- | --- |
