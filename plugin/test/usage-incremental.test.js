@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
+import { createHash } from "node:crypto";
 
 import { matchFiles } from "../src/usage/checkpoint.js";
 
@@ -123,6 +124,20 @@ const response=(id,key,input)=>codexLine("token_usage_record",{thread_id:id,resp
 const settings=(id,timestamp)=>codexLine("event_msg",{type:"thread_settings_applied",thread_id:id,thread_settings:{model:"gpt-test",service_tier:"priority"}},timestamp);
 function rollout(f,id,lines,area="sessions/2026/10/24") {const path=join(f.env.CODEX_HOME,area,`rollout-${id}.jsonl`);mkdirSync(join(path,".."),{recursive:true});writeFileSync(path,records(lines));return realpathSync(path);}
 const generation=f=>JSON.parse(readFileSync(join(f.cache(),"buckets.json"))).checkpoint.generation;
+// The worker renames files.json before buckets.json; wait until a committed
+// checkpoint binds the file state the test is looking for.
+async function checkpointed(f,thread){
+  for(let i=0;i<200;i++){
+    try{
+      const text=readFileSync(join(f.cache(),"files.json"),"utf8");
+      const saved=Object.values(JSON.parse(text)).find(file=>file.carry.threadId===thread);
+      const committed=JSON.parse(readFileSync(join(f.cache(),"buckets.json"))).checkpoint?.filesHash===createHash("sha256").update(text).digest("hex");
+      if(committed&&saved?.carry.pending.length)return saved;
+    }catch{/* The worker has not written both files yet. */}
+    await sleep(15);
+  }
+  assert.fail(`no committed checkpoint holds the pending burst of ${thread}`);
+}
 
 test("Codex appends preserve cumulative baselines and response suppression across runs", async t=>{
   const f=fixture(t);const path=rollout(f,"own",[meta("own"),settings("own"),count(10,10),response("own","next",7)]);
@@ -213,8 +228,7 @@ test("expired keys and buckets are pruned without rereading unchanged Transcript
 test("an unfinished Codex leading burst resumes from its saved bytes and metadata",async t=>{
   const f=fixture(t);const now=Date.now();f.setClock(now);
   const path=rollout(f,"pending",[meta("pending",{forked_from_id:"missing"},new Date(now).toISOString()),count(100,100,new Date(now+100).toISOString())]);
-  f.query();let saved;
-  for(let i=0;i<100;i++){try{saved=Object.values(JSON.parse(readFileSync(join(f.cache(),"files.json")))).find(file=>file.carry.threadId==="pending");}catch{}if(saved?.carry.pending.length)break;await sleep(15);}
+  f.query();const saved=await checkpointed(f,"pending");
   assert.equal(saved.carry.pending.length,1);assert.equal(saved.carry.previousTotal.input_tokens,100);
   const initial=generation(f);const offset=readFileSync(path).length;
   appendFileSync(path,records([settings("pending",new Date(now+200).toISOString()),count(109,9,new Date(now+300).toISOString())]));f.clearReads();
@@ -276,9 +290,8 @@ test("a rebuild persists a pending Codex burst while still serving its previous 
   const f=fixture(t);const now=Date.now();f.setClock(now);
   const old=f.transcript("old.jsonl",[assistant("old",10)]);assert.equal(tokens(await f.finish()),10);rmSync(old);
   const path=rollout(f,"rebuild-pending",[meta("rebuild-pending",{forked_from_id:"missing"},new Date(now).toISOString()),count(100,100,new Date(now+100).toISOString())]);
-  f.stale();f.query();let saved;
-  for(let i=0;i<100;i++){try{saved=Object.values(JSON.parse(readFileSync(join(f.cache(),"files.json")))).find(file=>file.carry.threadId==="rebuild-pending");}catch{}if(saved?.carry.pending.length)break;await sleep(15);}
-  assert.equal(saved?.carry.pending.length,1);
+  f.stale();f.query();const saved=await checkpointed(f,"rebuild-pending");
+  assert.equal(saved.carry.pending.length,1);
   assert.equal(tokens(f.query()),10);const initial=generation(f);
   appendFileSync(path,records([settings("rebuild-pending",new Date(now+200).toISOString()),count(109,9,new Date(now+300).toISOString())]));
   const finished=await f.finish();assert.equal(tokens(finished),0);assert.equal(tokens(finished,"codex"),9);assert.equal(generation(f),initial);
