@@ -181,7 +181,12 @@ enum ChatSurfacePresentation: Equatable {
     case disconnected
 
     /// `conversation` is nil while there is no Chat to read.
-    init(conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool, isHostConnected: Bool) {
+    /// `checkingLaunch` keeps a wait the launch may explain looking until
+    /// the launch is read (`AgentChatStore.isCheckingLaunch`).
+    init(
+        conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool, isHostConnected: Bool,
+        checkingLaunch: Bool = false
+    ) {
         guard let conversation else {
             self = .disconnected
             return
@@ -193,7 +198,9 @@ enum ChatSurfacePresentation: Equatable {
         switch conversation.phase {
         case .locating: self = isHostConnected ? .locating : .awaitingHost
         case .following: self = .empty
-        case .unavailable(let reason): self = .unavailable(reason)
+        case .unavailable(let reason):
+            let mayBeNotice = reason.launchNotice(.codexSharedServer) != nil
+            self = checkingLaunch && mayBeNotice && isHostConnected ? .locating : .unavailable(reason)
         }
     }
 }

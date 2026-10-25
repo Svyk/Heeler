@@ -152,6 +152,16 @@ final class AgentChatStore {
     /// terminal, read from how the program was launched. It describes the
     /// process, so it outlives a change of conversation.
     private(set) var launchNotice: ChatLaunchNotice?
+    /// Whether a read of the launch has finished, so a missing notice
+    /// means none rather than not known yet.
+    private(set) var hasCheckedLaunch = false
+
+    /// Until the first read of the launch, waiting for a session may be
+    /// the notice's case, which a prompt won't end: Chat keeps looking
+    /// rather than ask for one.
+    var isCheckingLaunch: Bool {
+        program.mayShareSessionServer && source.processInfo != nil && !hasCheckedLaunch
+    }
 
     @ObservationIgnored private let source: AgentChatSource
     @ObservationIgnored private let timing: Timing
@@ -964,6 +974,7 @@ final class AgentChatStore {
             } else {
                 launchCheckFailed = true
             }
+            hasCheckedLaunch = true
             return
         }
         var notice: ChatLaunchNotice?
@@ -974,12 +985,14 @@ final class AgentChatStore {
             } catch {
                 guard !Task.isCancelled else { return }
                 launchCheckFailed = true
+                hasCheckedLaunch = true
                 return
             }
         }
         guard !Task.isCancelled else { return }
         launchCheckFailed = false
         if launchNotice != notice { launchNotice = notice }
+        hasCheckedLaunch = true
     }
 
     private func sameIdentity(_ lhs: Agent, _ rhs: Agent) -> Bool {

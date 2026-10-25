@@ -960,6 +960,36 @@ struct AgentChatStoreTests {
         func fail(with failure: TransportError?) {
             self.failure = failure
         }
+
+        private var shouldSuspend = false
+        private var suspended: CheckedContinuation<Void, Never>?
+        private var suspensionWaiter: CheckedContinuation<Void, Never>?
+
+        func suspendNextRead() {
+            shouldSuspend = true
+        }
+
+        func waitForSuspendedRead() async {
+            if suspended != nil { return }
+            await withCheckedContinuation { suspensionWaiter = $0 }
+        }
+
+        func resumeSuspendedRead() {
+            suspended?.resume()
+            suspended = nil
+        }
+
+        func readSuspending() async throws -> PaneProcessInfo {
+            if shouldSuspend {
+                shouldSuspend = false
+                await withCheckedContinuation { continuation in
+                    suspended = continuation
+                    suspensionWaiter?.resume()
+                    suspensionWaiter = nil
+                }
+            }
+            return try read()
+        }
     }
 
     private static let controlSocket = "/home/dev/.codex/app-server-control/app-server-control.sock"
@@ -969,7 +999,7 @@ struct AgentChatStoreTests {
     ) async -> (fixture: Fixture, processes: Processes) {
         let processes = Processes(arguments)
         let fixture = Fixture(
-            session: session, program: program, processInfo: { try await processes.read() })
+            session: session, program: program, processInfo: { try await processes.readSuspending() })
         if serverRuns { await fixture.files.write("", at: controlSocket) }
         return (fixture, processes)
     }
@@ -989,6 +1019,54 @@ struct AgentChatStoreTests {
             hostStatus: .connected, conversation: fixture.store.conversation, hasPendingEchoes: false,
             launchNotice: fixture.store.launchNotice)
         #expect(lines.isEmpty)
+    }
+
+    /// Waiting for Conversation asks for a prompt, which won't help on the
+    /// shared server, so a waiting Codex keeps looking until its launch is
+    /// read, whatever the read finds.
+    @Test(arguments: [["codex"], ["codex", "--no-daemon"]])
+    func aWaitingCodexKeepsLookingUntilItsLaunchIsRead(arguments: [String]) async {
+        let (fixture, processes) = await Self.launched(arguments)
+        await processes.suspendNextRead()
+        Self.showWithoutLoop(fixture.store)
+        let step = Task { await fixture.store.step() }
+        await processes.waitForSuspendedRead()
+
+        #expect(fixture.store.conversation.phase == .unavailable(.noSession(.codex)))
+        #expect(fixture.store.isCheckingLaunch)
+        #expect(Self.presentation(fixture.store) == .locating)
+
+        await processes.resumeSuspendedRead()
+        await step.value
+        #expect(!fixture.store.isCheckingLaunch)
+        #expect(Self.presentation(fixture.store) == .unavailable(.noSession(.codex)))
+    }
+
+    @Test func aFailedLaunchReadStopsTheLookingToo() async {
+        let (fixture, processes) = await Self.launched(["codex"])
+        await processes.fail(with: .timedOut)
+        Self.showWithoutLoop(fixture.store)
+        #expect(Self.presentation(fixture.store) == .locating)
+        await fixture.store.step()
+
+        #expect(!fixture.store.isCheckingLaunch)
+        #expect(Self.presentation(fixture.store) == .unavailable(.noSession(.codex)))
+    }
+
+    @Test func onlyACodexWaitWaitsForTheLaunch() async {
+        let (claude, _) = await Self.launched(["claude"], program: .claude)
+        #expect(!claude.store.isCheckingLaunch)
+        let waiting = Self.snapshot(.unavailable(.noSession(.claude)))
+        #expect(
+            ChatSurfacePresentation(
+                conversation: waiting, hasPendingEchoes: false, isHostConnected: true, checkingLaunch: true)
+                == .unavailable(.noSession(.claude)))
+    }
+
+    private static func presentation(_ store: AgentChatStore) -> ChatSurfacePresentation {
+        ChatSurfacePresentation(
+            conversation: store.conversation, hasPendingEchoes: false, isHostConnected: true,
+            checkingLaunch: store.isCheckingLaunch)
     }
 
     @Test func aBoundCodexOnTheSharedServerWarnsOverItsConversation() async {

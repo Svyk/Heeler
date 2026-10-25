@@ -640,7 +640,7 @@ struct AgentChatSurfaceView: View {
     private var presentation: ChatSurfacePresentation {
         ChatSurfacePresentation(
             conversation: chat?.conversation, hasPendingEchoes: !pendingEchoes.isEmpty,
-            isHostConnected: isHostConnected)
+            isHostConnected: isHostConnected, checkingLaunch: chat?.isCheckingLaunch ?? false)
     }
 
     /// What the timeline is rebuilt from; anything else it shows comes
