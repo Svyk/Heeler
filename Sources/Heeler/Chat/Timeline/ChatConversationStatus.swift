@@ -64,12 +64,30 @@ extension ChatUnavailableReason {
         }
     }
 
-    /// The explanation, or for a Codex Agent launched on its shared server
-    /// and waiting for a session, what to do about it: a prompt won't help.
+    /// The notice that replaces this reason's wait: a Codex Agent launched
+    /// on its shared server and waiting for a session, which a prompt won't
+    /// end.
+    func launchNotice(_ notice: ChatLaunchNotice?) -> ChatLaunchNotice? {
+        notice == .codexSharedServer && self == .noSession(.codex) ? notice : nil
+    }
+
+    func title(launchNotice: ChatLaunchNotice?) -> String {
+        switch self.launchNotice(launchNotice) {
+        case .codexSharedServer?: "Codex Started Without \(ChatLaunchNotice.unbrokenNoDaemon)"
+        case nil: title
+        }
+    }
+
+    func systemImage(launchNotice: ChatLaunchNotice?) -> String {
+        self.launchNotice(launchNotice) == nil ? systemImage : "exclamationmark.bubble"
+    }
+
     func explanation(launchNotice: ChatLaunchNotice?) -> String {
-        guard launchNotice == .codexSharedServer, self == .noSession(.codex) else { return explanation }
-        let flag = ChatLaunchNotice.unbrokenNoDaemon
-        return "Codex was started without \(flag). Exit it, then run codex \(flag) resume in the Agent terminal."
+        switch self.launchNotice(launchNotice) {
+        case .codexSharedServer?:
+            "herdr can't tell which terminal its conversation is in. Exit Codex, then run codex \(ChatLaunchNotice.unbrokenNoDaemon) resume in the Agent terminal."
+        case nil: explanation
+        }
     }
 
     /// One line for a banner over the timeline. `showingSavedMessages` is
@@ -302,7 +320,7 @@ struct ChatUnavailableView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label(reason.title, systemImage: reason.systemImage)
+            Label(reason.title(launchNotice: launchNotice), systemImage: reason.systemImage(launchNotice: launchNotice))
         } description: {
             Text(reason.explanation(launchNotice: launchNotice))
         } actions: {
@@ -310,6 +328,9 @@ struct ChatUnavailableView: View {
                 .buttonStyle(.bordered)
             if reason.offersRetry {
                 Button("Check Again", action: retry)
+            }
+            if let guide = reason.launchNotice(launchNotice)?.guideURL {
+                Link("Read More", destination: guide)
             }
         }
         .accessibilityIdentifier("chat.unavailable")

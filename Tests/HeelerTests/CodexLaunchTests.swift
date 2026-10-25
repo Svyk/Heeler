@@ -75,11 +75,22 @@ struct CodexLaunchTests {
                 == "/home/dev/.codex/app-server-control/app-server-control.sock")
     }
 
-    @Test func onlyAWaitingCodexChangesItsExplanation() {
+    @Test func onlyAWaitingCodexTurnsIntoTheNotice() {
         let waiting = ChatUnavailableReason.noSession(.codex)
+        #expect(waiting.title(launchNotice: nil) == "Waiting for Conversation")
         #expect(waiting.explanation(launchNotice: nil) == waiting.explanation)
+        #expect(waiting.launchNotice(nil) == nil)
+
+        #expect(waiting.title(launchNotice: .codexSharedServer).hasPrefix("Codex Started Without"))
         #expect(waiting.explanation(launchNotice: .codexSharedServer) != waiting.explanation)
-        let missing = ChatUnavailableReason.notFound(searchedAll: true)
-        #expect(missing.explanation(launchNotice: .codexSharedServer) == missing.explanation)
+        #expect(
+            waiting.launchNotice(.codexSharedServer)?.guideURL?.absoluteString
+                == "https://docs.heeler.bybee.dev/chat-troubleshooting#codex-started-without---no-daemon")
+
+        for other in [ChatUnavailableReason.notFound(searchedAll: true), .noSession(.claude)] {
+            #expect(other.title(launchNotice: .codexSharedServer) == other.title)
+            #expect(other.explanation(launchNotice: .codexSharedServer) == other.explanation)
+            #expect(other.launchNotice(.codexSharedServer) == nil)
+        }
     }
 }

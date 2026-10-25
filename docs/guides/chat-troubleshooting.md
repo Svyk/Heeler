@@ -14,7 +14,11 @@ herdr hasn't told Heeler which conversation the Agent is in yet.
 2. On the Host, run `herdr integration status` and install the program's integration if it isn't `current` ([Set up the Host](chat.md#set-up-the-host)), then restart the Agent.
 3. Tap **Check Again**.
 
-If Codex still waits after you have sent prompts, it was probably started without `--no-daemon` ([Set up the Host](chat.md#set-up-the-host)). Agents that herdr brings back after a restart also start without it. Exit Codex and run `codex --no-daemon resume` to continue the same conversation.
+If Codex still waits after you have sent prompts, it was probably started without `--no-daemon`: see the next section.
+
+## Codex Started Without --no-daemon
+
+Codex was started without `--no-daemon` while its background server runs, so herdr can't tell which terminal its conversation is in ([Set up the Host](chat.md#set-up-the-host)). Agents that herdr brings back after a restart also start without it. Exit Codex and run `codex --no-daemon resume` to continue the same conversation. When a conversation already shows, a banner warns that it may be another terminal's.
 
 ## Conversation Not Found
 

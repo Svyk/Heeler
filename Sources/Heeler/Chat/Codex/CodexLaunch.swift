@@ -13,6 +13,14 @@ enum ChatLaunchNotice: Equatable, Sendable {
     /// `--no-daemon` with non-breaking hyphens, so text that wraps keeps
     /// the flag on one line.
     static let unbrokenNoDaemon = "\u{2011}\u{2011}no\u{2011}daemon"
+
+    /// The user guide's section for the notice.
+    var guideURL: URL? {
+        switch self {
+        case .codexSharedServer:
+            URL(string: "https://docs.heeler.bybee.dev/chat-troubleshooting#codex-started-without---no-daemon")
+        }
+    }
 }
 
 /// Whether a Codex in the Agent's pane runs on Codex's shared background
