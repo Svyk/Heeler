@@ -541,6 +541,11 @@ older, and its per-feature notes (`HeelerPluginFeature`) trust the version
 alone, so bump it with every change the app relies on rather than shipping
 behavior under an unchanged number, as 0.3.0 and 0.4.0 did.
 
+Once the bump is on `main`, run `make plugin` from the repository root to
+publish it to the `plugin` branch, before the app release that bundles it:
+the app's update notice installs from that branch. See
+[Publishing the herdr plugin](https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/releasing.md#publishing-the-herdr-plugin).
+
 ### Updating to 0.6.0
 
 - A 0.6.0 plugin with an app that does not write `session` behaves as before:

@@ -3,6 +3,7 @@
 #   make install-ipad            # same, on the connected iPad
 #   make bump && make testflight # interim TestFlight build, no version cut
 #   make publish                 # cut a release: see docs/guides/releasing.md
+#   make plugin                  # publish plugin/ to the plugin branch
 
 PROJECT := Heeler.xcodeproj
 SCHEME  := Heeler
@@ -27,7 +28,7 @@ IOS_WATCH_DEBOUNCE ?= 1s
 DEVICE ?= $(shell python3 scripts/find-ios-device.py iPhone)
 DEVICE_IPAD ?= $(shell python3 scripts/find-ios-device.py iPad)
 
-.PHONY: help generate resolve build test test-app test-ipad test-ci-app test-ci-package test-ci-evidence test-ci-background-build test-tools test-ci-guards test-ci-watchdog test-ci-recovery check-agent-docs check-test-membership simulator-ui build-device install install-ipad watch-ios-device sim sim-ipad build-sim sim-id archive upload testflight bump publish clean check-device check-device-ipad ssh-artifacts verify-ssh-artifacts
+.PHONY: help generate resolve build test test-app test-ipad test-ci-app test-ci-package test-ci-evidence test-ci-background-build test-tools test-ci-guards test-ci-watchdog test-ci-recovery check-agent-docs check-test-membership simulator-ui build-device install install-ipad watch-ios-device sim sim-ipad build-sim sim-id archive upload testflight bump publish plugin clean check-device check-device-ipad ssh-artifacts verify-ssh-artifacts
 
 # Command-line DERIVED overrides remain supported for either platform.
 test-app test-directory-browser-ui sim build-sim sim-id: DERIVED = $(DERIVED_SIMULATOR)
@@ -105,6 +106,7 @@ test-tools: check-agent-docs check-test-membership ## Test agent tooling without
 	python3 scripts/test-simulator-ui.py
 	python3 scripts/test-isolated-herdr-backend.py
 	sh scripts/test-source-revision.sh
+	bash scripts/test-publish-plugin.sh
 	$(MAKE) test-ci-evidence
 	$(MAKE) test-weak-network-proxy
 	$(MAKE) test-ci-diagnostic-controls
@@ -232,6 +234,10 @@ bump: ## Increment CURRENT_PROJECT_VERSION in project.yml (app + extension stay 
 # rejects unknown long options, so a flag would never reach the recipe.
 publish: ## Cut a release from CHANGELOG [Unreleased] (VERSION=x.y.z DRY_RUN=1 YES=1)
 	@VERSION='$(VERSION)' DRY_RUN='$(DRY_RUN)' YES='$(YES)' scripts/publish.sh
+
+# Phony as well: plugin/ is a directory, so make would call the target up to date.
+plugin: ## Publish plugin/ from origin/main to the plugin branch (SOURCE=<rev> DRY_RUN=1 YES=1)
+	@SOURCE='$(SOURCE)' DRY_RUN='$(DRY_RUN)' YES='$(YES)' scripts/publish-plugin.sh
 
 clean: ## Remove local build products
 	rm -rf build
