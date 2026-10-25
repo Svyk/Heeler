@@ -48,6 +48,12 @@ Entries reference the pull request that made the change.
 
 ### Changed
 
+- Install the Heeler plugin with
+  `herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes`. It
+  downloads about 3 MB instead of the whole 150 MB repository. The Setup
+  Guide and the plugin update notice use the new command; a Host installed
+  with the old one keeps updating from it until it runs the new one, which
+  replaces the old install.
 - A working Grok Build Agent's terminal Composer keeps Send instead of
   showing Stop, because Esc doesn't stop a Grok Build turn. Stop it with
   Chat's Stop, which presses Ctrl+C, or with Ctrl+C in the terminal. (#482)

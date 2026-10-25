@@ -106,7 +106,7 @@ Windows 原生 Host（herdr >= 0.9.3）通过 SSH 连接，需手动添加。
 —— macOS 上是 **系统设置 > 通用 > 共享 > 远程登录**）：
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 herdr plugin action invoke heeler.pair
 ```
 

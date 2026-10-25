@@ -49,8 +49,11 @@ node --version    # 20 or newer
 Install the plugin from GitHub:
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 ```
+
+The `plugin` branch holds only the files the plugin runs, published from
+`plugin/` on `main`, so the install skips the rest of the repository.
 
 Herdr stores the plugin in its managed checkout and runs the manifest's
 `npm ci` build command automatically. Verify that the plugin is installed and

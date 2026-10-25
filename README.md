@@ -117,7 +117,7 @@ On a macOS or Linux machine running herdr (Node >= 20, herdr >= 0.7.5, OpenSSH s
 macOS: **System Settings > General > Sharing > Remote Login**):
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 herdr plugin action invoke heeler.pair
 ```
 
