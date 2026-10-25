@@ -22,6 +22,14 @@ herdr integration install claude
 
 Replace `claude` with `codex`, `pi`, `omp`, `grok`, or `opencode` as needed. OpenCode must be version 2.x, and the Host needs `sqlite3` or `python3` for it.
 
+Start Codex with `--no-daemon`, and continue a conversation with `codex --no-daemon resume`:
+
+```sh
+codex --no-daemon
+```
+
+Codex's shared background server can't tell herdr which terminal a conversation is in, so Chat could keep waiting or show another Agent's conversation. Turning off `daemon_auto_start` in Codex's settings isn't enough.
+
 ## Open Chat
 
 1. Open an Agent from **Agents**.

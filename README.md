@@ -151,21 +151,13 @@ first message there. Add Image and Add File put the file's path into the draft
 as text, and OpenCode can take a message that is only a path as an attachment,
 so add a few words before the path. See [how Chat reads OpenCode](docs/adr/0025-opencode-chat-reads-its-session-store.md).
 
-### Codex shows “Waiting for Conversation”
+### Start Codex with `--no-daemon`
 
-Codex CLI 0.161.0 normally starts or reuses a shared background server for interactive sessions. With herdr 0.9.3 and Codex integration v8, that server can retain another terminal's environment. The integration can then report a conversation ID to the wrong herdr pane, leaving Chat waiting even after prompts have been sent. See the [versioned compatibility observations](docs/agents/herdr-compatibility.md#versioned-observations).
+For Chat, start Codex inside the herdr pane with `codex --no-daemon`, and resume with `codex --no-daemon resume`. Keep your other flags alongside it, such as `codex --no-daemon --yolo`.
 
-For this combination, start Codex inside the herdr pane with:
+Codex CLI normally starts or reuses a shared background server. Its hooks run with the environment of whichever terminal started that server, so herdr's Codex integration can report a conversation to the wrong pane: Chat keeps waiting, or shows another Agent's conversation. Codex gives hooks no way to tell which terminal a conversation belongs to, so Heeler can't support the shared server. `--no-daemon` runs the backend inside the terminal's own process, with your existing login, configuration, and saved conversations. Setting `[features] daemon_auto_start = false` isn't a substitute, because Codex still joins a server that is already running.
 
-```bash
-codex --no-daemon
-```
-
-To resume an existing conversation, use `codex --no-daemon resume` and select it. If you already use `--yolo`, keep it alongside the new flag: `codex --no-daemon --yolo`.
-
-`--no-daemon` uses an independent backend with the current terminal's environment. It retains access to your existing login, configuration, and saved conversations. The shared backend supports multiple clients and remote access; the trade-off here is an additional independent backend for each CLI invocation.
-
-This flag applies only when launching Codex. Changing a shell alias or function does not migrate an already-running session: let its work finish, exit it, then resume with the flag. Heeler does not add this flag to your shell automatically. Cached messages can still be shown when a previously known ID is temporarily missing, but caching cannot establish an Agent's first conversation binding. For a genuinely new conversation, send its first prompt before checking again.
+The flag applies only when launching Codex: exit a running session and resume it with the flag. Agents that herdr restores after a restart are launched without it. See the [versioned compatibility observations](docs/agents/herdr-compatibility.md#versioned-observations) and [Chat troubleshooting](docs/guides/chat-troubleshooting.md).
 
 ## Opening an Agent from another app
 
