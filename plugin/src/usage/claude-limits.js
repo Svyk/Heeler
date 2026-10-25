@@ -59,10 +59,14 @@ export async function readClaudeLimits(runtime, directory) {
   });
 }
 
-/** Failed requests retain the last good reading while the failure back-off runs. */
+/**
+ * Failed requests retain the last good reading while the failure back-off runs.
+ * Any other answer (signed out, no plan, too old) ends it: a later failure must
+ * not resurface a reading that may belong to a previous sign-in.
+ */
 export function cacheClaudeLimits(previous, reading, now = Date.now()) {
   const nextAllowedAt = now + (reading.state === "error" ? 300_000 : 60_000);
-  const lastGood = reading.state === "ok" ? reading : previous?.lastGood;
+  const lastGood = reading.state === "ok" ? reading : reading.state === "error" ? previous?.lastGood : undefined;
   const report = reading.state === "error" && lastGood
     ? { ...lastGood, state: "throttled", reason: reading.reason, retryAt: new Date(nextAllowedAt).toISOString() } : reading;
   return { report, nextAllowedAt, ...(lastGood ? { lastGood } : {}) };

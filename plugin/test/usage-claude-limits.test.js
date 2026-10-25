@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { cacheClaudeLimits } from "../src/usage/claude-limits.js";
+
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const reading = report => report.programs.find(program => program.program === "claude").usageLimits;
@@ -193,4 +195,15 @@ test("opting in during a disabled worker schedules Claude after that worker fini
   rmSync(join(f.root, "hold"));
   assert.equal(reading(await f.finish()).state, "ok");
   assert.equal(f.requests().length, 2);
+});
+
+test("an answer without plan limits drops the last good reading before a later failure", () => {
+  const good = { state: "ok", source: "service", observedAt: "2026-10-23T12:00:00.000Z", plan: "max", windows: [] };
+  let cache = cacheClaudeLimits(undefined, good, 0);
+  assert.equal(cacheClaudeLimits(cache, { state: "error", reason: "timeout" }, 1).report.state, "throttled");
+  cache = cacheClaudeLimits(cache, { state: "unavailable", reason: "noPlanLimits" }, 1);
+  assert.equal(Object.hasOwn(cache, "lastGood"), false);
+  cache = cacheClaudeLimits(cache, { state: "error", reason: "timeout" }, 2);
+  assert.deepEqual(cache.report, { state: "error", reason: "timeout" });
+  assert.equal(Object.hasOwn(cache, "lastGood"), false);
 });

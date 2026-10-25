@@ -625,7 +625,9 @@ plugin asks Claude Code itself, as it asks Codex.
   timeout, or no `rate_limits` while `rate_limits_available` is true) backs
   the plugin off for 5 minutes through `limits.json`'s `nextAllowedAt`;
   until then the state is `throttled` with the last good reading when one
-  exists, else `error`.
+  exists, else `error`. Any other answer (no plan limits, too old, missing)
+  discards the last good reading, so a later failure never shows a reading
+  that may belong to a previous sign-in.
 
 The plugin does not call `api.anthropic.com` itself. Reading the stored
 OAuth token and calling `/api/oauth/usage` directly was rejected (ADR 0026).
