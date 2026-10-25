@@ -425,8 +425,17 @@ async function killScenario(t,change){
   restore();assert.deepEqual((await f.finish()).programs,expected);
   assert.notEqual(generation(f),initial);assert.equal(readFileSync(join(f.cache(),"keys.log"),"utf8").includes("aging"),false);
   const writes=Number(readFileSync(join(f.root,"events"),"utf8"));
-  // Poll the lock file rather than spawning a query every few milliseconds.
-  const settle=async()=>{for(;;){const report=await f.queryAsync();if(!report.refreshing)return report;while(existsSync(join(f.cache(),"worker.lock")))await sleep(5);}};
+  // Poll the lock file rather than spawning a query every few milliseconds,
+  // but query again periodically: only a query reclaims the lock of a killed
+  // worker, and one that ran while the worker was still dying reported it live.
+  const settle=async()=>{
+    const deadline=Date.now()+60_000;
+    while(Date.now()<deadline){
+      const report=await f.queryAsync();if(!report.refreshing)return report;
+      for(let i=0;i<50&&existsSync(join(f.cache(),"worker.lock"));i++)await sleep(5);
+    }
+    assert.fail(`${change}: the worker did not settle`);
+  };
   const killAt=async k=>{
     restore();writeFileSync(join(f.root,"fault.json"),JSON.stringify({at:k}));
     assert.equal((await f.queryAsync()).refreshing,true);
