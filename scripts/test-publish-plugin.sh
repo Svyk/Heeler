@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Tests scripts/publish-plugin.sh against a throwaway repository and remote.
+# Tests scripts/publish-plugin.sh, and scripts/check-plugin-published.sh,
+# which make publish runs, against a throwaway repository and remote.
 # A fake npm stands in for the network; node is real.
 set -euo pipefail
 
-script="$(cd "$(dirname "$0")" && pwd)/publish-plugin.sh"
+scripts="$(cd "$(dirname "$0")" && pwd)"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -30,7 +31,7 @@ git config user.name test
 git config user.email test@invalid
 git config commit.gpgsign false
 mkdir -p plugin/src plugin/test plugin/test-vectors scripts Sources
-cp "$script" scripts/publish-plugin.sh
+cp "$scripts/publish-plugin.sh" "$scripts/check-plugin-published.sh" scripts/
 echo 'Apache License' > LICENSE
 echo 'let a = 1' > Sources/App.swift
 printf 'id = "heeler"\nversion = "0.1.0"\n\n[[build]]\ncommand = ["npm", "ci"]\n' > plugin/herdr-plugin.toml
@@ -77,6 +78,22 @@ expect_refused() {
 # Reads the remote; a missing branch reads as empty so every case still reports.
 published() { git --git-dir "$work/remote.git" "$@" 2>/dev/null || true; }
 
+# The app release check: passes with the version, or fails with a message.
+expect_check() {
+    description=$1
+    expected=$2
+    status=0
+    bash scripts/check-plugin-published.sh >"$work/out" 2>&1 || status=$?
+    if case "$expected" in
+        pass:*) [ "$status" -eq 0 ] && [ "$(cat "$work/out")" = "${expected#pass:}" ] ;;
+        *) [ "$status" -ne 0 ] && grep -qF "$expected" "$work/out" ;;
+    esac; then
+        pass "$description"
+    else
+        fail "$description: expected '$expected'"
+    fi
+}
+
 # Local work must not leak into the published tree: neither an unpushed
 # commit nor an uncommitted edit.
 echo 'export const answer = 2;' > plugin/src/index.js
@@ -91,6 +108,9 @@ if [ "$status" -eq 0 ] && grep -qF "creates plugin on origin as an orphan branch
 else
     fail "a dry run plans the orphan branch and pushes nothing"
 fi
+
+expect_check "the app release check fails before the first publish" \
+    "origin has no plugin branch; publish plugin 0.1.0 with make plugin first"
 
 publish YES=1
 files=$(published ls-tree -r --name-only plugin | tr '\n' ' ')
@@ -118,6 +138,7 @@ else
     fail "the commit names the version and the source commit: got '$message'"
 fi
 first_publish=$(published rev-parse plugin)
+expect_check "the app release check passes once the version is published" "pass:0.1.0"
 
 publish YES=1
 if [ "$status" -eq 0 ] && grep -qF "nothing to publish" "$work/out" \
@@ -148,6 +169,8 @@ git commit --quiet --all --message "bump package.json"
 git push --quiet origin main
 expect_refused "failing plugin tests stop the publish" \
     "plugin tests failed" YES=1 FAKE_NPM_TEST_STATUS=1
+expect_check "the app release check fails while a bumped version is unpublished" \
+    "origin/plugin has plugin 0.1.0, but this release bundles 0.2.0"
 
 publish YES=1
 if [ "$status" -eq 0 ] && [ "$(published rev-parse plugin^)" = "$first_publish" ] \
@@ -156,6 +179,7 @@ if [ "$status" -eq 0 ] && [ "$(published rev-parse plugin^)" = "$first_publish" 
 else
     fail "a newer version appends one commit to the branch"
 fi
+expect_check "the app release check passes after publishing the bump" "pass:0.2.0"
 
 echo 'registry=https://example.invalid' > plugin/.npmrc
 git add plugin/.npmrc
@@ -165,6 +189,6 @@ expect_refused "an entry that is neither shipped nor dev-only is refused" \
     "plugin/.npmrc is neither shipped nor dev-only" YES=1
 
 if [ "$failures" -ne 0 ]; then
-    echo "$failures publish-plugin test(s) failed" >&2
+    echo "$failures plugin publishing test(s) failed" >&2
     exit 1
 fi
