@@ -83,6 +83,11 @@ If it would clobber a tag, a re-cut replaced that tag on $REMOTE: git fetch --ta
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$REMOTE/$DEFAULT_BRANCH")" ] \
     || die "$DEFAULT_BRANCH differs from $REMOTE/$DEFAULT_BRANCH; pull or push first"
 
+# The release bundles plugin/'s version and sends Hosts with an older plugin
+# to the plugin branch, so that branch must already have it.
+plugin_version="$(scripts/check-plugin-published.sh)" \
+    || die "the plugin branch lacks the plugin this release bundles (docs/guides/releasing.md, \"Publishing the herdr plugin\")"
+
 grep -q '^## \[Unreleased\]' "$CHANGELOG" || die "$CHANGELOG has no '## [Unreleased]' heading"
 
 # The [Unreleased] body: everything up to the next '## ' heading.
@@ -184,6 +189,7 @@ row "$CHANGELOG" "[Unreleased] -> [$version] - $today, new empty [Unreleased]"
 row "$PROJECT_YML" "MARKETING_VERSION $current_marketing -> $version ($marketing_lines targets, in lockstep)"
 row "$PROJECT_YML" "CURRENT_PROJECT_VERSION $current_build -> $next_build (App Store Connect rejects reused build numbers)"
 row "$XCODEPROJ" 'regenerate via `xcodegen generate`'
+row "plugin" "$plugin_version, already on $REMOTE/plugin"
 echo
 row "commit" "chore: release $tag"
 row "tag" "$tag (annotated)"
