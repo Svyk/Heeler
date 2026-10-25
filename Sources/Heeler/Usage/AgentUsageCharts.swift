@@ -1,33 +1,54 @@
 import Charts
 import SwiftUI
 
-/// The Usage tab's daily chart: one curve per program. Touch and hold to
-/// read a day; the selection is the plugin's day text.
+/// The Usage tab's daily chart: programs stacked, the last one at the
+/// bottom (Codex below Claude Code). Touch and hold to read a day; the
+/// selection is the plugin's day text.
 struct AgentUsageDailyChart: View {
     let scope: AgentUsageScope
     let metric: AgentUsageMetric
     /// The newest days shown; Today keeps a week for context.
     let dates: [String]
     @Binding var selection: String?
+    /// An iPad's wide layout: a tap picks a day and keeps it, shared with
+    /// the calendar, and the program rows beside the chart are its legend.
+    var pinsSelection = false
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
+    @Environment(\.colorScheme) private var colorScheme
 
     private struct Point: Identifiable {
         let program: String
+        let name: String
         let date: Date
-        let value: Double
+        /// Where this program's band starts: the programs below it.
+        let start: Double
+        let end: Double
         var id: String { "\(program)\(date.timeIntervalSince1970)" }
     }
 
     private var points: [Point] {
-        scope.programs.flatMap { program in
+        var base: [String: Double] = [:]
+        return scope.programs.reversed().flatMap { program in
             dates.compactMap { day -> Point? in
                 guard let date = AgentUsageCalendarDay.date(day) else { return nil }
-                let summary = program.daily.first { $0.date == day }?.summary
+                let value = program.daily.first { $0.date == day }.map { metric.value(of: $0.summary) } ?? 0
+                let start = base[day] ?? 0
+                base[day] = start + value
                 return Point(
-                    program: program.displayName, date: date,
-                    value: summary.map(metric.value(of:)) ?? 0)
+                    program: program.program, name: program.displayName, date: date,
+                    start: start, end: start + value)
             }
+        }
+    }
+
+    /// Codex's near-black needs a lighter wash than Claude Code's orange.
+    private func fillOpacity(_ program: String) -> Double {
+        switch (program, colorScheme) {
+        case ("codex", .dark): 0.10
+        case ("codex", _): 0.07
+        case (_, .dark): 0.20
+        default: 0.15
         }
     }
 
@@ -36,77 +57,91 @@ struct AgentUsageDailyChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                ForEach(scope.programs) { program in
-                    HStack(spacing: 6) {
-                        Circle().fill(AgentUsageStyle.color(for: program.program)).frame(width: 8, height: 8)
-                        Text(program.displayName)
-                    }
+            if !pinsSelection { legend }
+            chart
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: 14) {
+            ForEach(scope.programs) { program in
+                HStack(spacing: 6) {
+                    Circle().fill(AgentUsageStyle.color(for: program.program)).frame(width: 8, height: 8)
+                    Text(program.displayName)
                 }
-                Spacer(minLength: 8)
-                Text("Hold to read a day").foregroundStyle(.secondary)
             }
-            .font(.footnote)
-            .lineLimit(1)
-            .accessibilityHidden(true)
-            Chart {
-                ForEach(points) { point in
-                    AreaMark(
+            Spacer(minLength: 8)
+            Text("Hold to read a day").foregroundStyle(.secondary)
+        }
+        .font(.footnote)
+        .lineLimit(1)
+        .accessibilityHidden(true)
+    }
+
+    private var chart: some View {
+        Chart {
+            ForEach(points) { point in
+                AreaMark(
+                    x: .value("Day", point.date, unit: .day),
+                    yStart: .value(metric.title, point.start),
+                    yEnd: .value(metric.title, point.end))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(by: .value("Program", point.name))
+                    .opacity(fillOpacity(point.program))
+                LineMark(
+                    x: .value("Day", point.date, unit: .day),
+                    y: .value(metric.title, point.end))
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(by: .value("Program", point.name))
+                    .lineStyle(StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+                if let selectedDate, Calendar.gmt.isDate(selectedDate, inSameDayAs: point.date) {
+                    PointMark(
                         x: .value("Day", point.date, unit: .day),
-                        y: .value(metric.title, point.value),
-                        stacking: .unstacked)
-                        .interpolationMethod(.monotone)
-                        .foregroundStyle(by: .value("Program", point.program))
-                        .opacity(0.18)
-                    LineMark(
-                        x: .value("Day", point.date, unit: .day),
-                        y: .value(metric.title, point.value))
-                        .interpolationMethod(.monotone)
-                        .foregroundStyle(by: .value("Program", point.program))
-                        .lineStyle(StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-                    if let selectedDate, Calendar.gmt.isDate(selectedDate, inSameDayAs: point.date) {
-                        PointMark(
-                            x: .value("Day", point.date, unit: .day),
-                            y: .value(metric.title, point.value))
-                            .foregroundStyle(by: .value("Program", point.program))
-                            .symbolSize(30)
-                    }
-                }
-                if let selectedDate, let selection {
-                    RuleMark(x: .value("Day", selectedDate, unit: .day))
-                        .foregroundStyle(Color.secondary.opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 1))
-                        .annotation(
-                            position: .top, spacing: 4,
-                            overflowResolution: .init(x: .fit(to: .chart), y: .disabled)
-                        ) {
-                            AgentUsageDayReadout(scope: scope, day: selection)
+                        y: .value(metric.title, point.end))
+                        .symbol {
+                            Circle()
+                                .strokeBorder(AgentUsageStyle.color(for: point.program), lineWidth: 2)
+                                .background(Circle().fill(Color(uiColor: .secondarySystemGroupedBackground)))
+                                .frame(width: 10, height: 10)
                         }
                 }
             }
-            .chartForegroundStyleScale(domain: programNames, range: programColors)
-            .chartLegend(.hidden)
-            .chartXSelection(value: selectionBinding)
-            .chartXAxis {
-                AxisMarks(values: axisDates) { value in
-                    // The ends stay inside the plot's width.
-                    AxisValueLabel(anchor: value.index == axisDates.count - 1 ? .topTrailing
-                        : value.index == 0 ? .topLeading : .top) {
-                        if let date = value.as(Date.self) { Text(axisText(date)) }
+            if let selectedDate, let selection {
+                RuleMark(x: .value("Day", selectedDate, unit: .day))
+                    .foregroundStyle(Color.secondary.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    // Above the plot while the chart is held; a pinned day
+                    // reads beside its rule, inside the plot.
+                    .annotation(
+                        position: pinsSelection ? .leading : .top, alignment: .top, spacing: pinsSelection ? 8 : 4,
+                        overflowResolution: .init(x: .fit(to: .chart), y: pinsSelection ? .fit(to: .chart) : .disabled)
+                    ) {
+                        AgentUsageDayReadout(scope: scope, day: selection, showsTotal: pinsSelection)
                     }
-                }
             }
-            .chartYAxis {
-                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    AxisValueLabel {
-                        if let number = value.as(Double.self) { Text(axisValue(number)) }
-                    }
-                }
-            }
-            .frame(height: 150)
-            .accessibilityLabel("Daily \(metric == .cost ? "estimated API cost" : "tokens")")
         }
+        .chartForegroundStyleScale(domain: programNames, range: programColors)
+        .chartLegend(.hidden)
+        .modifier(AgentUsageChartSelection(selection: selectionBinding, pins: pinsSelection))
+        .chartXAxis {
+            AxisMarks(values: axisDates) { value in
+                // The ends stay inside the plot's width.
+                AxisValueLabel(anchor: value.index == axisDates.count - 1 ? .topTrailing
+                    : value.index == 0 ? .topLeading : .top) {
+                    if let date = value.as(Date.self) { Text(axisText(date)) }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                AxisValueLabel {
+                    if let number = value.as(Double.self) { Text(axisValue(number)) }
+                }
+            }
+        }
+        .frame(height: pinsSelection ? 230 : 150)
+        .accessibilityLabel("Daily \(metric == .cost ? "estimated API cost" : "tokens")")
     }
 
     private var selectedDate: Date? { selection.flatMap(AgentUsageCalendarDay.date) }
@@ -148,17 +183,47 @@ struct AgentUsageDailyChart: View {
     }
 }
 
+/// Touch and hold to read a day, or, pinned, tap a day to keep it and tap
+/// it again to let it go.
+private struct AgentUsageChartSelection: ViewModifier {
+    @Binding var selection: Date?
+    let pins: Bool
+
+    func body(content: Content) -> some View {
+        if pins {
+            content.chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle().fill(.clear).contentShape(.rect)
+                        .onTapGesture { location in
+                            guard let plot = proxy.plotFrame else { return }
+                            let x = location.x - geometry[plot].origin.x
+                            guard let date: Date = proxy.value(atX: x) else { return }
+                            let day = Calendar.gmt.startOfDay(for: date)
+                            selection = selection.map { Calendar.gmt.isDate($0, inSameDayAs: day) } == true
+                                ? nil : day
+                        }
+                }
+            }
+        } else {
+            content.chartXSelection(value: $selection)
+        }
+    }
+}
+
 /// One day's figures while the chart is held: each program, then each Host.
 struct AgentUsageDayReadout: View {
     let scope: AgentUsageScope
     let day: String
+    /// A pinned day is read beside the period's total, so it adds its own.
+    var showsTotal = false
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(AgentUsageCalendarDay.text(day, locale: locale, calendar: calendar, includesYear: false))
+                Text(AgentUsageCalendarDay.text(day, locale: locale, calendar: calendar, includesYear: false,
+                    includesWeekday: true))
                     .font(.footnote.weight(.semibold))
                 Spacer(minLength: 8)
                 Text("Est. cost").fixedSize().frame(minWidth: 52, alignment: .trailing)
@@ -171,6 +236,11 @@ struct AgentUsageDayReadout: View {
                     summary: program.daily.first { $0.date == day }?.summary) {
                     Circle().fill(AgentUsageStyle.color(for: program.program)).frame(width: 7, height: 7)
                 }
+            }
+            if showsTotal {
+                Divider().padding(.vertical, 2)
+                row("Total", summary: scope.day(day)) { EmptyView() }
+                    .fontWeight(.semibold)
             }
             if scope.included.count > 1 {
                 Divider().padding(.vertical, 2)
@@ -216,13 +286,21 @@ struct AgentUsageDayReadout: View {
     }
 }
 
-/// The last 30 days as a month grid, tinted by each day's figure. Days
-/// before the earliest coverage are hatched; tapping a day selects it.
+/// The last 30 days as a month grid from the locale's first weekday,
+/// tinted by each day's figure. Days before the earliest coverage are
+/// hatched; tapping a day selects it.
 struct AgentUsageCalendar: View {
     let values: [String: Double]
     /// The newest reported day.
     let today: String
     let coveredFrom: String?
+    /// The ringed day: the Day sheet's, or the day an iPad's chart and
+    /// calendar share.
+    var selected: String? = nil
+    /// Whether the legend explains the ring.
+    var showsSelection = false
+    /// Days before the chosen range are dimmed.
+    var rangeStart: String? = nil
     let select: (String) -> Void
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
@@ -235,6 +313,8 @@ struct AgentUsageCalendar: View {
         let isToday: Bool
         let isFuture: Bool
         let isUncovered: Bool
+        let isSelected: Bool
+        let isOutsideRange: Bool
         var id: String { day }
     }
 
@@ -258,7 +338,7 @@ struct AgentUsageCalendar: View {
                     }
                 }
             }
-            legend
+            legend(showsUncovered: cells.contains(where: \.isUncovered))
         }
     }
 
@@ -283,19 +363,24 @@ struct AgentUsageCalendar: View {
                         }
                 }
                 .overlay {
-                    if cell.isToday {
+                    if cell.isSelected {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.primary, lineWidth: 2)
+                    } else if cell.isToday {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(Color.accentColor, lineWidth: 2)
                     }
                 }
+                .opacity(cell.isOutsideRange ? 0.35 : 1)
         }
         .buttonStyle(.plain)
         .disabled(cell.isFuture || cell.isUncovered)
         .accessibilityLabel(AgentUsageCalendarDay.text(cell.day, locale: locale, calendar: calendar,
             includesYear: false))
+        .accessibilityAddTraits(cell.isSelected ? .isSelected : [])
     }
 
-    private var legend: some View {
+    private func legend(showsUncovered: Bool) -> some View {
         HStack(spacing: 4) {
             Text("Less")
             ForEach(0..<5) { level in
@@ -306,9 +391,17 @@ struct AgentUsageCalendar: View {
             RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color.accentColor, lineWidth: 1.5)
                 .frame(width: 10, height: 10)
             Text("Today")
-            Hatch().frame(width: 10, height: 10).clipShape(.rect(cornerRadius: 2.5))
-                .padding(.leading, 6)
-            Text("Not recorded")
+            if showsSelection {
+                RoundedRectangle(cornerRadius: 2.5).strokeBorder(Color.primary, lineWidth: 1.5)
+                    .frame(width: 10, height: 10)
+                    .padding(.leading, 6)
+                Text("Selected")
+            }
+            if showsUncovered {
+                Hatch().frame(width: 10, height: 10).clipShape(.rect(cornerRadius: 2.5))
+                    .padding(.leading, 6)
+                Text("Not recorded")
+            }
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
@@ -323,25 +416,29 @@ struct AgentUsageCalendar: View {
         return Color.primary.opacity(opacities[min(max(level, 0), 4)])
     }
 
-    /// Monday first.
+    /// The locale's first weekday, 1 for Sunday.
+    private var firstWeekday: Int { calendar.firstWeekday }
+
     private var weekdaySymbols: [String] {
         var calendar = calendar
         calendar.locale = locale
         let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        return Array(symbols[1...]) + [symbols[0]]
+        let first = firstWeekday - 1
+        return Array(symbols[first...] + symbols[..<first])
     }
 
     private var cells: [Cell] {
         guard let end = AgentUsageCalendarDay.date(today),
             let start = Calendar.gmt.date(byAdding: .day, value: -29, to: end)
         else { return [] }
-        // Monday of the first week through Sunday of the last.
-        let leading = (Calendar.gmt.component(.weekday, from: start) + 5) % 7
-        let trailing = 6 - (Calendar.gmt.component(.weekday, from: end) + 5) % 7
+        // The first weekday of the first week through the last day of the last.
+        let leading = (Calendar.gmt.component(.weekday, from: start) - firstWeekday + 7) % 7
+        let trailing = 6 - (Calendar.gmt.component(.weekday, from: end) - firstWeekday + 7) % 7
         let first = Calendar.gmt.date(byAdding: .day, value: -leading, to: start) ?? start
         let count = leading + 30 + trailing
         let maximum = values.values.max() ?? 0
         let covered = coveredFrom.flatMap(AgentUsageCalendarDay.date)
+        let rangeStart = rangeStart.flatMap(AgentUsageCalendarDay.date)
         return (0..<count).compactMap { offset in
             guard let date = Calendar.gmt.date(byAdding: .day, value: offset, to: first) else { return nil }
             let day = AgentUsageDailyChart.day(of: date)
@@ -353,7 +450,9 @@ struct AgentUsageCalendar: View {
             let level = maximum > 0 ? Int((value / maximum * 4).rounded(.up)) : 0
             return Cell(
                 day: day, number: number, level: level, isToday: day == today, isFuture: date > end,
-                isUncovered: date < start || covered.map { date < $0 } == true)
+                isUncovered: date < start || covered.map { date < $0 } == true,
+                isSelected: day == selected,
+                isOutsideRange: rangeStart.map { date < $0 } == true)
         }
     }
 }

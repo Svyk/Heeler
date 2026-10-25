@@ -14,7 +14,9 @@ struct AgentUsagePageTests {
         let english = Locale(identifier: "en_US")
         let total = AgentUsageScope.sum((report.programs ?? []).compactMap(\.okTotals?.last30Days))
         let controller = UIHostingController(rootView:
-            NavigationStack { AgentUsageDashboard(entries: [Self.entry(store)], scopeHostID: .constant(nil)) }
+            NavigationStack {
+                AgentUsageDashboard(entries: [Self.entry(store)], scopeHostID: .constant(nil), metric: .constant(.cost))
+            }
                 .environment(\.locale, english))
         let bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
         let window = try await makeTestWindow(frame: bounds, rootViewController: controller)
@@ -30,6 +32,45 @@ struct AgentUsagePageTests {
         #expect(labels.contains(AgentUsageStyle.cost(total.estimatedCostUSD, locale: english)),
             "Actual labels: \(labels)")
         #expect(labels.contains("tokens on this Host"), "Actual labels: \(labels)")
+    }
+
+    @Test func aWideIPadPageReadsAsATableAndCanShowUsageLimitsInstead() async throws {
+        let report = try AgentUsageFixture.report()
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in .available(report) }
+        await store.refresh()
+        let entries = [Self.entry(store), Self.entry(store, name: "Build Box")]
+        for showsLimits in [false, true] {
+            let controller = UIHostingController(rootView:
+                NavigationStack {
+                    AgentUsageDashboard(
+                        entries: entries, scopeHostID: .constant(nil), metric: .constant(.cost),
+                        showsLimits: .constant(showsLimits), allowsColumns: true)
+                }
+                .environment(\.locale, Locale(identifier: "en_US")))
+            let window = try await makeTestWindow(
+                frame: CGRect(x: 0, y: 0, width: 1_100, height: 1_600), rootViewController: controller)
+            defer { window.isHidden = true }
+            let expected = showsLimits
+                ? ["Account windows as each service reports them", "Shown per Host", "Usage Limits"]
+                : ["Daily estimated API cost", "Estimated API cost on these 2 Hosts · Last 30 days",
+                   "claude-opus-4-5", "Usage Limits are shown per Host", "Breakdown",
+                   "Recorded on these 2 Hosts since"]
+            var labels = ""
+            var budget = PollBudget(.seconds(5))
+            while budget.hasTimeLeft {
+                controller.view.layoutIfNeeded()
+                labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view)
+                    .joined(separator: ", ")
+                if expected.allSatisfy(labels.contains) { break }
+                try await Task.sleep(for: .milliseconds(50))
+                budget.charge()
+            }
+            for text in expected {
+                #expect(labels.contains(text), "Missing \(text): \(labels)")
+            }
+            // The wide page has no Day sheet or Hosts card; the sidebar lists Hosts.
+            #expect(!labels.contains("Hold to read a day"), "\(labels)")
+        }
     }
 
     static func entry(_ store: AgentUsageStore, name: String = "Studio Mac") -> AgentUsageHostEntry {
@@ -64,6 +105,7 @@ struct AgentUsageDetailTests {
     @Test func theCoverageNoteCountsSkippedAndUnreadableTranscripts() async throws {
         var object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
         var labelsByCount: [Int: String] = [:]
+        var reportsByCount: [Int: AgentUsageReport] = [:]
         for count in [0, 3] {
             var scan = try #require(object["scan"] as? [String: Any])
             scan["skippedArchives"] = count
@@ -71,19 +113,28 @@ struct AgentUsageDetailTests {
             object["scan"] = scan
             let report = try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
             #expect(report.scan?.unreadableFiles == count)
+            reportsByCount[count] = report
             labelsByCount[count] = AgentUsageDashboard.coverage(
-                name: "Studio Mac", report: report, locale: Locale(identifier: "en_US"),
+                hosts: [("Studio Mac", report)], locale: Locale(identifier: "en_US"),
                 calendar: Calendar(identifier: .gregorian))
         }
         let clean = try #require(labelsByCount[0])
         let unreadable = try #require(labelsByCount[3])
-        #expect(clean.contains("Studio Mac recorded since"), "Actual labels: \(clean)")
+        #expect(clean.contains("Recorded on this Host since"), "Actual labels: \(clean)")
         #expect(!clean.contains("could not be read"), "Actual labels: \(clean)")
         #expect(!clean.contains("archives skipped"), "Actual labels: \(clean)")
         #expect(unreadable.contains(
             "3 Transcripts or folders could not be read. They are retried on the next refresh."),
             "Actual labels: \(unreadable)")
         #expect(unreadable.contains("3 compressed archives skipped."), "Actual labels: \(unreadable)")
+
+        let both = AgentUsageDashboard.coverage(
+            hosts: [("Studio Mac", try #require(reportsByCount[0])), ("Build Box", try #require(reportsByCount[3]))],
+            locale: Locale(identifier: "en_US"), calendar: Calendar(identifier: .gregorian))
+        #expect(both.hasPrefix("Recorded on these 2 Hosts since"), "Actual: \(both)")
+        #expect(both.contains("Build Box: 3 compressed archives skipped."), "Actual: \(both)")
+        #expect(!both.contains("Studio Mac:"), "Actual: \(both)")
+        #expect(both.hasSuffix("Price table: 2026-10-23."), "Actual: \(both)")
     }
 
     @Test func calendarDaysAreLocalizedWithoutShiftingTheirDay() {
@@ -119,7 +170,8 @@ struct AgentUsageDetailTests {
                 // drawHierarchy fails past the 8,192-pixel texture limit.
                 let size = CGSize(width: 390, height: kind == .models ? 2_700 : 600)
                 let content: AnyView = kind == .models
-                    ? AnyView(AgentUsageDashboard(entries: [entry], scopeHostID: .constant(nil)))
+                    ? AnyView(AgentUsageDashboard(
+                        entries: [entry], scopeHostID: .constant(nil), metric: .constant(.cost)))
                     : AnyView(List { AgentUsageBreakdown(scope: scope, kind: kind, metric: .cost) })
                 let controller = UIHostingController(rootView: content
                     .frame(width: size.width, height: size.height)
@@ -131,8 +183,8 @@ struct AgentUsageDetailTests {
                 let window = try await makeTestWindow(frame: bounds, rootViewController: controller)
                 defer { window.isHidden = true }
                 let expected = kind == .models
-                    ? ["Last 30 days", "Programs", "Breakdown", "claude-opus-4-5", "Price table: 2026-10-23",
-                       "Studio Mac recorded since Oct 23, 2026",
+                    ? ["Last 30 days", "Programs", "Breakdown", "claude-opus-4-5", "Price table: 2026-10-23.",
+                       "Recorded on this Host since Oct 23, 2026.",
                        "Estimated API cost is based on recorded Token Usage"]
                     : ["/work/project", "/work/codex"]
                 var labels = ""
@@ -238,7 +290,8 @@ struct AgentUsagePageInteractionTests {
             return .available(partial)
         }
         let controller = UIHostingController(rootView: AnyView(NavigationStack {
-            AgentUsageDashboard(entries: [AgentUsagePageTests.entry(store)], scopeHostID: .constant(nil))
+            AgentUsageDashboard(
+                entries: [AgentUsagePageTests.entry(store)], scopeHostID: .constant(nil), metric: .constant(.cost))
         }))
         let window = try await makeTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844),
             rootViewController: controller)
@@ -269,7 +322,7 @@ struct AgentUsagePageInteractionTests {
                 .navigationDestination(isPresented: $showsUsage) {
                     AgentUsageDashboard(
                         entries: [AgentUsageHostEntry(id: hostID, name: "Test Host", store: store, isConnected: true)],
-                        scopeHostID: .constant(hostID))
+                        scopeHostID: .constant(hostID), metric: .constant(.cost))
                 }
             }
         }

@@ -8,17 +8,18 @@ struct AgentUsageLimitChip: Identifiable, Equatable {
     /// nil while there is no live reading to fill the ring with.
     let percent: Double?
     let title: String
+    /// When the live window resets.
+    var resetsAt: Date? = nil
     var id: String { "\(hostID)\(program)" }
 
     /// Live readings first, fullest first; Usage Limits stay per Host.
     static func chips(in scope: AgentUsageScope, now: Date = .now) -> [Self] {
-        let formatter = ISO8601DateFormatter()
         let chips = scope.included.flatMap { host in
             host.programs.map { program -> Self in
                 let limits = program.usageLimits
                 let live = (limits.windows ?? []).filter { window in
                     !window.expired && window.usedPercent != nil
-                        && window.resetsAt.flatMap(formatter.date(from:)).map { $0 > now } != false
+                        && AgentUsageLimitsView.date(window.resetsAt).map { $0 > now } != false
                 }
                 let tightest = live.max { ($0.usedPercent ?? 0) < ($1.usedPercent ?? 0) }
                 let title: String
@@ -31,10 +32,12 @@ struct AgentUsageLimitChip: Identifiable, Equatable {
                 } else {
                     title = "Unavailable"
                 }
+                let isLive = limits.state == "ok" || limits.state == "throttled"
                 return Self(
                     hostID: host.id, hostName: host.name, program: program.program,
-                    percent: limits.state == "ok" || limits.state == "throttled" ? tightest?.usedPercent : nil,
-                    title: title)
+                    percent: isLive ? tightest?.usedPercent : nil,
+                    title: title,
+                    resetsAt: isLive ? AgentUsageLimitsView.date(tightest?.resetsAt) : nil)
             }
         }
         return chips.enumerated().sorted { lhs, rhs in
@@ -121,6 +124,8 @@ struct AgentUsageBreakdown: View {
         let program: String?
         let title: String
         let subtitle: String?
+        /// The Host a directory is on, when the scope has several.
+        var host: String? = nil
         let summary: AgentUsageReport.Summary
         let priced: Bool
     }
@@ -180,19 +185,18 @@ struct AgentUsageBreakdown: View {
                 .opacity(row.program == nil ? 0 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
-                    .font(kind == .directories ? .subheadline.monospaced() : .subheadline.weight(.medium))
+                    .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 if let subtitle = row.subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    (Text(row.host.map { "\($0) · " } ?? "")
+                        + Text(subtitle).monospaced())
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                GeometryReader { proxy in
-                    (row.program.map(AgentUsageStyle.color(for:)) ?? Color.secondary)
-                        .frame(width: total > 0 ? proxy.size.width * value / total : 0)
-                }
-                .frame(height: 2)
-                .clipShape(.capsule)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
@@ -228,9 +232,12 @@ struct AgentUsageBreakdown: View {
             let showsHost = scope.included.count > 1
             return scope.programs.flatMap { program in
                 program.directories.map { entry in
-                    Row(id: "\(program.program)\(entry.id)", program: program.program,
-                        title: entry.directory.path,
-                        subtitle: showsHost ? entry.hostName : nil,
+                    let path = entry.directory.path
+                    let name = (path as NSString).lastPathComponent
+                    return Row(id: "\(program.program)\(entry.id)", program: program.program,
+                        title: name.isEmpty ? path : name,
+                        subtitle: path,
+                        host: showsHost ? entry.hostName : nil,
                         summary: entry.directory.summary, priced: entry.directory.unpricedTokens == 0)
                 }
             }
@@ -282,18 +289,17 @@ struct AgentUsageDaySheet: View {
         }
         // An iPhone keeps the page reachable above the sheet; a form sheet
         // floats over it at its full height.
-        .presentationDetents(isFormSheet ? [.large] : [.fraction(0.64), .large])
+        .presentationDetents(isFormSheet ? [.large] : [.fraction(0.65), .large])
         .presentationBackgroundInteraction(
-            isFormSheet ? .disabled : .enabled(upThrough: .fraction(0.64)))
+            isFormSheet ? .disabled : .enabled(upThrough: .fraction(0.65)))
     }
 
     private var header: some View {
         let index = selection.dates.firstIndex(of: selection.day)
         return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(AgentUsageCalendarDay.date(selection.day)?.formatted(
-                    Date.FormatStyle(locale: locale, calendar: calendar, timeZone: .gmt)
-                        .weekday(.abbreviated).month(.abbreviated).day()) ?? selection.day)
+                Text(AgentUsageCalendarDay.text(selection.day, locale: locale, calendar: calendar,
+                    includesYear: false, includesWeekday: true))
                     .font(.title2.bold())
                 Text(scope.included.count == 1
                     ? "Token Usage on this Host" : "Token Usage on these \(scope.included.count.formatted()) Hosts")
@@ -422,52 +428,112 @@ struct AgentUsageLimitsSheet: View {
         NavigationStack {
             List {
                 Section {
-                } footer: {
+                } header: {
                     Text("Usage Limits are shown per Host. Two Hosts signed in to the same account show the same windows.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .textCase(nil)
                 }
                 ForEach(entries) { entry in
-                    Section {
-                        if case .available(let report) = entry.store.state {
-                            ForEach(report.programs ?? [], id: \.program) { program in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(spacing: 7) {
-                                        Circle().fill(AgentUsageStyle.color(for: program.program))
-                                            .frame(width: 8, height: 8)
-                                        Text(program.displayName).font(.headline)
-                                        if let plan = program.usageLimits.plan {
-                                            Text(plan.capitalized)
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 1)
-                                                .background(Color(uiColor: .tertiarySystemFill),
-                                                    in: .rect(cornerRadius: 5))
-                                        }
-                                    }
-                                    AgentUsageLimitsView(
-                                        program: program.program, limits: program.usageLimits, showsTitle: false)
-                                }
-                                if program.program == "claude" { ClaudeUsageSettings(store: entry.store) }
-                            }
-                        } else {
-                            AgentUsageContent(state: entry.isConnected ? entry.store.state
-                                : .failed("Not connected"))
-                        }
-                    } header: {
-                        Label(entry.name, systemImage: "desktopcomputer")
-                    }
+                    AgentUsageHostLimits(entry: entry, style: .rows)
                 }
                 Section {
                 } footer: {
                     CodexUsageLimitsNote()
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle("Usage Limits")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+            }
+        }
+    }
+}
+
+/// One Host's Usage Limits as list sections: a card per program, the Host
+/// named over the first.
+struct AgentUsageHostLimits: View {
+    let entry: AgentUsageHostEntry
+    var style = AgentUsageLimitsView.Style.rows
+
+    var body: some View {
+        if case .available(let report) = entry.store.state, entry.isConnected {
+            let programs = report.programs ?? []
+            ForEach(Array(programs.enumerated()), id: \.element.program) { index, program in
+                Section {
+                    AgentUsageProgramLimits(program: program, store: entry.store, style: style)
+                } header: {
+                    if index == 0 { header }
+                } footer: {
+                    if program.program == "claude" { ClaudeUsageLimitsNote() }
+                }
+            }
+        } else {
+            Section {
+                AgentUsageContent(state: entry.isConnected ? entry.store.state : .failed("Not connected"))
+            } header: {
+                header
+            }
+        }
+    }
+
+    private var header: some View {
+        Label(entry.name, systemImage: "desktopcomputer")
+            .font(.title3.bold())
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .padding(.leading, -16)
+    }
+}
+
+/// One program's Usage Limits card. Claude Code's ends with its consent
+/// toggle, and is only the toggle while the limits are off.
+struct AgentUsageProgramLimits: View {
+    let program: AgentUsageReport.Program
+    let store: AgentUsageStore
+    var style = AgentUsageLimitsView.Style.rows
+
+    var body: some View {
+        if program.program == "claude" && program.usageLimits.state == "disabled" {
+            ClaudeUsageLimitsToggle(store: store)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                AgentUsageProgramTitle(program: program.program, plan: program.usageLimits.plan)
+                AgentUsageLimitsView(
+                    program: program.program, limits: program.usageLimits, showsTitle: false, style: style)
+            }
+            .padding(.vertical, 4)
+            if program.program == "claude" {
+                ClaudeUsageLimitsToggle(store: store)
+            }
+        }
+    }
+}
+
+/// A program's name with its marker and, when the service reports one,
+/// its plan.
+struct AgentUsageProgramTitle: View {
+    let program: String
+    var plan: String?
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle().fill(AgentUsageStyle.color(for: program))
+                .frame(width: 8, height: 8)
+            Text(AgentUsageReport.Program.displayName(for: program)).font(.headline)
+            if let plan {
+                Text(plan.capitalized)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color(uiColor: .tertiarySystemFill), in: .rect(cornerRadius: 5))
             }
         }
     }

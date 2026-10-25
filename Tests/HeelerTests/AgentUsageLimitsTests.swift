@@ -25,7 +25,8 @@ struct AgentUsageLimitsTests {
                 let controller = UIHostingController(rootView:
                     VStack(alignment: .leading, spacing: 20) {
                         Text("Usage").font(.title2.bold())
-                        ClaudeUsageSettings(store: store)
+                        ClaudeUsageLimitsToggle(store: store)
+                        ClaudeUsageLimitsNote()
                         AgentUsageLimitsView(program: "claude", limits: limits)
                     }
                     .padding(20).frame(width: 390, alignment: .leading)

@@ -20,13 +20,29 @@ struct AgentUsageDashboard: View {
     let entries: [AgentUsageHostEntry]
     /// nil reads every Host.
     @Binding var scopeHostID: Host.ID?
+    /// Shared with an iPad's sidebar, whose figures follow it.
+    @Binding var metric: AgentUsageMetric
+    /// An iPad's wide layout reads Usage Limits in place of Token Usage.
+    @Binding var showsLimits: Bool
     /// An iPad's detail column lays the page out in two columns when it
     /// has the width for them.
     var allowsColumns = false
 
-    @State private var metric = AgentUsageMetric.cost
+    init(
+        entries: [AgentUsageHostEntry], scopeHostID: Binding<Host.ID?>, metric: Binding<AgentUsageMetric>,
+        showsLimits: Binding<Bool> = .constant(false), allowsColumns: Bool = false
+    ) {
+        self.entries = entries
+        _scopeHostID = scopeHostID
+        _metric = metric
+        _showsLimits = showsLimits
+        self.allowsColumns = allowsColumns
+    }
+
     @State private var range = AgentUsageRange.last30Days
-    @State private var scrubbedDay: String?
+    /// The day the chart is held on, or, in the wide layout, the day the
+    /// chart and calendar share.
+    @State private var selectedDay: String?
     @State private var daySheet: AgentUsageDaySelection?
     @State private var isShowingLimits = false
     @State private var breakdown = AgentUsageBreakdown.Kind.models
@@ -44,15 +60,33 @@ struct AgentUsageDashboard: View {
         let scope = AgentUsageScope(readings: scopedEntries.map(\.reading))
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                controls
-                content(scope)
+                if isWide && showsLimits {
+                    AgentUsageLimitsPage(entries: scopedEntries) { showsLimits = false }
+                } else {
+                    if !isWide { controls }
+                    content(scope)
+                }
             }
-            .padding(.horizontal, isWide ? 24 : 16)
+            .padding(.horizontal, isWide ? 30 : 16)
             .padding(.bottom, 24)
-            .frame(maxWidth: isWide ? 1_100 : .infinity)
+            .frame(maxWidth: isWide ? 1_240 : .infinity)
             .frame(maxWidth: .infinity)
         }
         .background(Color(uiColor: .systemGroupedBackground))
+        .toolbar {
+            if isWide {
+                ToolbarItem(placement: .topBarTrailing) { widePicker }
+                if !showsLimits {
+                    ToolbarItem(placement: .topBarTrailing) { rangePicker.frame(width: 300) }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await refresh() }
+                    }
+                    .disabled(scope.refreshing)
+                }
+            }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .modifier(AgentUsageSubtitle(scope: scope))
         // Every Host polls while the page is on screen: the scope menu and
@@ -62,14 +96,7 @@ struct AgentUsageDashboard: View {
                 Color.clear.task(id: entry.store.refreshKey) { await entry.store.refresh() }
             }
         }
-        .refreshable {
-            let stores = scopedEntries.map(\.store)
-            await withDiscardingTaskGroup { group in
-                for store in stores {
-                    group.addTask { await store.pullToRefresh() }
-                }
-            }
-        }
+        .refreshable { await refresh() }
         .sheet(item: $daySheet) { selection in
             AgentUsageDaySheet(scope: scope, selection: selection, isFormSheet: sizeClass == .regular)
                 .presentationSizing(.form)
@@ -77,28 +104,53 @@ struct AgentUsageDashboard: View {
         .sheet(isPresented: $isShowingLimits) {
             AgentUsageLimitsSheet(entries: scopedEntries)
         }
-        .onChange(of: scopeHostID) { scrubbedDay = nil }
+        .onChange(of: scopeHostID) { selectedDay = nil }
     }
 
     private var isWide: Bool { allowsColumns && width >= 860 }
 
-    /// The narrower column beside the chart and the breakdown.
-    private var sideColumnWidth: CGFloat { min(max((width - 72) * 0.4, 320), 400) }
+    private func refresh() async {
+        let stores = scopedEntries.map(\.store)
+        await withDiscardingTaskGroup { group in
+            for store in stores {
+                group.addTask { await store.pullToRefresh() }
+            }
+        }
+    }
 
     private var controls: some View {
         HStack(spacing: 10) {
             Picker("Metric", selection: $metric) {
                 ForEach(AgentUsageMetric.allCases) { Text($0.title).tag($0) }
             }
-            .frame(width: isWide ? 200 : 148)
-            Picker("Range", selection: $range) {
-                ForEach(AgentUsageRange.allCases) { Text($0.title).tag($0) }
-            }
-            .frame(maxWidth: isWide ? 300 : .infinity)
-            if isWide { Spacer(minLength: 0) }
+            .frame(width: 148)
+            rangePicker
         }
         .pickerStyle(.segmented)
         .padding(.top, 8)
+    }
+
+    private var rangePicker: some View {
+        Picker("Range", selection: $range) {
+            ForEach(AgentUsageRange.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    /// Est. Cost, Tokens or Limits.
+    private var widePicker: some View {
+        Picker("View", selection: Binding(
+            get: { showsLimits ? nil : metric },
+            set: { value in
+                if let value { metric = value }
+                showsLimits = value == nil
+            }
+        )) {
+            ForEach(AgentUsageMetric.allCases) { Text($0.title).tag(Optional($0)) }
+            Text("Limits").tag(AgentUsageMetric?.none)
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 280)
     }
 
     @ViewBuilder
@@ -110,25 +162,24 @@ struct AgentUsageDashboard: View {
                 failureBanner(host, isOnlyHost: scope.included.count == 1)
             }
             if isWide {
-                HStack(alignment: .top, spacing: 24) {
+                AgentUsageWideColumns {
                     VStack(alignment: .leading, spacing: 0) {
-                        hero(scope)
-                        programsSection(scope)
+                        wideHero(scope)
+                        programRows(scope)
                     }
-                    .frame(width: sideColumnWidth)
-                    VStack(alignment: .leading, spacing: 0) {
-                        limitsSection(scope)
-                        chartCard(scope)
-                    }
+                } trailing: {
+                    wideChart(scope)
                 }
-                HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        calendarCard(scope)
-                        if showsHosts(scope) { hostsSection(scope) }
-                    }
-                    .frame(width: sideColumnWidth)
-                    breakdownSection(scope)
+                AgentUsageWideColumns {
+                    wideCalendar(scope)
+                } trailing: {
+                    wideBreakdown(scope)
                 }
+                .padding(.top, 30)
+                AgentUsageLimitsStrip(entries: scopedEntries.filter { entry in
+                    scope.included.contains { $0.id == entry.id }
+                }) { showsLimits = true }
+                .padding(.top, 30)
             } else {
                 hero(scope)
                 limitsSection(scope)
@@ -145,18 +196,20 @@ struct AgentUsageDashboard: View {
     // MARK: Hero
 
     private func hero(_ scope: AgentUsageScope) -> some View {
-        let summary = scrubbedDay.map(scope.day) ?? scope.total(range)
-        let label: String
-        if let scrubbedDay {
-            label = AgentUsageCalendarDay.text(scrubbedDay, locale: locale, calendar: calendar,
-                includesYear: false)
+        let summary = selectedDay.map(scope.day) ?? scope.total(range)
+        let metricName = metric == .cost ? "Estimated API cost" : "Token Usage"
+        let label: Text
+        if let selectedDay {
+            label = Text(AgentUsageCalendarDay.text(selectedDay, locale: locale, calendar: calendar,
+                    includesYear: false, includesWeekday: true))
+                .fontWeight(.semibold).foregroundStyle(.primary)
+                + Text(" · \(metricName)")
         } else {
-            label = "\(metric == .cost ? "Estimated API cost" : "Token Usage") · \(rangeName)"
+            label = Text("\(metricName) · \(rangeName)")
         }
-        let hostCount = scope.included.count
-        let place = hostCount == 1 ? "on this Host" : "on these \(hostCount.formatted()) Hosts"
+        let place = Self.place(scope)
         return VStack(alignment: .leading, spacing: 0) {
-            Text(label)
+            label
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -183,7 +236,7 @@ struct AgentUsageDashboard: View {
                     .foregroundStyle(.secondary)
             }
             if !scope.excluded.isEmpty {
-                Text("Not included: \(scope.excluded.map(\.name).formatted(.list(type: .and).locale(locale)))")
+                Text(notIncluded(scope))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.top, 3)
@@ -192,7 +245,7 @@ struct AgentUsageDashboard: View {
         .padding(.top, 18)
         .padding(.horizontal, 4)
         .contentShape(.rect)
-        .onTapGesture { scrubbedDay = nil }
+        .onTapGesture { selectedDay = nil }
         .accessibilityElement(children: .combine)
     }
 
@@ -235,7 +288,7 @@ struct AgentUsageDashboard: View {
 
     private func chartCard(_ scope: AgentUsageScope) -> some View {
         AgentUsageDailyChart(
-            scope: scope, metric: metric, dates: chartDates(scope), selection: $scrubbedDay)
+            scope: scope, metric: metric, dates: chartDates(scope), selection: $selectedDay)
             .padding(16)
             .background(cardBackground)
             .padding(.top, 12)
@@ -260,7 +313,9 @@ struct AgentUsageDashboard: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                AgentUsageCalendar(values: values, today: today, coveredFrom: coveredFrom) { day in
+                AgentUsageCalendar(
+                    values: values, today: today, coveredFrom: coveredFrom, selected: daySheet?.day
+                ) { day in
                     daySheet = AgentUsageDaySelection(day: day, dates: Array(dates.suffix(30)))
                 }
             }
@@ -339,7 +394,6 @@ struct AgentUsageDashboard: View {
     private func programsSection(_ scope: AgentUsageScope) -> some View {
         let summaries = scope.programs.map { (program: $0, summary: range.summary(in: $0.totals)) }
         let total = summaries.reduce(0) { $0 + metric.value(of: $1.summary) }
-        let shareName = metric == .cost ? "of est. cost" : "of tokens"
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader("Programs", detail: rangeName)
             VStack(alignment: .leading, spacing: 0) {
@@ -358,30 +412,7 @@ struct AgentUsageDashboard: View {
                 .accessibilityHidden(true)
                 ForEach(Array(summaries.enumerated()), id: \.element.program.id) { index, entry in
                     if index > 0 { Divider().padding(.leading, 16) }
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
-                            Circle().fill(AgentUsageStyle.color(for: entry.program.program))
-                                .frame(width: 8, height: 8)
-                            Text(entry.program.displayName)
-                            Spacer(minLength: 8)
-                            Text(AgentUsageStyle.value(entry.summary, metric: metric, locale: locale))
-                                .fontWeight(.semibold)
-                                .monospacedDigit()
-                        }
-                        Text("\(AgentUsageStyle.share(metric.value(of: entry.summary), of: total, locale: locale)) \(shareName) · \(AgentUsageStyle.tokens(entry.summary.tokens.total, locale: locale)) tokens")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                            .padding(.leading, 16)
-                        if let unpriced = entry.summary.unpricedTokens, unpriced > 0 {
-                            Text("Includes unpriced tokens (\(AgentUsageStyle.tokens(unpriced, locale: locale)))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding(.leading, 16)
-                        }
-                    }
-                    .padding(.vertical, 12)
-                    .accessibilityElement(children: .combine)
+                    programRow(entry.program, summary: entry.summary, total: total)
                 }
             }
             .padding(.top, 16)
@@ -390,6 +421,135 @@ struct AgentUsageDashboard: View {
             .background(cardBackground)
         }
         .padding(.top, 26)
+    }
+
+    private func programRow(
+        _ program: AgentUsageScope.Program, summary: AgentUsageReport.Summary, total: Double
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Circle().fill(AgentUsageStyle.color(for: program.program))
+                    .frame(width: 8, height: 8)
+                Text(program.displayName)
+                Spacer(minLength: 8)
+                Text(AgentUsageStyle.value(summary, metric: metric, locale: locale))
+                    .fontWeight(.semibold)
+                    .monospacedDigit()
+            }
+            .font(isWide ? .title3 : .body)
+            Text("\(AgentUsageStyle.share(metric.value(of: summary), of: total, locale: locale)) \(metric == .cost ? "of est. cost" : "of tokens") · \(AgentUsageStyle.tokens(summary.tokens.total, locale: locale)) tokens")
+                .font(isWide ? .subheadline : .footnote)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .padding(.leading, 16)
+            if let unpriced = summary.unpricedTokens, unpriced > 0 {
+                Text("Includes unpriced tokens (\(AgentUsageStyle.tokens(unpriced, locale: locale)))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 16)
+            }
+        }
+        .padding(.vertical, isWide ? 8 : 12)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Wide layout
+
+    private func wideHero(_ scope: AgentUsageScope) -> some View {
+        let summary = scope.total(range)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(metric == .cost
+                    ? AgentUsageStyle.cost(summary.estimatedCostUSD, locale: locale)
+                    : AgentUsageStyle.tokens(summary.tokens.total, locale: locale))
+                    .font(.system(size: 56, weight: .semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                if metric == .tokens { Text("tokens").font(.title2) }
+            }
+            Text("\(metric == .cost ? "Estimated API cost" : "Token Usage") \(Self.place(scope)) · \(rangeName)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 20)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func programRows(_ scope: AgentUsageScope) -> some View {
+        let summaries = scope.programs.map { (program: $0, summary: range.summary(in: $0.totals)) }
+        let total = summaries.reduce(0) { $0 + metric.value(of: $1.summary) }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(summaries, id: \.program.id) { entry in
+                programRow(entry.program, summary: entry.summary, total: total)
+            }
+        }
+        .padding(.top, 14)
+    }
+
+    private func wideChart(_ scope: AgentUsageScope) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(metric == .cost ? "Daily estimated API cost" : "Daily tokens")
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                Text(range == .today ? "Last 7 days" : rangeName)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            AgentUsageDailyChart(
+                scope: scope, metric: metric, dates: chartDates(scope), selection: $selectedDay,
+                pinsSelection: true)
+        }
+        .padding(.top, 24)
+    }
+
+    private func wideCalendar(_ scope: AgentUsageScope) -> some View {
+        let dates = scope.dates
+        let today = dates.last ?? ""
+        let first = dates.suffix(30).first ?? today
+        let values = Dictionary(uniqueKeysWithValues: dates.map { ($0, metric.value(of: scope.day($0))) })
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(dayText(first)) – \(dayText(today))")
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Text(metric == .cost ? "Estimated API cost per day" : "Tokens per day")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            AgentUsageCalendar(
+                values: values, today: today,
+                coveredFrom: scope.included.compactMap { $0.report.scan?.coveredFrom }.min(),
+                selected: selectedDay, showsSelection: true,
+                rangeStart: range == .last30Days ? nil : dates.suffix(range.dayCount).first
+            ) { day in
+                selectedDay = selectedDay == day ? nil : day
+            }
+            .padding(16)
+            .background(cardBackground)
+        }
+    }
+
+    private func wideBreakdown(_ scope: AgentUsageScope) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Breakdown")
+                    .font(.title3.bold())
+                    .fixedSize()
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                Picker("Breakdown", selection: $breakdown) {
+                    ForEach(AgentUsageBreakdown.Kind.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 300)
+            }
+            AgentUsageBreakdownTable(scope: scope, kind: breakdown, metric: metric)
+                .padding(.horizontal, 16)
+                .background(cardBackground)
+        }
     }
 
     // MARK: Breakdown
@@ -402,7 +562,7 @@ struct AgentUsageDashboard: View {
             }
             .pickerStyle(.segmented)
             .padding(.bottom, 10)
-            AgentUsageBreakdown(scope: scope, kind: breakdown, metric: metric, limit: isWide ? 8 : 4)
+            AgentUsageBreakdown(scope: scope, kind: breakdown, metric: metric, limit: 4)
                 .padding(.horizontal, 16)
                 .background(cardBackground)
         }
@@ -412,15 +572,15 @@ struct AgentUsageDashboard: View {
     // MARK: Notes
 
     private func footer(_ scope: AgentUsageScope) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: isWide ? 2 : 6) {
             Text("Estimated API cost is based on recorded Token Usage, not your subscription bill.")
-            ForEach(scope.included) { host in
-                Text(Self.coverage(name: host.name, report: host.report, locale: locale, calendar: calendar))
+            // The hero and the calendar carry these on an iPhone.
+            if isWide {
+                if !scope.excluded.isEmpty { Text(notIncluded(scope)) }
+                if let note = scope.dayNote { Text(note) }
             }
-            let versions = Set(scope.included.compactMap(\.report.pricingVersion))
-            if !versions.isEmpty {
-                Text("Price table: \(versions.sorted().joined(separator: ", "))")
-            }
+            Text(Self.coverage(hosts: scope.included.map { ($0.name, $0.report) }, locale: locale,
+                calendar: calendar))
             ForEach(scope.loading) { host in
                 Text("\(host.name): Loading Usage…")
             }
@@ -431,26 +591,44 @@ struct AgentUsageDashboard: View {
         .padding(.top, 14)
     }
 
-    /// What one Host's report covers: since when, and what it skipped.
+    private func notIncluded(_ scope: AgentUsageScope) -> String {
+        "Not included: \(scope.excluded.map(\.name).formatted(.list(type: .and).locale(locale)))"
+    }
+
+    /// "on this Host" or "on these 2 Hosts".
+    static func place(_ scope: AgentUsageScope) -> String {
+        let count = scope.included.count
+        return count == 1 ? "on this Host" : "on these \(count.formatted()) Hosts"
+    }
+
+    /// What the scope's reports cover: since when, what each Host skipped,
+    /// and the price table. The Hosts' time zones are the calendar's note.
     static func coverage(
-        name: String, report: AgentUsageReport, locale: Locale, calendar: Calendar
+        hosts: [(name: String, report: AgentUsageReport)], locale: Locale, calendar: Calendar
     ) -> String {
+        let place = hosts.count == 1 ? "this Host" : "these \(hosts.count.formatted()) Hosts"
         var parts: [String] = []
-        if report.scan?.state == "partial" { parts.append("Token Usage is still being summarized.") }
-        if let from = report.scan?.coveredFrom {
-            var since = "\(name) recorded since \(AgentUsageCalendarDay.text(from, locale: locale, calendar: calendar, includesYear: true))"
-            if let zone = report.timeZone { since += " (\(zone))" }
-            parts.append(since + ".")
+        if let from = hosts.compactMap(\.report.scan?.coveredFrom).min() {
+            parts.append("Recorded on \(place) since \(AgentUsageCalendarDay.text(from, locale: locale, calendar: calendar, includesYear: true)).")
         } else {
-            parts.append("No Transcript coverage recorded on \(name) yet.")
+            parts.append("No Transcript coverage recorded on \(place) yet.")
         }
-        if let skipped = report.scan?.skippedArchives, skipped > 0 {
-            parts.append("\(skipped.formatted()) compressed \(skipped == 1 ? "archive" : "archives") skipped.")
+        for host in hosts {
+            let name = hosts.count == 1 ? "" : "\(host.name): "
+            let scan = host.report.scan
+            if scan?.state == "partial" { parts.append("\(name)Token Usage is still being summarized.") }
+            if let skipped = scan?.skippedArchives, skipped > 0 {
+                parts.append("\(name)\(skipped.formatted()) compressed \(skipped == 1 ? "archive" : "archives") skipped.")
+            }
+            if let unreadable = scan?.unreadableFiles, unreadable > 0 {
+                parts.append(unreadable == 1
+                    ? "\(name)\(unreadable.formatted()) Transcript or folder could not be read. It is retried on the next refresh."
+                    : "\(name)\(unreadable.formatted()) Transcripts or folders could not be read. They are retried on the next refresh.")
+            }
         }
-        if let unreadable = report.scan?.unreadableFiles, unreadable > 0 {
-            parts.append(unreadable == 1
-                ? "\(unreadable.formatted()) Transcript or folder could not be read. It is retried on the next refresh."
-                : "\(unreadable.formatted()) Transcripts or folders could not be read. They are retried on the next refresh.")
+        let versions = Set(hosts.compactMap(\.report.pricingVersion))
+        if !versions.isEmpty {
+            parts.append("Price table: \(versions.sorted().joined(separator: ", ")).")
         }
         return parts.joined(separator: " ")
     }
@@ -548,6 +726,19 @@ private struct AgentUsageSubtitle: ViewModifier {
             content.navigationSubtitle(text)
         } else {
             content
+        }
+    }
+}
+
+/// Two equal columns, aligned to the top.
+private struct AgentUsageWideColumns<Leading: View, Trailing: View>: View {
+    @ViewBuilder let leading: Leading
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 30) {
+            leading.frame(maxWidth: .infinity, alignment: .topLeading)
+            trailing.frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 }

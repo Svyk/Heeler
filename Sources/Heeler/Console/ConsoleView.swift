@@ -51,6 +51,8 @@ struct ConsoleView: View {
     @State private var isUsageTabSelected = false
     /// The Host the Usage tab reads; nil reads every Host.
     @State private var usageScopeHostID: Host.ID?
+    @State private var usageMetric = AgentUsageMetric.cost
+    @State private var usageShowsLimits = false
     @State private var isShowingUsageListMenu = false
     @State private var usageListMenuTitleFrame: CGRect?
     /// Hosts and Settings where the sidebar navigates instead of a tab bar.
@@ -460,7 +462,7 @@ struct ConsoleView: View {
     private func usageTab() -> some View {
         if usesSidebarNavigation {
             NavigationSplitView {
-                AgentUsageSidebar(entries: usageEntries, scopeHostID: $usageScopeHostID)
+                AgentUsageSidebar(entries: usageEntries, scopeHostID: $usageScopeHostID, metric: usageMetric)
                     .navigationTitle(ConsoleTab.usage.title)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -494,11 +496,12 @@ struct ConsoleView: View {
             } detail: {
                 NavigationStack {
                     AgentUsageDashboard(
-                        entries: usageEntries, scopeHostID: $usageScopeHostID, allowsColumns: true)
+                        entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric,
+                        showsLimits: $usageShowsLimits, allowsColumns: true)
                         .navigationTitle(
                             usageScopeHostID.flatMap { id in hosts.hosts.first { $0.id == id }?.displayName }
                                 ?? "All Hosts")
-                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbarTitleDisplayMode(.inlineLarge)
                 }
             }
             .background {
@@ -506,7 +509,7 @@ struct ConsoleView: View {
             }
             .toolbarVisibility(.hidden, for: .tabBar)
         } else {
-            AgentUsageTabView(entries: usageEntries, scopeHostID: $usageScopeHostID)
+            AgentUsageTabView(entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric)
         }
     }
 

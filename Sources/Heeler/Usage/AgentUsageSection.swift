@@ -231,6 +231,12 @@ struct AgentUsageLimitRow: View {
     let chip: AgentUsageLimitChip
     @Environment(\.locale) private var locale
 
+    private func subtitle(now: Date) -> String {
+        let name = AgentUsageReport.Program.displayName(for: chip.program)
+        guard let reset = chip.resetsAt, reset > now else { return name }
+        return "\(name) · resets in \(AgentUsageLimitsView.countdown(to: reset, now: now, locale: locale))"
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
@@ -246,9 +252,11 @@ struct AgentUsageLimitRow: View {
             .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(chip.title)
-                Text(AgentUsageReport.Program.displayName(for: chip.program))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Text(subtitle(now: context.date))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             if let percent = chip.percent {
@@ -261,17 +269,28 @@ struct AgentUsageLimitRow: View {
     }
 }
 
-struct ClaudeUsageSettings: View {
+/// One Host's consent to read Claude Code's plan limits. While it is off,
+/// the row says so in place of the windows.
+struct ClaudeUsageLimitsToggle: View {
     @Bindable var store: AgentUsageStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Claude Code limits", isOn: $store.claudeLimitsEnabled)
-                .accessibilityIdentifier("usage.claude-limits")
-            Text("The plugin asks Claude Code on this computer for your plan limits. Neither the plugin nor Heeler handles your sign-in. This automated use is not officially supported.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Toggle(isOn: $store.claudeLimitsEnabled) {
+            Text("Claude Code limits")
+            if !store.claudeLimitsEnabled {
+                Text("Usage Limits are off.")
+            }
         }
+        .accessibilityIdentifier("usage.claude-limits")
+    }
+}
+
+/// What turning Claude Code limits on does, shown beside the toggle.
+struct ClaudeUsageLimitsNote: View {
+    var body: some View {
+        Text("The plugin asks Claude Code on this computer for your plan limits. Neither the plugin nor Heeler handles your sign-in. This automated use is not officially supported.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

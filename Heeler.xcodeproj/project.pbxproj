@@ -790,6 +790,7 @@
 		F3AE0E87B4A0006D8E1327FD /* TerminalThemePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE868FFAE7FC91684AF77452 /* TerminalThemePreview.swift */; };
 		F3E19029AAC0840476F40E4E /* ChatComposerEchoes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EB941A8CD753FAEDEA1741A /* ChatComposerEchoes.swift */; };
 		F3E9E4B1663C7477CA87E175 /* ChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BD94049BF2E77711F6CA376 /* ChangesView.swift */; };
+		F3F13C390EB8AC791896A305 /* AgentUsageWide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D879166A477CE2494AED65E /* AgentUsageWide.swift */; };
 		F412415E590CF50DCB822B90 /* OverlayNetworkDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E28337A4A47CCCDB2EB3EF /* OverlayNetworkDraft.swift */; };
 		F43752764BAE282519A42DF0 /* NewTerminalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA42EBE95B7E6452127AD5C /* NewTerminalStore.swift */; };
 		F4FE604E1C96A711618231CE /* AgentActivityDecryptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60468938DA99734F4DCBBEC /* AgentActivityDecryptor.swift */; };
@@ -1276,6 +1277,7 @@
 		7C5FB265AFF6961CD0A3C1D9 /* ClaudeProjectKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProjectKey.swift; sourceTree = "<group>"; };
 		7CCE32D8F2A1A12B183B3DA5 /* TerminalKeysKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeysKeyboardTests.swift; sourceTree = "<group>"; };
 		7CF0F9F0EDF8757DC1D275D2 /* TerminalKeyboardInset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyboardInset.swift; sourceTree = "<group>"; };
+		7D879166A477CE2494AED65E /* AgentUsageWide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageWide.swift; sourceTree = "<group>"; };
 		7D8C7ED93EA20FF003EB8ACE /* InputShortcutStripPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputShortcutStripPresentationTests.swift; sourceTree = "<group>"; };
 		7E303FCB86A19CCBBF79E15A /* AgentActivityLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityLink.swift; sourceTree = "<group>"; };
 		7EA83366C03C1D15B1DE8D1E /* TerminalOrphanSurfaceLayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOrphanSurfaceLayers.swift; sourceTree = "<group>"; };
@@ -2642,6 +2644,7 @@
 				34AFD90CE2C3B3B0F49F5CFC /* AgentUsageStore.swift */,
 				87BE1C41C1F8FD7DC7AAFD63 /* AgentUsageStyle.swift */,
 				EEAE4D5EF1EB5AD0E27E7865 /* AgentUsageTab.swift */,
+				7D879166A477CE2494AED65E /* AgentUsageWide.swift */,
 			);
 			path = Usage;
 			sourceTree = "<group>";
@@ -3174,6 +3177,7 @@
 				F7BEF300908EDFA47E9540A7 /* AgentUsageStrip.swift in Sources */,
 				86B485B9E95B183AA10F54F3 /* AgentUsageStyle.swift in Sources */,
 				FBA523FF01478B2A357F2E29 /* AgentUsageTab.swift in Sources */,
+				F3F13C390EB8AC791896A305 /* AgentUsageWide.swift in Sources */,
 				1A160820CAA7EC1D8F987602 /* AgentWindowDrag.swift in Sources */,
 				54D3A4F4FBF8F3F6C154BACE /* AppActivityCoordinator.swift in Sources */,
 				8D9ED28E1DB5A72B471CBD45 /* AppAppearanceSettings.swift in Sources */,

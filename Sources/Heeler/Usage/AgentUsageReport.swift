@@ -174,12 +174,16 @@ enum AgentUsageCalendarDay {
 
     /// The day in the reader's locale and calendar, or the plugin's text
     /// when it is not a date.
-    static func text(_ day: String, locale: Locale, calendar: Calendar, includesYear: Bool) -> String {
+    static func text(
+        _ day: String, locale: Locale, calendar: Calendar, includesYear: Bool, includesWeekday: Bool = false
+    ) -> String {
         guard let date = date(day) else { return day }
         var calendar = calendar
         calendar.timeZone = .gmt
-        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: .gmt)
-        return date.formatted(includesYear ? style.year().month(.abbreviated).day() : style.month(.abbreviated).day())
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: .gmt).month(.abbreviated).day()
+        if includesYear { style = style.year() }
+        if includesWeekday { style = style.weekday(.abbreviated) }
+        return date.formatted(style)
     }
 }
 
