@@ -63,12 +63,14 @@ passed explicitly.
 ## What `make publish` does, in order
 
 1. **Preflight.** Tooling present and `gh` authenticated; clean tree; on
-   `main` and level with `origin/main`; the newest tag released on GitHub,
-   not as a draft (a tag without a release is still in its release run,
-   or needs [recovery](#failure-and-recovery) first); `[Unreleased]`
-   non-empty; the target tag absent locally *and* on the remote — a
-   local-only check passes right up until the push fails, by which time
-   the release commit has already landed.
+   `main` and level with `origin/main`; the `plugin` branch carrying the
+   plugin version in `plugin/herdr-plugin.toml`
+   ([Publishing the herdr plugin](#publishing-the-herdr-plugin)); the
+   newest tag released on GitHub, not as a draft (a tag without a release
+   is still in its release run, or needs [recovery](#failure-and-recovery)
+   first); `[Unreleased]` non-empty; the target tag absent locally *and* on
+   the remote — a local-only check passes right up until the push fails,
+   by which time the release commit has already landed.
 2. **Print the plan and ask.** Resolved version, every file it will
    touch, every command it will run, and the release notes. `DRY_RUN=1`
    prints exactly this and exits without touching anything.
@@ -292,7 +294,9 @@ When the app depends on a new plugin version, bump it on `main` (see the
 plugin README's "Releasing a plugin version"), run `make plugin`, and only
 then cut the app release that bundles it. An app that expects a version
 the branch lacks tells users to update, and the update reinstalls the old
-one.
+one, so `make publish` refuses to cut a release until the `plugin` branch
+carries the version in `plugin/herdr-plugin.toml`
+([`scripts/check-plugin-published.sh`](../../scripts/check-plugin-published.sh)).
 
 Hosts installed with the old command
 (`ZingerLittleBee/Heeler/plugin --ref main`) keep updating from `main`, and

@@ -49,7 +49,8 @@ The plugin is installed from a branch that holds nothing else:
   moves over the next time the app recommends an update.
 - Order matters: a plugin version the app depends on must be published
   before the app release that bundles it, or the update notice reinstalls
-  the older version.
+  the older version. `make publish` refuses to cut a release until the
+  `plugin` branch carries the version `plugin/` declares.
 
 ## Alternatives
 
