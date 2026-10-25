@@ -29,15 +29,38 @@ export function writeJSON(path, value) {
     renameSync(temporary, path);
   } finally { rmSync(temporary, { force: true }); }
 }
+/** Linux `/proc/<pid>/stat` field 22: the start time in clock ticks since boot. */
+export function startTimeFromStat(text) {
+  // The command name (field 2) may contain spaces and parentheses.
+  const end = text.lastIndexOf(")");
+  if (end < 0) return null;
+  const start = text.slice(end + 1).trim().split(/\s+/)[22 - 3];
+  return /^\d+$/.test(start ?? "") ? start : null;
+}
+/** An opaque start time that tells a reused pid apart, or null when unavailable. */
 export function processStart(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) return null;
+  if (process.platform === "linux") {
+    // Minimal images and BusyBox lack a usable `ps -p`; procfs is always there.
+    try { return startTimeFromStat(readFileSync(`/proc/${pid}/stat`, "utf8")); } catch { return null; }
+  }
   const result = spawnSync("/bin/ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8", timeout: 1000 });
   return result.status === 0 ? result.stdout.trim() || null : null;
+}
+function pidExists(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
+}
+/** Compare start times when both are known; otherwise a live pid keeps its record. */
+function ownerRunning(record) {
+  const current = processStart(record.pid);
+  if (current !== null && record.processStart) return current === record.processStart;
+  return pidExists(record.pid);
 }
 export function activeLock(directory, now = Date.now()) {
   const lock = readJSON(join(directory, "worker.lock"));
   if (!lock || !Number.isFinite(lock.heartbeat) || now - lock.heartbeat > 10 * 60_000) return null;
-  return processStart(lock.pid) === lock.processStart && lock.processStart ? lock : null;
+  return ownerRunning(lock) ? lock : null;
 }
 export function reserveWorker(directory) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -50,12 +73,11 @@ export function reserveWorker(directory) {
   catch (error) {
     if (error.code !== "EEXIST") throw error;
     const previous = readJSON(admissionPath);
-    if (previous && processStart(previous.pid) !== previous.processStart) {
-      if (readJSON(admissionPath)?.token === previous.token) rmSync(admissionPath, { force: true });
-    } else if (!previous) {
-      try {
-        if (Date.now() - statSync(admissionPath).mtimeMs > 10_000) rmSync(admissionPath, { force: true });
-      } catch { /* Another query finished admission. */ }
+    let age;
+    try { age = Date.now() - statSync(admissionPath).mtimeMs; } catch { return null; /* Another query finished admission. */ }
+    // Admission lasts milliseconds: a dead owner or an old file was abandoned.
+    if (age > 10_000 || (previous && !ownerRunning(previous))) {
+      if (!previous || readJSON(admissionPath)?.token === previous.token) rmSync(admissionPath, { force: true });
     }
     return null;
   }

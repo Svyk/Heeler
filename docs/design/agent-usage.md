@@ -397,7 +397,12 @@ size:
     heartbeat the worker refreshes after every batch and every limit
     request. It is stale when the pid is gone or belongs to another process,
     or when the heartbeat is older than 10 minutes. A long rebuild keeps its
-    lock.
+    lock. The start time comes from `/proc/<pid>/stat` on Linux and
+    `/bin/ps` elsewhere; when either side has none, a live pid with a fresh
+    heartbeat keeps the lock.
+  - `worker-start.lock`: held for milliseconds while a query checks and
+    replaces `worker.lock`. It is reclaimed when its pid is gone or the file
+    is older than 10 seconds.
 - Appends stay incremental: a file whose `dev/ino` match and whose size grew
   (same or newer `mtimeMs`) is read from `offset` up to the last complete
   line; a partial last line is left for the next run.

@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { processStart } from "../src/usage/cache.js";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -179,7 +180,7 @@ test("fresh heartbeats keep a long-running lock and dead or reused pids are recl
   const f = fixture(t);
   await f.finish();
   f.stale();
-  const start = spawnSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart="], { encoding: "utf8" }).stdout.trim();
+  const start = processStart(process.pid);
   const lockPath = join(f.cache(), "worker.lock");
   const lock = { pid: process.pid, processStart: start, token: "long-running-fixture", heartbeat: Date.now(), createdAt: Date.now() - 20 * 60_000 };
   writeFileSync(lockPath, JSON.stringify(lock));
@@ -200,7 +201,7 @@ test("query folds UTC quarter-hours into Nepal days and the spring DST day", asy
   const frozen = Date.parse("2026-03-09T12:00:00Z");
   const clock = join(f.root, "clock.mjs");
   writeFileSync(clock, `const OriginalDate = Date; globalThis.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [${frozen}])); } static now() { return ${frozen}; } };`);
-  const start = spawnSync("/bin/ps", ["-p", String(process.pid), "-o", "lstart="], { encoding: "utf8" }).stdout.trim();
+  const start = processStart(process.pid);
   writeFileSync(join(f.cache(), "worker.lock"), JSON.stringify({ pid: process.pid, processStart: start, heartbeat: frozen, token: "clock-fixture" }));
   const queryBuckets = (tz, entries) => {
     writeFileSync(join(f.cache(), "buckets.json"), JSON.stringify({ complete: true, generatedAt: new Date(frozen).toISOString(), coveredThrough: new Date(frozen).toISOString(), buckets: entries.map(([timestamp, input]) => ({ timestamp: Date.parse(timestamp), program: "claude", model: "claude-test", tokens: { input, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: input } })) }));
