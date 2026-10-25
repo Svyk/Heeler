@@ -437,10 +437,15 @@ size:
     replacing line; a Claude Code copy that loses appends an alias line so it
     keeps suppressing later replays. A run appends through one descriptor in
     1 MiB chunks and flushes before a snapshot records the log's length.
-  - Lines run 300 to 450 bytes: a synthetic Host with 200,000 records in the
-    window has a 95 MB log; one heavy Host's log measured 148 MB while every
-    record still had its own alias line. Every run replays the whole log: an
-    idle run takes 0.6 s and 380 MB resident with the 95 MB log. Keys older
+  - On a synthetic Host, Claude Code lines run about 450 bytes and Codex
+    lines about 550 (longer directory paths lengthen both): 200,000 records
+    in the window make a 95 MB log; one heavy Host's log measured 148 MB
+    while every record still had its own alias line. Every run, an idle one
+    included, replays the whole log into memory, about 0.8 KB of heap per
+    live key: an idle run takes 0.6 s and 380 MB resident with the 95 MB
+    log. About 300,000 live keys fit the 256 MB heap V8 gives Node on a
+    1 GB Host; at 500,000 every run there runs out of memory and the
+    refresh fails (see [Worker scheduling](#worker-scheduling)). Keys older
     than 31 days leave the totals at once, but the log is rewritten only when
     a rebuild starts or a whole UTC day of its keys has expired, so at most
     once a day. The rewrite streams the live keys into a temporary file and
@@ -457,8 +462,11 @@ size:
     `/bin/ps` elsewhere; when either side has none, a live pid with a fresh
     heartbeat keeps the lock.
   - `worker-start.lock`: held for milliseconds while a query checks and
-    replaces `worker.lock`. It is reclaimed when its pid is gone or the file
-    is older than 10 seconds.
+    replaces `worker.lock`. Another query waits up to half a second for it
+    and then reads `worker.lock`. It is reclaimed when its pid is gone or
+    the file is older than 10 seconds. Both lock files are created
+    exclusively and written through that descriptor; a failed write (a full
+    disk) removes the file, so no empty lock remains.
   - `failure.json`: the count and time of consecutive failed runs (see
     [Worker scheduling](#worker-scheduling)); a finished run deletes it.
 - Appends stay incremental: a file whose `dev/ino` match and whose size grew
@@ -534,8 +542,13 @@ size:
   program's `tokenUsage` as `error` (keeping a program's own scan error)
   and starts no worker until 10 minutes after the last failure, so
   `refreshing` turns false. The first query after that retries; success
-  clears the count. A cache too full to record the failure also refuses the
-  query's lock, which serves the cached report without a worker.
+  clears the count.
+- A query that cannot start a worker because the cache cannot be written
+  (a read-only directory, a full disk) reports `refreshing: false`. When
+  the snapshot is missing, incomplete or older than 60 seconds, it reports
+  each program's `tokenUsage` as `error` (keeping a program's own scan
+  error) rather than presenting old totals as current; a current snapshot
+  is served as it is. The next query tries again.
 
 ## Usage Limits
 
@@ -632,10 +645,13 @@ plugin asks Claude Code itself, as it asks Codex.
   next allowed request.
 - Claude Code 2.1.12 and earlier leave an unknown control request
   unanswered, so `get_usage` would only time out. The worker runs `claude
-  --version` (5-second limit) once per installed executable, keyed in
-  `limits.json` by the file's device, inode, size and mtime, which an update
-  changes; a version at or before 2.1.12 is `programTooOld` without starting
-  the stream-json process. An unreadable version starts it as usual.
+  --version` (5-second limit) before a request; a version at or before
+  2.1.12 is `programTooOld` without starting the stream-json process, and an
+  unreadable version starts it as usual. A newer version is remembered in
+  `limits.json`, keyed by the file's device, inode, size and mtime, and asked
+  again only when that file changes. A version too old or unreadable is asked
+  at every allowed request: the recorded `claude` may be a shim or wrapper
+  (mise, asdf, `~/.claude/local/claude`) that an update leaves unchanged.
 - Windows read: `five_hour`, `seven_day`, `seven_day_opus`,
   `seven_day_sonnet`, any other non-null object with a `utilization` and a
   `resets_at` as `claude:<key>`, and each `model_scoped[]` entry as
@@ -755,19 +771,22 @@ tests and decoded by the Swift tests.
   `scan.unreadableFiles`: Transcripts, rollouts or directories under a root
   that could not be listed or read in the last run; 0 when none. They are
   skipped, retried by the next run, and keep the totals already counted from
-  them. A root (Claude Code `projects/`, the Codex home, `sessions/` or
-  `archived_sessions/`) that cannot be listed reports that program's
-  `tokenUsage` as `error` instead.
+  them. A Claude Code `projects/` root that cannot be listed is counted
+  the same way while another root can be. When none can, or the Codex
+  home, `sessions/` or `archived_sessions/` cannot be listed, that
+  program's `tokenUsage` is `error` instead.
 - `tokenUsage.state`: `ok`, `noData` (program never used on this Host),
   `error` with `reason`.
 - `usageLimits.state`: `ok`, `disabled` (Claude toggle off, or this query
   did not pass `--claude-limits`; a reading another device's query cached is
   never shown then), `unavailable` with `reason` (`notReadYet` before the
-  first reading of a program whose limits will be read, such as during the
-  first scan or right after the Claude toggle turns on; `programMissing`,
-  `programTooOld`, `noPlanLimits`, or `notSignedIn` for Codex), `throttled`
-  with `retryAt` and the last good reading (Claude Code), `error` with
-  `reason`.
+  first reading of a program whose limits will be read, while a run is in
+  progress, such as during the first scan or right after the Claude toggle
+  turns on; `programMissing`, `programTooOld`, `noPlanLimits`, or
+  `notSignedIn` for Codex), `throttled` with `retryAt` and the last good
+  reading (Claude Code), `error` with `reason`. A program without a
+  reading while no run is in progress (failures paused the refresh, or
+  none could start) is `error` with `requestFailed`.
 - `source`: `service` (live reading) or `lastSession` (Codex rollout
   snapshot).
 - `resetsAt` is null when the program reports no reset time; such a window
@@ -856,10 +875,12 @@ tests and decoded by the Swift tests.
 | Transcript older than 30 days deleted; rollout archived, compressed, or decompressed to append | No rebuild |
 | `.zst` rollout with neither Node zstd nor `zstd` on `PATH` | Counted in `skippedArchives`; coverage note |
 | Transcript, rollout or directory unreadable (permissions, corrupt or truncated `.zst`) | Skipped and counted in `unreadableFiles`; known totals kept, no rebuild; retried next run |
-| Transcript root unreadable | That program's Token Usage `error`; its known files are not treated as deleted |
+| One of several Claude Code roots unreadable | Counted in `unreadableFiles`; its known totals kept |
+| Every Claude Code root, or a Codex root, unreadable | That program's Token Usage `error`; its known files are not treated as deleted |
 | Worker crashed | Stale lock reclaimed; next query restarts it |
-| Cache directory not writable | Cached report, `refreshing: false`; no worker |
-| Worker fails 3 runs in a row | Token Usage `error`, `refreshing: false`; retried after 10 minutes |
+| Cache directory not writable or disk full | `refreshing: false`, no worker; Token Usage `error` unless the snapshot is current; retried by the next query |
+| Worker fails 3 runs in a row | Token Usage `error`, Usage Limits without a reading `error`, `refreshing: false`; retried after 10 minutes |
+| Usage index larger than the worker's heap (about 500,000 live keys at 256 MB) | Every run fails; as above |
 | Codex reading fails (too old, missing, not signed in, error, timeout) | `lastSession` fallback; without a snapshot `unavailable` or `error` |
 | Codex signed in without ChatGPT, or using a provider without OpenAI sign-in | `unavailable`, `noPlanLimits` |
 | Reset time of a reading has passed | Window shown expired, usage unknown |
@@ -902,7 +923,9 @@ tests and decoded by the Swift tests.
     `.zst`, is skipped and counted without a rebuild; a lock whose heartbeat
     is fresh survives a long run; expired keys leave the totals at once and
     the log once a whole UTC day expires; a worker killed at each cache
-    write, including a torn log append, recovers a fresh scan's totals.
+    write of an incremental run, a pruning run and a rebuild, including a
+    torn log append, recovers a fresh scan's totals, and its next run still
+    matches one.
   - Roots: a root created after the first scan keeps the cache directory;
     an unused sibling cache directory is deleted after 31 days.
   - Time and price: folding into +5:45 and DST days; per-request
@@ -923,7 +946,8 @@ tests and decoded by the Swift tests.
     protocol and asserts the flags, `skip_behaviors` and that no user
     message arrives, including `rate_limits_available: false`, an
     `Unsupported control request subtype` error, a version at or before
-    2.1.12 (no stream-json process, one version check per executable), a
+    2.1.12 (no stream-json process, asked again until an update behind an
+    unchanged wrapper is found; a newer version once per executable), a
     window with null `utilization` or `resets_at`, a failure with and
     without a last good reading, a non-error answer that drops it, and
     readings past their reset time; a query without
