@@ -196,7 +196,10 @@ visible in the user's herdr command palette.
   wins over `archived_sessions/`. `.zst` files are streamed through
   `zlib.createZstdDecompress` (Node 22.15.0 and 23.8.0, experimental), else
   through `zstd -dc` found on the recorded `PATH`, else counted in
-  `scan.skippedArchives` and the app says so.
+  `scan.skippedArchives` and the app says so. Node's decoder ends quietly on
+  a truncated archive, so the worker walks the zstd frame and block headers
+  and treats an archive whose last frame is incomplete as a read error, as
+  `zstd -dc` does. A cut exactly between two frames cannot be detected.
 
 Multiple roots per program are merged into one total for that program.
 `rootsKey` hashes the candidate roots of both programs as derived from

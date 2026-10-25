@@ -5,6 +5,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import zlib from "node:zlib";
+import { randomBytes } from "node:crypto";
+import { ZstdFrames } from "../src/usage/codex-files.js";
 
 const moduleURL = new URL("../src/usage/codex-files.js", import.meta.url).href;
 function fixture(t) {
@@ -68,6 +70,44 @@ test("native zstd reads complete records from a decompressed byte offset", { ski
   const result = f.run(`const result=[]; for await (const item of files.codexLines({path:${JSON.stringify(path)},compressed:true},{env:{PATH:"/missing"}},()=>{},${Buffer.byteLength(prefix)})) result.push(item); console.log(JSON.stringify(result));`);
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [{ line: { number: 2 }, offset: Buffer.byteLength(prefix) + 13 }]);
+});
+
+test("zstd frame walking accepts whole archives and rejects every truncation", { skip: !zlib.zstdCompressSync }, () => {
+  const lines = Buffer.from(Array.from({ length: 6000 }, (_, i) => JSON.stringify({ i, pad: "x".repeat(i % 40) })).join("\n") + "\n");
+  const checksum = { params: { [zlib.constants.ZSTD_c_checksumFlag]: 1 } };
+  const skippable = Buffer.alloc(8 + 5); skippable.writeUInt32LE(0x184D2A53, 0); skippable.writeUInt32LE(5, 4);
+  const first = zlib.zstdCompressSync(Buffer.from("{}\n"));
+  // A cut exactly between frames leaves a valid archive and cannot be detected.
+  const boundaries = new Set([first.length, first.length + skippable.length]);
+  const archives = {
+    lines: zlib.zstdCompressSync(lines),
+    checksum: zlib.zstdCompressSync(lines, checksum),
+    raw: zlib.zstdCompressSync(randomBytes(300_000)),
+    rle: zlib.zstdCompressSync(Buffer.alloc(400_000, 97), checksum),
+    frames: Buffer.concat([first, skippable, zlib.zstdCompressSync(lines)]),
+  };
+  const complete = (archive, size) => {
+    const frames = new ZstdFrames();
+    for (let at = 0; at < archive.length; at += size) frames.update(archive.subarray(at, at + size));
+    return frames.complete;
+  };
+  for (const [name, archive] of Object.entries(archives)) {
+    for (const size of [1, 7, 65536]) assert.equal(complete(archive, size), true, `${name} in ${size}-byte chunks`);
+    const step = Math.max(1, Math.floor(archive.length / 400));
+    for (let cut = 0; cut < archive.length; cut += cut < 64 || archive.length - cut < 64 ? 1 : step) {
+      if (name !== "frames" || !boundaries.has(cut)) assert.equal(complete(archive.subarray(0, cut), 4096), false, `${name} cut at ${cut} of ${archive.length}`);
+    }
+  }
+  assert.equal(complete(Buffer.from('{"plain":true}\n'), 4096), false);
+});
+
+test("a truncated archive read through native zstd is a read error", { skip: !zlib.createZstdDecompress }, t => {
+  const f = fixture(t);
+  const archive = zlib.zstdCompressSync(Buffer.from(Array.from({ length: 4000 }, (_, i) => JSON.stringify({ i })).join("\n") + "\n"));
+  const path = f.write("rollout-truncated.jsonl.zst", archive.subarray(0, archive.length - 3));
+  const result = f.run(`let count=0; try { for await (const item of files.codexLines({path:${JSON.stringify(path)},compressed:true},{env:{PATH:"/missing"}})) count++; console.log(JSON.stringify({count})); } catch(error) { console.log(JSON.stringify({error:true,unavailable:error instanceof files.ArchiveUnavailableError})); }`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { error: true, unavailable: false });
 });
 
 test("zstd fallback uses only the recorded executable path and reports absence distinctly", t => {

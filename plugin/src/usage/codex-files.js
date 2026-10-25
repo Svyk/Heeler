@@ -47,12 +47,83 @@ export async function codexFiles(roots, cutoff) {
     .map(({ priority, ...file }) => file);
 }
 
+/**
+ * Walks zstd frame and block headers (RFC 8878) over the compressed bytes.
+ * Node's decoder ends quietly on a truncated archive; an archive is complete
+ * only when its last frame, block payloads and checksum are all present.
+ */
+export class ZstdFrames {
+  #skip = 0;
+  #want = 4;
+  #bytes = [];
+  #step = "magic";
+  #checksum = false;
+  #frames = 0;
+  #invalid = false;
+
+  update(chunk) {
+    let index = 0;
+    while (index < chunk.length && !this.#invalid) {
+      if (this.#skip) {
+        const skipped = Math.min(this.#skip, chunk.length - index);
+        this.#skip -= skipped;
+        index += skipped;
+        continue;
+      }
+      const taken = Math.min(this.#want - this.#bytes.length, chunk.length - index);
+      for (let i = 0; i < taken; i++) this.#bytes.push(chunk[index + i]);
+      index += taken;
+      if (this.#bytes.length === this.#want) {
+        const header = Buffer.from(this.#bytes);
+        this.#bytes = [];
+        this.#header(header);
+      }
+    }
+  }
+
+  get complete() {
+    return !this.#invalid && this.#frames > 0 && this.#step === "magic" && !this.#skip && !this.#bytes.length;
+  }
+
+  #header(header) {
+    if (this.#step === "magic") {
+      const magic = header.readUInt32LE(0);
+      if (magic === 0xFD2FB528) { this.#step = "descriptor"; this.#want = 1; }
+      else if ((magic & 0xFFFFFFF0) >>> 0 === 0x184D2A50) { this.#step = "skippable"; this.#want = 4; }
+      else this.#invalid = true;
+    } else if (this.#step === "skippable") {
+      this.#skip = header.readUInt32LE(0);
+      this.#step = "magic"; this.#want = 4;
+    } else if (this.#step === "descriptor") {
+      const descriptor = header[0];
+      const single = (descriptor >> 5) & 1;
+      if (descriptor & 0b1000) { this.#invalid = true; return; }
+      this.#checksum = Boolean(descriptor & 0b100);
+      // Window descriptor, dictionary id and frame content size precede the blocks.
+      this.#skip = (single ? 0 : 1) + [0, 1, 2, 4][descriptor & 3] + [single, 2, 4, 8][descriptor >> 6];
+      this.#step = "block"; this.#want = 3;
+    } else {
+      const block = header[0] | (header[1] << 8) | (header[2] << 16);
+      const type = (block >> 1) & 3;
+      if (type === 3) { this.#invalid = true; return; }
+      // An RLE block stores one byte whatever its regenerated size.
+      this.#skip = type === 1 ? 1 : block >>> 3;
+      if (block & 1) {
+        if (this.#checksum) this.#skip += 4;
+        this.#frames++;
+        this.#step = "magic"; this.#want = 4;
+      }
+    }
+  }
+}
+
 /** Offsets count complete decompressed bytes, including malformed lines. */
 export async function* codexLines(file, runtime, onChunk = () => {}, start = 0) {
   let source;
   let input;
   let child;
   let childResult;
+  let frames;
   if (file.compressed && typeof zlib.createZstdDecompress !== "function") {
     const executable = await externalZstd(runtime.env?.PATH);
     if (!executable) throw new ArchiveUnavailableError();
@@ -66,7 +137,11 @@ export async function* codexLines(file, runtime, onChunk = () => {}, start = 0) 
   } else {
     source = createReadStream(file.path, { start: file.compressed ? 0 : start });
     input = file.compressed ? source.pipe(zlib.createZstdDecompress()) : source;
-    if (input !== source) source.on("error", error => input.destroy(error));
+    if (input !== source) {
+      frames = new ZstdFrames();
+      source.on("data", chunk => frames.update(chunk));
+      source.on("error", error => input.destroy(error));
+    }
   }
   try {
     yield* jsonLines(input, start, file.compressed ? start : 0, onChunk);
@@ -74,6 +149,7 @@ export async function* codexLines(file, runtime, onChunk = () => {}, start = 0) 
       const result = await childResult;
       if (result.error || result.code !== 0) throw new Error("Could not decompress the Codex archive.");
     }
+    if (frames && !frames.complete) throw new Error("The Codex archive is truncated.");
   } finally {
     input.destroy();
     source?.destroy();
