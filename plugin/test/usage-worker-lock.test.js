@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { reserveWorker, releaseWorker, startTimeFromStat } from "../src/usage/cache.js";
+import { cacheDirectory, reserveWorker, releaseWorker, startTimeFromStat } from "../src/usage/cache.js";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -184,4 +184,46 @@ test("a cache directory the query cannot write still returns the cached report",
   assert.equal(report.refreshing, false);
   assert.deepEqual(report.programs, cached.programs);
   assert.equal(existsSync(join(f.cache(), "worker.lock")), false);
+});
+
+test("a worker that keeps failing stops the refresh with an error until the back-off ends", async t => {
+  const f = fixture(t);
+  const directory = cacheDirectory(JSON.parse(readFileSync(join(f.env.HERDR_PLUGIN_CONFIG_DIR, "runtime.json"), "utf8")));
+  const failurePath = join(directory, "failure.json");
+  // Every run fails: the contribution log cannot be created.
+  mkdirSync(join(directory, "keys.log"), { recursive: true });
+  let report;
+  for (let i = 0; i < 200; i++) {
+    report = f.query();
+    if (!report.refreshing) break;
+    await sleep(20);
+  }
+  assert.equal(report.refreshing, false);
+  assert.deepEqual(report.programs.map(program => program.tokenUsage.state), ["error", "error"]);
+  const failure = JSON.parse(readFileSync(failurePath, "utf8"));
+  assert.equal(failure.failures, 3);
+  // Within the back-off no further worker starts.
+  assert.equal(f.query().refreshing, false);
+  assert.equal(existsSync(join(directory, "worker.lock")), false);
+  assert.equal(JSON.parse(readFileSync(failurePath, "utf8")).failures, 3);
+  // After it, one retry runs; its success clears the failures.
+  rmSync(join(directory, "keys.log"), { recursive: true });
+  writeFileSync(failurePath, JSON.stringify({ ...failure, at: Date.now() - 11 * 60_000 }));
+  assert.equal(f.query().refreshing, true);
+  report = await f.finish();
+  assert.equal(existsSync(failurePath), false);
+  assert.deepEqual(report.programs.map(program => program.tokenUsage.state), ["noData", "noData"]);
+});
+
+test("each abandoned worker lock counts as one failed refresh", t => {
+  const f = fixture(t);
+  const directory = join(f.root, "abandoned");
+  mkdirSync(directory);
+  for (let run = 1; run <= 3; run++) {
+    writeFileSync(join(directory, "worker.lock"), JSON.stringify({ pid: 99999999, processStart: null, token: `crashed-${run}`, heartbeat: Date.now() }));
+    const lock = reserveWorker(directory);
+    assert.ok(lock);
+    releaseWorker(directory, lock.token);
+    assert.equal(JSON.parse(readFileSync(join(directory, "failure.json"), "utf8")).failures, run);
+  }
 });

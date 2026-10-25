@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const DAY = 86_400_000;
@@ -83,12 +83,35 @@ export function reserveWorker(directory) {
   }
   try {
     if (activeLock(directory)) return null;
+    // Workers release their lock even when they fail; one left behind ended a
+    // run that crashed or hung.
+    if (existsSync(path)) {
+      try { recordFailure(directory); } catch { /* The lock write below reports it. */ }
+    }
     rmSync(path, { force: true });
     writeFileSync(path, JSON.stringify(admission), { flag: "wx", mode: 0o600 });
     return admission;
   } finally {
     if (readJSON(admissionPath)?.token === admission.token) rmSync(admissionPath, { force: true });
   }
+}
+const FAILURE_LIMIT = 3;
+const FAILURE_BACKOFF = 10 * 60_000;
+/** Count one refresh that ended without its final snapshot. */
+export function recordFailure(directory, now = Date.now()) {
+  const path = join(directory, "failure.json");
+  const failures = readJSON(path)?.failures;
+  writeJSON(path, { failures: (Number.isSafeInteger(failures) && failures > 0 ? failures : 0) + 1, at: now });
+}
+export function clearFailures(directory) {
+  rmSync(join(directory, "failure.json"), { force: true });
+}
+/** After repeated failures the report says so, and no worker starts until the back-off ends. */
+export function refreshFailures(directory, now = Date.now()) {
+  const record = readJSON(join(directory, "failure.json"));
+  const failing = Number.isSafeInteger(record?.failures) && record.failures >= FAILURE_LIMIT;
+  const age = now - record?.at;
+  return { failing, paused: failing && age >= 0 && age < FAILURE_BACKOFF };
 }
 export function releaseWorker(directory, token) {
   const path = join(directory, "worker.lock");

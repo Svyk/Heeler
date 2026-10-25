@@ -405,6 +405,8 @@ size:
   - `worker-start.lock`: held for milliseconds while a query checks and
     replaces `worker.lock`. It is reclaimed when its pid is gone or the file
     is older than 10 seconds.
+  - `failure.json`: the count and time of consecutive failed runs (see
+    [Worker scheduling](#worker-scheduling)); a finished run deletes it.
 - Appends stay incremental: a file whose `dev/ino` match and whose size grew
   (same or newer `mtimeMs`) is read from `offset` up to the last complete
   line; a partial last line is left for the next run.
@@ -457,6 +459,14 @@ size:
 - The worker writes the cache atomically after each batch of files, so a
   query mid-scan returns partial, correctly labeled data.
 - Files whose `mtime` is older than the window are skipped without reading.
+- A run fails when the worker throws (a full disk, an unwritable cache) or
+  leaves its lock behind (killed or hung; the next query counts it when it
+  reclaims the lock). After 3 consecutive failures the query reports each
+  program's `tokenUsage` as `error` (keeping a program's own scan error)
+  and starts no worker until 10 minutes after the last failure, so
+  `refreshing` turns false. The first query after that retries; success
+  clears the count. A cache too full to record the failure also refuses the
+  query's lock, which serves the cached report without a worker.
 
 ## Usage Limits
 
@@ -732,6 +742,7 @@ tests and decoded by the Swift tests.
 | `.zst` rollout with neither Node zstd nor `zstd` on `PATH` | Counted in `skippedArchives`; coverage note |
 | Worker crashed | Stale lock reclaimed; next query restarts it |
 | Cache directory not writable | Cached report, `refreshing: false`; no worker |
+| Worker fails 3 runs in a row | Token Usage `error`, `refreshing: false`; retried after 10 minutes |
 | Codex reading fails (too old, missing, not signed in, error, timeout) | `lastSession` fallback; without a snapshot `unavailable` or `error` |
 | Codex signed in without ChatGPT | `unavailable`, `noPlanLimits` |
 | Reset time of a reading has passed | Window shown expired, usage unknown |

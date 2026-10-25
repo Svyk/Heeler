@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { cacheDirectory, readJSON, writeJSON, activeLock, reserveWorker, releaseWorker, processStart } from "./usage/cache.js";
+import { cacheDirectory, readJSON, writeJSON, activeLock, reserveWorker, releaseWorker, processStart, refreshFailures } from "./usage/cache.js";
 import { reportFromSnapshot } from "./usage/buckets.js";
 import { pricingFingerprint } from "./usage/pricing.js";
 import { readUsageRuntime } from "./usage-runtime.js";
@@ -45,10 +45,11 @@ try {
   if (runtime) {
     const directory = cacheDirectory(runtime);
     const snapshot = readJSON(join(directory, "buckets.json"));
+    const failures = refreshFailures(directory);
     let refreshing = false;
     try {
       refreshing = Boolean(activeLock(directory));
-      if (!refreshing && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint
+      if (!refreshing && !failures.paused && (!snapshot?.complete || snapshot?.checkpoint?.pricingFingerprint !== pricingFingerprint
           || snapshot?.breakdownsVersion !== 1 || Date.now() - Date.parse(snapshot.generatedAt) > 60_000
           || snapshot.limitsVersion !== 1 || !snapshot.nextLimitsAt || Date.now() >= snapshot.nextLimitsAt
           || (values["claude-limits"] && (!snapshot.nextClaudeLimitsAt || Date.now() >= snapshot.nextClaudeLimitsAt)))) {
@@ -58,7 +59,11 @@ try {
       // A cache the query cannot write still serves the report it already has.
       refreshing = false;
     }
-    report = reportFromSnapshot(snapshot, timeZone, refreshing, Date.now(), values["claude-limits"]);
+    // Cached aggregates may be stale without saying so; report the failing
+    // refresh instead, keeping a program's own scan error when it has one.
+    const failed = "The background refresh failed repeatedly.";
+    const served = failures.failing ? { ...snapshot, errors: { claude: failed, codex: failed, ...snapshot?.errors } } : snapshot;
+    report = reportFromSnapshot(served, timeZone, refreshing, Date.now(), values["claude-limits"]);
   }
   console.log(JSON.stringify(report));
 } catch {

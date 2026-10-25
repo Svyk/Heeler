@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:f
 import { join } from "node:path";
 import { setPriority } from "node:os";
 import { readUsageRuntime } from "./usage-runtime.js";
-import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeLock, RETENTION } from "./usage/cache.js";
+import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeLock, recordFailure, clearFailures, RETENTION } from "./usage/cache.js";
 import { claudeFiles, transcriptEntries, claudeContribution } from "./usage/claude-scanner.js";
 import { loadCheckpoint, startLog, saveCheckpoint, matchFiles } from "./usage/checkpoint.js";
 import { changeBucket } from "./usage/buckets.js";
@@ -15,6 +15,7 @@ import { readCodexLimits, codexRolloutLimits, codexLimitsWithFallback } from "./
 import { readClaudeLimits, cacheClaudeLimits } from "./usage/claude-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+class LockLostError extends Error {}
 async function run() {
   const { values } = parseArgs({ options: { config: { type: "string" }, "lock-token": { type: "string" }, "claude-limits": { type: "boolean", default: false } } });
   try { setPriority(10); } catch { /* Lower priority is best effort on the Host. */ }
@@ -31,7 +32,7 @@ async function run() {
   }
   if (lock?.pid !== process.pid) return;
   const heartbeat = () => {
-    if (readJSON(lockPath)?.token !== lock.token) throw new Error("worker lock lost");
+    if (readJSON(lockPath)?.token !== lock.token) throw new LockLostError("worker lock lost");
     lock.heartbeat = Date.now();
     writeJSON(lockPath, lock);
   };
@@ -215,6 +216,13 @@ async function run() {
       || { state: "error", reason: "requestFailed" }, fallback);
     writeJSON(join(directory, "limits.json"), limits);
     snapshot(!pendingPrefix);
+    clearFailures(directory);
+  } catch (error) {
+    // A displaced worker did not fail; its successor owns the refresh.
+    if (!(error instanceof LockLostError)) {
+      try { recordFailure(directory); } catch { /* The query's own writes fail too. */ }
+    }
+    throw error;
   } finally { releaseWorker(directory, values["lock-token"]); }
 }
 try { await run(); } catch { process.exitCode = 1; }
