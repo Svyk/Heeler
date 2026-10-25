@@ -32,9 +32,9 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 | --- | --- | --- |
 | <img src="docs/images/console-iphone.png" width="240" alt="iPhone 上跨 Host 列出 Agent 及其状态的 Agent Console" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="iPhone 上使用 Direct Input 的 Agent 实时终端" /> | <img src="docs/images/chat-iphone.png" width="240" alt="iPhone 上以原生消息显示 Agent 对话的 Chat" /> |
 
-| Direct Input + Terminal 键盘 | Changes | Terminals |
+| Direct Input + Terminal Keyboard | Changes | Terminals |
 | --- | --- | --- |
-| <img src="docs/images/agent-iphone.png" width="240" alt="iPhone 上使用 Direct Input、快捷键和完整 Terminal 键盘的 Agent 终端" /> | <img src="docs/images/changes-iphone.png" width="240" alt="iPhone 上列出 Checkout 已暂存和未暂存文件的 Changes" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="iPhone 上按 Host 和工作区列出 shell 窗格的 Terminals 标签页" /> |
+| <img src="docs/images/agent-iphone.png" width="240" alt="iPhone 上使用 Direct Input、快捷键和完整 Terminal Keyboard 的 Agent 终端" /> | <img src="docs/images/changes-iphone.png" width="240" alt="iPhone 上列出 Checkout 已暂存和未暂存文件的 Changes" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="iPhone 上按 Host 和工作区列出 shell 窗格的 Terminals 标签页" /> |
 
 | Skills | Hosts | 实时活动 |
 | --- | --- | --- |
