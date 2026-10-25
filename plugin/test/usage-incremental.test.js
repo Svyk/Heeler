@@ -10,6 +10,7 @@ import zlib from "node:zlib";
 import { createHash } from "node:crypto";
 
 import { matchFiles } from "../src/usage/checkpoint.js";
+import { processStart } from "../src/usage/cache.js";
 
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -355,7 +356,7 @@ test("a live sibling worker keeps its old snapshot cache during another roots re
   const f=fixture(t);await f.finish();
   const sibling=join(f.env.HERDR_PLUGIN_STATE_DIR,"usage","active-sibling");mkdirSync(sibling);writeFileSync(join(sibling,"buckets.json"),"{}");
   const old=new Date(Date.now()-32*86400000);utimesSync(join(sibling,"buckets.json"),old,old);
-  const start=spawnSync("/bin/ps",["-p",String(process.pid),"-o","lstart="],{encoding:"utf8"}).stdout.trim();
+  const start=processStart(process.pid);
   writeFileSync(join(sibling,"worker.lock"),JSON.stringify({pid:process.pid,processStart:start,heartbeat:Date.now(),token:"owned-fixture"}));
   f.stale();await f.finish();assert.equal(readFileSync(join(sibling,"buckets.json"),"utf8"),"{}");
 });
