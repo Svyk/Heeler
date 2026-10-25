@@ -84,6 +84,18 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
         let program: String
         let tokenUsage: TokenUsage
         var usageLimits: UsageLimits
+
+        var displayName: String { Self.displayName(for: program) }
+
+        /// A program a newer plugin adds keeps its own id rather than
+        /// borrowing a known program's name.
+        static func displayName(for program: String) -> String {
+            switch program {
+            case "claude": "Claude Code"
+            case "codex": "Codex"
+            default: program
+            }
+        }
     }
 
     let version: Int
@@ -132,6 +144,33 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
                 && report.scan != nil && report.programs != nil)
         else { throw AgentUsageError.invalidReport }
         return report
+    }
+}
+
+/// The plugin's `YYYY-MM-DD` days are already folded into the report's time
+/// zone, so they are parsed and formatted in UTC and never shift a second
+/// time on a phone in another zone.
+enum AgentUsageCalendarDay {
+    static func date(_ day: String) -> Date? {
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, let year = Int(parts[0]), let month = Int(parts[1]),
+            let dayOfMonth = Int(parts[2])
+        else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let components = DateComponents(year: year, month: month, day: dayOfMonth)
+        guard components.isValidDate(in: calendar) else { return nil }
+        return calendar.date(from: components)
+    }
+
+    /// The day in the reader's locale and calendar, or the plugin's text
+    /// when it is not a date.
+    static func text(_ day: String, locale: Locale, calendar: Calendar, includesYear: Bool) -> String {
+        guard let date = date(day) else { return day }
+        var calendar = calendar
+        calendar.timeZone = .gmt
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: .gmt)
+        return date.formatted(includesYear ? style.year().month(.abbreviated).day() : style.month(.abbreviated).day())
     }
 }
 

@@ -130,6 +130,58 @@ struct AgentUsageLimitsTests {
         #expect(store.state == .available(withLimits))
     }
 
+    @Test func aResetThatPassesWhileThePageIsOpenExpiresTheReading() async throws {
+        let passed = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))
+        let report = try AgentUsageLimitFixture.report(windows: [
+            ["id": "primary", "durationMinutes": 300, "usedPercent": 64, "resetsAt": passed, "expired": false],
+        ])
+        let limits = try #require(report.programs?.last?.usageLimits)
+        let controller = UIHostingController(rootView: AgentUsageLimitsView(program: "codex", limits: limits)
+            .padding(20).frame(width: 390).environment(\.locale, Locale(identifier: "en_US")))
+        let window = try await makeTestWindow(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 600), rootViewController: controller)
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+        #expect(labels.contains("Expired · current usage unknown"))
+        #expect(labels.contains("Reset "))
+        #expect(!labels.contains("Resets "))
+        #expect(!labels.contains("64%"))
+    }
+
+    @Test func aProgramThisBuildDoesNotKnowKeepsItsOwnName() async throws {
+        var object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
+        var programs = try #require(object["programs"] as? [[String: Any]])
+        programs[1]["program"] = "gemini"
+        programs[1]["usageLimits"] = ["state": "unavailable", "reason": "programMissing"]
+        object["programs"] = programs
+        let report = try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in .available(report) }
+        await store.refresh()
+        for surface in [
+            AnyView(VStack { AgentUsageContent(state: store.state) }),
+            AnyView(NavigationStack { AgentUsageView(store: store) }),
+        ] {
+            let controller = UIHostingController(rootView: surface.environment(\.locale, Locale(identifier: "en_US")))
+            let window = try await makeTestWindow(
+                frame: CGRect(x: 0, y: 0, width: 390, height: 2_400), rootViewController: controller)
+            defer { window.isHidden = true }
+            var labels = ""
+            var budget = PollBudget(.seconds(5))
+            while budget.hasTimeLeft {
+                controller.view.layoutIfNeeded()
+                labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view).joined(separator: "\n")
+                if labels.contains("gemini is not installed") { break }
+                try await Task.sleep(for: .milliseconds(50))
+                budget.charge()
+            }
+            #expect(labels.contains("gemini is not installed or cannot run on this Host."), "\(labels)")
+            #expect(!labels.contains("Codex is not installed"))
+            #expect(labels.split(separator: "\n").contains { $0 == "Codex" || $0.hasPrefix("Codex,") } == false,
+                "\(labels)")
+        }
+    }
+
     @Test func theSharedVectorCarriesClaudeServiceAndNullableModelWindows() throws {
         let report = try AgentUsageReport.decode(AgentUsageFixture.data())
         let limits = try #require(report.programs?.first?.usageLimits)
@@ -285,8 +337,10 @@ enum AgentUsageLimitFixture {
         var limits: [String: Any] = [
             "state": state, "source": source, "observedAt": "2026-10-23T12:34:50Z", "plan": "plus",
             "windows": [
+                // Relative to now: a reset that has passed reads as expired.
                 ["id": "primary", "durationMinutes": 10_080, "usedPercent": 18,
-                 "resetsAt": "2026-10-28T00:00:00Z", "expired": false],
+                 "resetsAt": ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 86_400)),
+                 "expired": false],
                 ["id": "secondary", "durationMinutes": 300, "usedPercent": NSNull(),
                  "resetsAt": "2026-10-23T12:00:00Z", "expired": true],
             ],

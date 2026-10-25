@@ -36,7 +36,7 @@ struct AgentUsageContent: View {
             }
             ForEach(report.programs ?? [], id: \.program) { program in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(program.program == "claude" ? "Claude Code" : "Codex")
+                    Text(program.displayName)
                         .font(.headline)
                     AgentUsageLimitsView(program: program.program, limits: program.usageLimits)
                     if program.tokenUsage.state == "ok", let totals = program.tokenUsage.totals {

@@ -54,6 +54,26 @@ struct AgentUsageDetailTests {
         #expect(claude.daily?.last?.date == "2026-10-23")
     }
 
+    @Test func calendarDaysAreLocalizedWithoutShiftingTheirDay() {
+        var farEast = Calendar(identifier: .gregorian)
+        farEast.timeZone = TimeZone(identifier: "Pacific/Kiritimati") ?? .gmt
+        var farWest = Calendar(identifier: .gregorian)
+        farWest.timeZone = TimeZone(identifier: "Pacific/Pago_Pago") ?? .gmt
+        let english = Locale(identifier: "en_US")
+        for calendar in [farEast, farWest] {
+            #expect(AgentUsageCalendarDay.text("2026-10-23", locale: english, calendar: calendar,
+                includesYear: true) == "Oct 23, 2026")
+            #expect(AgentUsageCalendarDay.text("2026-10-01", locale: english, calendar: calendar,
+                includesYear: false) == "Oct 1")
+        }
+        #expect(AgentUsageCalendarDay.text("2026-10-23", locale: Locale(identifier: "de_DE"),
+            calendar: farEast, includesYear: false) == "23. Okt.")
+        for invalid in ["2026-13-40", "yesterday", "2026-10"] {
+            #expect(AgentUsageCalendarDay.text(invalid, locale: english, calendar: farEast,
+                includesYear: true) == invalid)
+        }
+    }
+
     @Test func detailsRenderFromTheSharedVectorAtBothContentSizes() async throws {
         let report = try AgentUsageFixture.report()
         let directory = URL.documentsDirectory.appendingPathComponent("usage-page-renders")
@@ -83,7 +103,7 @@ struct AgentUsageDetailTests {
                 let labels = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view)
                     .joined(separator: ", ")
                 for expected in ["Last 7 days", "Daily tokens", "Models", "Top directories",
-                                 "Price table: 2026-10-23", "Recorded on this Host since 2026-10-23",
+                                 "Price table: 2026-10-23", "Recorded on this Host since Oct 23, 2026",
                                  "Codex shows only its default limit group."] {
                     #expect(labels.contains(expected), "Missing \(expected): \(labels)")
                 }
@@ -158,6 +178,7 @@ struct AgentUsagePageInteractionTests {
         await sleeper.fireAll()
         try #require(await eventually { store.state == .available(complete) && !store.isLoading })
         #expect(await transport.agentUsageReads == beforeRefresh + 2)
+        try #require(await eventually { isNavigationSettled(controller) })
         try await Self.captureViewports(in: controller)
         if interactive {
             try "refresh-complete".write(to: URL.documentsDirectory.appendingPathComponent("usage-interactive-stage"),

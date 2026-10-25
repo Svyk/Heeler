@@ -7,6 +7,14 @@ struct AgentUsageLimitsView: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
+        // Ages and reset times are relative to now: re-render while the
+        // page stays open so a passed reset reads as expired.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            content(now: context.date)
+        }
+    }
+
+    private func content(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Usage Limits").font(.subheadline.weight(.semibold))
             if limits.state == "ok" || limits.state == "throttled" {
@@ -15,7 +23,7 @@ struct AgentUsageLimitsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let sourceSummary {
+                if let sourceSummary = sourceSummary(now: now) {
                     Text(sourceSummary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -26,7 +34,7 @@ struct AgentUsageLimitsView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 ForEach(limits.windows ?? []) { window in
-                    windowView(window)
+                    windowView(window, now: now)
                 }
             } else if limits.state == "unavailable" && limits.reason == "notReadYet" {
                 // Readings follow the Token Usage scan; nothing is known yet.
@@ -43,21 +51,25 @@ struct AgentUsageLimitsView: View {
         }
     }
 
-    private func windowView(_ window: AgentUsageReport.Program.UsageLimits.Window) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func windowView(_ window: AgentUsageReport.Program.UsageLimits.Window, now: Date) -> some View {
+        let reset = date(window.resetsAt)
+        // The plugin decides expiry when it answers; a reset that passes
+        // while the page is open expires the reading here.
+        let expired = window.expired || reset.map { $0 <= now } == true
+        return VStack(alignment: .leading, spacing: 4) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(windowName(window))
                     Spacer(minLength: 12)
-                    percentage(window)
+                    percentage(window, expired: expired)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(windowName(window))
-                    percentage(window)
+                    percentage(window, expired: expired)
                 }
             }
             .font(.subheadline)
-            if window.expired {
+            if expired {
                 Text("Expired · current usage unknown")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -68,8 +80,8 @@ struct AgentUsageLimitsView: View {
                 Text("Current usage unknown")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
-            if let reset = date(window.resetsAt) {
-                Text("\(window.expired ? "Reset" : "Resets") \(timestamp(reset))")
+            if let reset {
+                Text("\(expired ? "Reset" : "Resets") \(timestamp(reset))")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -78,8 +90,10 @@ struct AgentUsageLimitsView: View {
     }
 
     @ViewBuilder
-    private func percentage(_ window: AgentUsageReport.Program.UsageLimits.Window) -> some View {
-        if !window.expired, let percent = window.usedPercent {
+    private func percentage(
+        _ window: AgentUsageReport.Program.UsageLimits.Window, expired: Bool
+    ) -> some View {
+        if !expired, let percent = window.usedPercent {
             Text((percent / 100).formatted(.percent.precision(.fractionLength(0...1)).locale(locale)))
                 .monospacedDigit()
         }
@@ -107,7 +121,7 @@ struct AgentUsageLimitsView: View {
         return "Retry after \(timestamp(retry))"
     }
 
-    private var programName: String { program == "claude" ? "Claude Code" : "Codex" }
+    private var programName: String { AgentUsageReport.Program.displayName(for: program) }
 
     private var unavailableMessage: String {
         if limits.state == "disabled" { return "Usage Limits are off." }
@@ -120,12 +134,12 @@ struct AgentUsageLimitsView: View {
         }
     }
 
-    private var sourceSummary: String? {
+    private func sourceSummary(now: Date) -> String? {
         guard let observed = date(limits.observedAt) else { return nil }
         let relative = RelativeDateTimeFormatter()
         relative.locale = locale
         relative.unitsStyle = .full
-        let age = relative.localizedString(for: observed, relativeTo: Date())
+        let age = relative.localizedString(for: observed, relativeTo: now)
         if limits.source == "lastSession" {
             return "Last session · as of \(timestamp(observed)) (\(age))"
         }

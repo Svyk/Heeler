@@ -15,7 +15,7 @@ struct AgentUsageView: View {
                     AgentUsageRefreshFailureNote(message: failure, isRetrying: store.isRetryingRefresh)
                 }
                 ForEach(report.programs ?? [], id: \.program) { program in
-                    Section(program.program == "claude" ? "Claude Code" : "Codex") {
+                    Section(program.displayName) {
                         AgentUsageLimitsView(program: program.program, limits: program.usageLimits)
                         AgentUsageProgramDetails(program: program, timeZone: report.timeZone)
                     }
@@ -41,6 +41,8 @@ struct AgentUsageProgramDetails: View {
     let program: AgentUsageReport.Program
     let timeZone: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.locale) private var locale
+    @Environment(\.calendar) private var calendar
 
     var body: some View {
         if program.tokenUsage.state == "ok", let totals = program.tokenUsage.totals {
@@ -53,16 +55,16 @@ struct AgentUsageProgramDetails: View {
                     Text("Daily tokens · Last 30 days").font(.headline)
                     Chart(daily, id: \.date) { day in
                         BarMark(x: .value("Day", day.date), y: .value("Tokens", day.tokens.total))
-                            .accessibilityLabel(day.date)
+                            .accessibilityLabel(dayText(day.date, includesYear: true))
                             .accessibilityValue("\(day.tokens.total.formatted()) tokens")
                     }
                     .chartXAxis {
                         AxisMarks { value in
-                            if dynamicTypeSize.isAccessibilitySize
-                                ? (value.index == 0 || value.index == daily.count - 1)
-                                : value.index % 7 == 0 {
-                                AxisValueLabel(anchor: value.index == 0 ? .leading : .trailing) {
-                                    if let date = value.as(String.self) { Text(String(date.suffix(5))) }
+                            if showsAxisLabel(at: value.index, count: daily.count) {
+                                AxisValueLabel(anchor: axisLabelAnchor(at: value.index, count: daily.count)) {
+                                    if let date = value.as(String.self) {
+                                        Text(dayText(date, includesYear: false))
+                                    }
                                 }
                             }
                         }
@@ -117,6 +119,25 @@ struct AgentUsageProgramDetails: View {
         }
     }
 
+    /// Weekly labels count back from today, so the newest day is always
+    /// named; a label too close to the leading edge to fit is left out.
+    private func showsAxisLabel(at index: Int, count: Int) -> Bool {
+        let last = count - 1
+        if dynamicTypeSize.isAccessibilitySize { return index == 0 || index == last }
+        return (last - index).isMultiple(of: 7) && index >= 3
+    }
+
+    /// Top anchors keep every label on one row below the axis; the ends
+    /// stay inside the plot's width.
+    private func axisLabelAnchor(at index: Int, count: Int) -> UnitPoint {
+        if index == count - 1 { return .topTrailing }
+        return index == 0 ? .topLeading : .top
+    }
+
+    private func dayText(_ day: String, includesYear: Bool) -> String {
+        AgentUsageCalendarDay.text(day, locale: locale, calendar: calendar, includesYear: includesYear)
+    }
+
     private func summary(_ title: String, _ value: AgentUsageReport.Summary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.subheadline.weight(.semibold))
@@ -128,6 +149,8 @@ struct AgentUsageProgramDetails: View {
 
 struct AgentUsageCoverage: View {
     let report: AgentUsageReport
+    @Environment(\.locale) private var locale
+    @Environment(\.calendar) private var calendar
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -136,7 +159,9 @@ struct AgentUsageCoverage: View {
                 Text("Token Usage is still being summarized.")
             }
             if let from = report.scan?.coveredFrom {
-                Text("Recorded on this Host since \(from).")
+                let since = AgentUsageCalendarDay.text(
+                    from, locale: locale, calendar: calendar, includesYear: true)
+                Text("Recorded on this Host since \(since).")
             } else {
                 Text("No Transcript coverage recorded on this Host yet.")
             }
