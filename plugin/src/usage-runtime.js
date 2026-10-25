@@ -3,8 +3,12 @@ import { accessSync, constants, mkdirSync, readFileSync, renameSync, rmSync, sta
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-// Claude Code uses USER to locate its macOS keychain account.
-const ENVIRONMENT_NAMES = ["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"];
+// Claude Code uses USER to locate its macOS keychain account. Usage Limits
+// requests need herdr's proxy and CA settings on networks that require them;
+// a proxy URL may embed credentials, so runtime.json stays private (0600).
+const PROXY_NAMES = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+  "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "CODEX_CA_CERTIFICATE"];
+export const ENVIRONMENT_NAMES = ["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", ...PROXY_NAMES];
 
 function executableOnPath(name, path) {
   if (typeof path !== "string") return null;

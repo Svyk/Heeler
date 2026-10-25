@@ -14,7 +14,8 @@ function fixture(t, initialMode = "success") {
   const bin = join(root, "bin");
   const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: join(root, "home"), USER: "herdr-account", CLAUDE_CONFIG_DIR: join(root, "claude-home"),
     CODEX_HOME: join(root, "codex-home"), HERDR_PLUGIN_CONFIG_DIR: join(root, "config"),
-    HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing" };
+    HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing",
+    HTTPS_PROXY: "http://proxy.invalid:3128", NODE_EXTRA_CA_CERTS: join(root, "ca.pem") };
   mkdirSync(bin, { recursive: true });
   symlinkSync(process.execPath, join(bin, "node"));
   writeFileSync(join(bin, "security"), `#!/bin/sh\ntouch "${root}/credential-access"\nexit 1\n`, { mode: 0o755 });
@@ -32,6 +33,8 @@ assert.deepEqual(process.argv.slice(2), ['-p','--input-format','stream-json','--
 assert.equal(process.env.CLAUDE_CONFIG_DIR,${JSON.stringify(env.CLAUDE_CONFIG_DIR)});
 assert.equal(process.env.HOME,${JSON.stringify(env.HOME)});
 assert.equal(process.env.USER,${JSON.stringify(env.USER)}, 'Claude must receive the recorded keychain account');
+assert.equal(process.env.HTTPS_PROXY,${JSON.stringify(env.HTTPS_PROXY)});
+assert.equal(process.env.NODE_EXTRA_CA_CERTS,${JSON.stringify(env.NODE_EXTRA_CA_CERTS)});
 assert.ok(fs.realpathSync(process.cwd()).startsWith(fs.realpathSync(${JSON.stringify(join(env.HERDR_PLUGIN_STATE_DIR, "usage"))})));
 fs.appendFileSync(root+'/starts',String(process.pid)+'\\n');
 const send=response=>process.stdout.write(JSON.stringify({type:'control_response',response})+'\\n');

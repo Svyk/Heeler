@@ -14,7 +14,8 @@ function fixture(t, mode = "success") {
   const root = mkdtempSync(join(tmpdir(), "heeler-codex-limits-"));
   const bin = join(root, "bin");
   const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: join(root, "home"), CODEX_HOME: join(root, "codex-home"),
-    HERDR_PLUGIN_CONFIG_DIR: join(root, "config"), HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing" };
+    HERDR_PLUGIN_CONFIG_DIR: join(root, "config"), HERDR_PLUGIN_STATE_DIR: join(root, "state"), HERDR_BIN_PATH: "/missing",
+    https_proxy: "http://proxy.invalid:3128", NO_PROXY: "localhost", CODEX_CA_CERTIFICATE: join(root, "ca.pem") };
   mkdirSync(bin, { recursive: true });
   mkdirSync(env.CODEX_HOME);
   symlinkSync(process.execPath, join(bin, "node"));
@@ -28,6 +29,7 @@ const readline = require('node:readline');
 assert.deepEqual(process.argv.slice(2), ['-s', 'read-only', '-a', 'never', 'app-server']);
 assert.equal(process.env.CODEX_HOME, ${JSON.stringify(env.CODEX_HOME)});
 assert.equal(process.env.HOME, ${JSON.stringify(env.HOME)});
+for (const name of ['https_proxy', 'NO_PROXY', 'CODEX_CA_CERTIFICATE']) assert.equal(process.env[name], ${JSON.stringify(env)}[name], name);
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 const mode = ${JSON.stringify(mode)};
 let initialized = false;

@@ -19,8 +19,12 @@ JSON document from it with one bounded SSH exec per query
   `runBoundedScript`. The plugin's startup and `pane.agent_status_changed`
   hooks write a `runtime.json` from herdr's environment: the `node`, `codex`
   and `claude` to run, herdr's `PATH`, `HOME` and `USER` (for Claude Code's
-  macOS keychain account), the variables that locate
-  the Agents' data roots, and `HERDR_PLUGIN_STATE_DIR`. The cache lives
+  macOS keychain account), the variables that locate the Agents' data roots,
+  the proxy and CA variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and
+  `NO_PROXY` in both cases, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `CODEX_CA_CERTIFICATE`) that Usage Limits requests need on
+  some networks, and `HERDR_PLUGIN_STATE_DIR`. A proxy URL can embed
+  credentials, so the file is private (0600). The cache lives
   under that directory in a subdirectory keyed by the Transcript roots that
   environment names, whether or not they exist yet, so instances share a
   cache when they read the same Transcripts. Without the file the query asks

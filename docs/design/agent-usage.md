@@ -104,7 +104,19 @@ no `PATH` at all). Plugin hooks run in herdr's environment, so they record:
     "USER": "u",
     "CLAUDE_CONFIG_DIR": null,
     "CODEX_HOME": null,
-    "XDG_CONFIG_HOME": null
+    "XDG_CONFIG_HOME": null,
+    "HTTPS_PROXY": "http://proxy.example:3128",
+    "https_proxy": null,
+    "HTTP_PROXY": null,
+    "http_proxy": null,
+    "ALL_PROXY": null,
+    "all_proxy": null,
+    "NO_PROXY": "localhost",
+    "no_proxy": null,
+    "NODE_EXTRA_CA_CERTS": null,
+    "SSL_CERT_FILE": null,
+    "SSL_CERT_DIR": null,
+    "CODEX_CA_CERTIFICATE": null
   },
   "stateDir": "/Users/u/.local/state/herdr/plugins/heeler"
 }
@@ -119,6 +131,12 @@ no `PATH` at all). Plugin hooks run in herdr's environment, so they record:
   `USER` to locate its macOS keychain account; omitting it can make an
   authenticated subscription appear unavailable. Record herdr's value, not
   the SSH exec's user, and leave it `null` when absent.
+- `env` also holds herdr's proxy and CA variables (`HTTPS_PROXY`,
+  `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, each in upper and lower case,
+  `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR` and
+  `CODEX_CA_CERTIFICATE`). Usage Limits requests go through `codex` and
+  `claude`, which need them on networks that require a proxy or a private CA;
+  without them the requests fail there.
 - `stateDir` is `HERDR_PLUGIN_STATE_DIR`, which herdr gives every plugin
   command, startup hooks included, since 0.7.5. herdr derives it only from
   `XDG_STATE_HOME`, so named sessions share it, and a Herdr Endpoint shares it
@@ -138,8 +156,9 @@ no `PATH` at all). Plugin hooks run in herdr's environment, so they record:
 - Beside it the hooks write `runtime-node`, one line holding `node`'s absolute
   path, because the app's `/bin/sh` script cannot parse JSON. It is written
   after `runtime.json`, with the same rules.
-- Both files are written atomically (temp file and rename), mode 0600, and
-  hold no secret.
+- Both files are written atomically (temp file and rename), mode 0600. They
+  hold no credential of the programs, but a proxy URL may embed the proxy's
+  user name and password, so `runtime.json` stays private to the user.
 - When the files are missing (plugin just installed, no Agent has changed
   status since), the query cannot know the state directory or the right
   roots, so it does not guess: it reports `runtime: "missing"`, no worker
@@ -507,7 +526,7 @@ size:
 
 1. **Primary:** `codex -s read-only -a never app-server` over stdio JSON-RPC,
    using the `codex` and the environment recorded in `runtime.json` (`PATH`,
-   `HOME`, `CODEX_HOME`): `initialize` → `initialized` → `account/read` →
+   `HOME`, `CODEX_HOME`, proxy and CA variables): `initialize` → `initialized` → `account/read` →
    `account/rateLimits/read` with no params. The method exists since
    `rust-v0.48.0`, which took no params; newer versions accept optional
    flags, so no params is the portable call. It costs Codex one extra

@@ -31,6 +31,8 @@ function fixture(t) {
     HERDR_PLUGIN_STATE_DIR: join(root, "state"),
     HERDR_BIN_PATH: "/missing-herdr-not-needed",
     HERDR_PLUGIN_EVENT_JSON: JSON.stringify({ data: { pane_id: "pane:1", agent_status: "working" } }),
+    HTTPS_PROXY: "http://proxy.invalid:3128",
+    NODE_EXTRA_CA_CERTS: "/etc/ssl/private-ca.pem",
     ANTHROPIC_API_KEY: "must-not-be-recorded",
   };
   function run(entry, args = [], overrides = {}) {
@@ -51,7 +53,11 @@ test("startup records only the runtime environment in private atomic files", (t)
   assert.equal(runtime.node, process.execPath);
   assert.equal(runtime.codex, join(f.bin, "codex"));
   assert.equal(runtime.claude, join(f.bin, "claude"));
-  assert.deepEqual(runtime.env, Object.fromEntries(["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"].map(key => [key, f.env[key]])));
+  assert.deepEqual(runtime.env, Object.fromEntries(["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+    "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+    "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "CODEX_CA_CERTIFICATE"].map(key => [key, f.env[key] ?? null])));
+  assert.equal(runtime.env.HTTPS_PROXY, "http://proxy.invalid:3128");
+  assert.equal(runtime.env.NODE_EXTRA_CA_CERTS, "/etc/ssl/private-ca.pem");
   assert.equal(runtime.stateDir, f.env.HERDR_PLUGIN_STATE_DIR);
   assert.equal(JSON.stringify(runtime).includes("must-not-be-recorded"), false);
   assert.equal(readFileSync(join(f.configDir, "runtime-node"), "utf8"), process.execPath + "\n");
@@ -91,17 +97,20 @@ test("query emits only a versioned missing-runtime state before the first hook",
   assert.deepEqual(JSON.parse(result.stdout), { version: 1, runtime: "missing" });
 });
 
-test("an activity hook upgrades a runtime recorded before USER was included", (t) => {
+test("an activity hook upgrades a runtime recorded before USER and the proxy variables were included", (t) => {
   const f = fixture(t);
   assert.equal(f.run("sidebar-hook.js").status, 0);
   const path = join(f.configDir, "runtime.json");
   const previous = JSON.parse(readFileSync(path, "utf8"));
   delete previous.env.USER;
+  delete previous.env.HTTPS_PROXY;
   writeFileSync(path, JSON.stringify(previous));
   const result = f.run("activity-hook.js");
   assert.equal(result.status, 0, result.stderr);
   const current = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(current.env.USER, f.env.USER);
+  assert.equal(current.env.HTTPS_PROXY, f.env.HTTPS_PROXY);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.equal(current.version, previous.version);
   assert.equal(current.stateDir, previous.stateDir);
 });
