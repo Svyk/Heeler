@@ -115,7 +115,7 @@ struct HostOnboardingView: View {
         }
         .readableColumnPage()
         .refreshable {
-            if let usage { await usage.refresh() }
+            if let usage { await usage.pullToRefresh() }
         }
         .navigationTitle(store.host.displayName)
         .navigationBarTitleDisplayMode(.inline)

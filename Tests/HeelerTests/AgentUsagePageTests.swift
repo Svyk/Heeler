@@ -111,8 +111,10 @@ struct AgentUsagePageInteractionTests {
         let partial = try AgentUsageFixture.report(refreshing: true)
         await transport.setHeelerPlugin(.success(.init(pluginRoot: "/plugins/heeler", version: "0.7.0")))
         await transport.setAgentUsage(.success(complete))
+        let sleeper = ChangesManualSleeper()
         let store = AgentUsageStore(hostID: hostID,
-            transports: ScriptedTransportProvider(transports: [hostID: transport]))
+            transports: ScriptedTransportProvider(transports: [hostID: transport]),
+            sleep: { try await sleeper.sleep($0) })
         let controller = UIHostingController(rootView: AnyView(
             NavigationStack {
                 List { AgentUsageSection(store: store) }.navigationTitle("Test Host")
@@ -136,7 +138,6 @@ struct AgentUsagePageInteractionTests {
         try #require(await eventually { await transport.agentUsageReads > initialReads && !store.isLoading })
         let beforeRefresh = await transport.agentUsageReads
         await transport.setAgentUsage(.success(partial))
-        let started = ContinuousClock.now
         if interactive {
             try "page-ready".write(to: URL.documentsDirectory.appendingPathComponent("usage-interactive-stage"),
                 atomically: true, encoding: .utf8)
@@ -148,8 +149,14 @@ struct AgentUsagePageInteractionTests {
             await transport.agentUsageReads > beforeRefresh && store.state == .available(partial)
         })
         await transport.setAgentUsage(.success(complete))
+        // The pull ends after its read; the surfaces keep the 3-second cadence.
+        try #require(await eventually { await !sleeper.durations.isEmpty })
+        for duration in await sleeper.durations {
+            #expect(duration > .zero && duration <= AgentUsageStore.pollInterval)
+        }
+        #expect(await transport.agentUsageReads == beforeRefresh + 1)
+        await sleeper.fireAll()
         try #require(await eventually { store.state == .available(complete) && !store.isLoading })
-        #expect(started.duration(to: .now) >= .seconds(3))
         #expect(await transport.agentUsageReads == beforeRefresh + 2)
         try await Self.captureViewports(in: controller)
         if interactive {
@@ -165,24 +172,30 @@ struct AgentUsagePageInteractionTests {
     @Test func leavingThePageCancelsItsPollingTask() async throws {
         let partial = try AgentUsageFixture.report(refreshing: true)
         var reads = 0
-        let store = AgentUsageStore(hostID: UUID()) { _, _ in reads += 1; return .available(partial) }
+        let sleeper = ChangesManualSleeper()
+        let store = AgentUsageStore(hostID: UUID(), sleep: { try await sleeper.sleep($0) }) { _, _ in
+            reads += 1
+            return .available(partial)
+        }
         let controller = UIHostingController(rootView: AnyView(NavigationStack { AgentUsageView(store: store) }))
         let window = try await makeTestWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844),
             rootViewController: controller)
         defer { window.isHidden = true }
-        try #require(await eventually { reads == 1 && store.isLoading })
+        try #require(await eventually { await !sleeper.durations.isEmpty && reads == 1 && store.isLoading })
         controller.rootView = AnyView(Text("Closed"))
         try #require(await eventually { !store.isLoading })
-        try await Task.sleep(for: .milliseconds(3_100))
+        await sleeper.fireAll()
+        for _ in 0..<20 { await Task.yield() }
         #expect(reads == 1)
         #expect(store.state == .available(partial))
     }
 
     private func eventually(seconds: Double = 5, _ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int64(seconds * 1_000)))
-        while ContinuousClock.now < deadline {
+        var budget = PollBudget(.milliseconds(Int64(seconds * 1_000)))
+        while budget.hasTimeLeft {
             if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(50))
+            budget.charge()
         }
         return await condition()
     }

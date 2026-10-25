@@ -246,6 +246,139 @@ struct AgentUsageStoreTests {
         #expect(await transport.agentUsageReads == 1)
     }
 
+    @Test func aFailedRefreshKeepsTheShownReportAndRetriesWithABoundedBackoff() async throws {
+        let partial = try AgentUsageFixture.report(refreshing: true)
+        let complete = try AgentUsageFixture.report(refreshing: false)
+        let link = TransportError.sshUnreachable(detail: "The Host is not connected.")
+        var results: [Result<AgentUsageStore.State, any Error>] =
+            [.success(.available(partial))] + Array(repeating: .failure(link), count: 7)
+            + [.success(.available(complete))]
+        let sleeper = ChangesManualSleeper()
+        let store = AgentUsageStore(hostID: UUID(), sleep: { try await sleeper.sleep($0) }) { _, _ in
+            try results.removeFirst().get()
+        }
+        let refresh = Task { await store.refresh() }
+        for pauses in 1...8 {
+            while await sleeper.durations.count < pauses { await Task.yield() }
+            #expect(store.state == .available(partial))
+            #expect(store.isLoading)
+            if pauses > 1 {
+                #expect(store.refreshFailure == "Could not read Usage. Check the Host connection and try again.")
+                #expect(store.isRetryingRefresh)
+            }
+            await sleeper.fireAll()
+        }
+        await refresh.value
+        #expect(await sleeper.durations == [3, 3, 6, 12, 24, 30, 30, 30].map { Duration.seconds($0) })
+        #expect(results.isEmpty)
+        #expect(store.state == .available(complete))
+        #expect(store.refreshFailure == nil)
+        #expect(!store.isLoading)
+    }
+
+    @Test func aFirstReadThatFailsStillShowsTheFailure() async {
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in
+            throw TransportError.sshUnreachable(detail: "The Host is not connected.")
+        }
+        await store.refresh()
+        #expect(store.state == .failed("Could not read Usage. Check the Host connection and try again."))
+        #expect(store.refreshFailure == nil)
+        #expect(!store.isLoading)
+    }
+
+    @Test func aFailedRefreshOfACompleteReportWaitsForThePull() async throws {
+        let complete = try AgentUsageFixture.report(refreshing: false)
+        var results: [Result<AgentUsageStore.State, any Error>] = [
+            .success(.available(complete)), .failure(TransportError.timedOut), .success(.available(complete)),
+        ]
+        let sleeper = ChangesManualSleeper()
+        let store = AgentUsageStore(hostID: UUID(), sleep: { try await sleeper.sleep($0) }) { _, _ in
+            try results.removeFirst().get()
+        }
+        await store.refresh()
+        await store.pullToRefresh()
+        #expect(store.state == .available(complete))
+        #expect(store.refreshFailure != nil)
+        #expect(!store.isRetryingRefresh)
+        #expect(!store.isLoading)
+        #expect(await sleeper.durations.isEmpty)
+        await store.pullToRefresh()
+        #expect(store.refreshFailure == nil)
+        #expect(results.isEmpty)
+    }
+
+    @Test func aUsableConnectionEndsTheRetryBackoffAtOnce() async throws {
+        let partial = try AgentUsageFixture.report(refreshing: true)
+        let complete = try AgentUsageFixture.report(refreshing: false)
+        var results: [Result<AgentUsageStore.State, any Error>] = [
+            .success(.available(partial)), .failure(TransportError.timedOut), .failure(TransportError.timedOut),
+            .success(.available(complete)),
+        ]
+        let sleeper = ChangesManualSleeper()
+        let store = AgentUsageStore(hostID: UUID(), sleep: { try await sleeper.sleep($0) }) { _, _ in
+            try results.removeFirst().get()
+        }
+        let generation = store.refreshGeneration
+        store.connectionBecameUsable()
+        #expect(store.refreshGeneration == generation, "Nothing failed, so nothing resumes.")
+        let refresh = Task { await store.refresh() }
+        for pauses in 1...3 {
+            while await sleeper.durations.count < pauses { await Task.yield() }
+            if pauses < 3 { await sleeper.fireAll() }
+        }
+        #expect(store.refreshFailure != nil)
+        store.connectionBecameUsable()
+        await refresh.value
+        #expect(store.state == .available(complete))
+        #expect(await sleeper.durations.count == 3)
+        #expect(results.isEmpty)
+    }
+
+    @Test func aUsableConnectionRestartsTheSurfacesAfterAFailedFirstRead() async {
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in throw TransportError.timedOut }
+        await store.refresh()
+        let key = store.refreshKey
+        store.connectionBecameUsable()
+        #expect(store.refreshKey != key)
+    }
+
+    @Test func pullToRefreshEndsAfterOneReadAndHandsPollingToTheSurfaces() async throws {
+        let partial = try AgentUsageFixture.report(refreshing: true)
+        var reads = 0
+        let store = AgentUsageStore(hostID: UUID()) { _, _ in
+            reads += 1
+            return .available(partial)
+        }
+        let key = store.refreshKey
+        await store.pullToRefresh()
+        #expect(reads == 1)
+        #expect(store.state == .available(partial))
+        #expect(!store.isLoading)
+        #expect(store.refreshKey != key, "A refreshing answer restarts the visible surfaces' polling.")
+    }
+
+    @Test func pullToRefreshDuringPollingReadsOnceAndLeavesPollingRunning() async throws {
+        let partial = try AgentUsageFixture.report(refreshing: true)
+        let complete = try AgentUsageFixture.report(refreshing: false)
+        var results: [AgentUsageStore.State] = [.available(partial), .available(partial), .available(complete)]
+        let sleeper = ChangesManualSleeper()
+        let store = AgentUsageStore(hostID: UUID(), sleep: { try await sleeper.sleep($0) }) { _, _ in
+            results.removeFirst()
+        }
+        let refresh = Task { await store.refresh() }
+        while await sleeper.durations.count < 1 { await Task.yield() }
+        let key = store.refreshKey
+        await store.pullToRefresh()
+        #expect(results.count == 1)
+        #expect(store.isLoading)
+        #expect(store.refreshKey == key)
+        while await sleeper.durations.count < 2 { await Task.yield() }
+        await sleeper.fireAll()
+        await refresh.value
+        #expect(results.isEmpty)
+        #expect(store.state == .available(complete))
+    }
+
     @Test func anAlreadyCancelledRefreshDoesNotLeaveTheHostLoading() async {
         let (store, transport) = await readyStore()
         let refresh = Task {

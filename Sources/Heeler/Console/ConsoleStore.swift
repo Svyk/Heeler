@@ -986,10 +986,15 @@ final class ConsoleStore {
         // activation, not gone. Publish that pending connection to every
         // surface, including the list and saved Chat banners. Removed Hosts
         // have no projection; explicit ended and suspended states stay intact.
+        let previousStatuses = hostStatuses
         hostStatuses = Dictionary(
             uniqueKeysWithValues: current.map { projection in
                 (projection.host.id, projection.status ?? .connecting)
             })
+        for (id, store) in agentUsageStores
+        where hostStatuses[id] == .connected && previousStatuses[id] != .connected {
+            store.connectionBecameUsable()
+        }
         hostStandingFailures = Dictionary(
             uniqueKeysWithValues: current.compactMap { projection in
                 projection.standingFailure.map { (projection.host.id, $0) }

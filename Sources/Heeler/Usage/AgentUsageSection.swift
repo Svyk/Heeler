@@ -3,6 +3,8 @@ import SwiftUI
 /// Shared content for the Host summary and the Usage page's loading states.
 struct AgentUsageContent: View {
     let state: AgentUsageStore.State
+    var refreshFailure: String? = nil
+    var isRetryingRefresh = false
 
     var body: some View {
         switch state {
@@ -23,6 +25,9 @@ struct AgentUsageContent: View {
         case .available(let report):
             if report.refreshing == true {
                 ProgressView("Refreshing")
+            }
+            if let refreshFailure {
+                AgentUsageRefreshFailureNote(message: refreshFailure, isRetrying: isRetryingRefresh)
             }
             if report.scan?.state == "partial" {
                 Text("Token Usage is still being summarized.")
@@ -60,6 +65,27 @@ struct AgentUsageContent: View {
     }
 }
 
+/// A failed refresh keeps the earlier report on screen and says so.
+struct AgentUsageRefreshFailureNote: View {
+    let message: String
+    let isRetrying: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Last refresh failed", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+            Text(message)
+            Text(isRetrying
+                ? "Showing the last report while Heeler retries."
+                : "Showing the last report. Pull to try again.")
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct AgentUsageEstimatedCost: View {
     let summary: AgentUsageReport.Summary
     @Environment(\.locale) private var locale
@@ -94,9 +120,10 @@ struct AgentUsageSection: View {
             NavigationLink("View Usage Details") {
                 AgentUsageView(store: store)
             }
-            AgentUsageContent(state: store.state)
+            AgentUsageContent(state: store.state, refreshFailure: store.refreshFailure,
+                isRetryingRefresh: store.isRetryingRefresh)
         }
-        .task(id: store.claudeLimitsEnabled) { await store.refresh() }
+        .task(id: store.refreshKey) { await store.refresh() }
     }
 }
 

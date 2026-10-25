@@ -11,6 +11,9 @@ struct AgentUsageView: View {
                 if report.refreshing == true {
                     ProgressView("Refreshing")
                 }
+                if let failure = store.refreshFailure {
+                    AgentUsageRefreshFailureNote(message: failure, isRetrying: store.isRetryingRefresh)
+                }
                 ForEach(report.programs ?? [], id: \.program) { program in
                     Section(program.program == "claude" ? "Claude Code" : "Codex") {
                         AgentUsageLimitsView(program: program.program, limits: program.usageLimits)
@@ -27,8 +30,8 @@ struct AgentUsageView: View {
         }
         .readableColumnPage()
         .navigationTitle("Usage")
-        .task(id: store.claudeLimitsEnabled) { await store.refresh() }
-        .refreshable { await store.refresh() }
+        .task(id: store.refreshKey) { await store.refresh() }
+        .refreshable { await store.pullToRefresh() }
     }
 }
 
