@@ -818,8 +818,8 @@ tests and decoded by the Swift tests.
   returns a decoded `AgentUsageReport`; POSIX only via `requirePOSIXHost`.
 - **State:** an `AgentUsageStore` per Host owns the report, its freshness, and
   the refreshing re-query loop.
-- **Toggle:** "Claude Code limits" per Host, in the Usage Limits sheet,
-  stored on the device, default off, with an explanation that the plugin asks Claude Code on the computer
+- **Toggle:** "Claude Code limits" per Host, in the Usage Limits sheet and
+  an iPad's Limits view, stored on the device, default off, with an explanation that the plugin asks Claude Code on the computer
   for its plan limits, that neither the plugin nor Heeler ever handles the
   sign-in, and that this use is not officially supported.
 - **Surfaces:**
@@ -836,16 +836,22 @@ tests and decoded by the Swift tests.
     the last five weeks, the Hosts and programs that make up the total, and
     a Models / Directories / Days breakdown. A day opens a sheet with its
     split by Host, program and token type. The limits sheet lists every
-    window per Host with the Claude Code limits toggle and the note that
-    Codex shows its default limit group only. The footer carries the
-    estimated cost note, each Host's coverage (`coveredFrom`, skipped
-    archives, unreadable files), and the price table date.
+    window per Host, each with its percentage and time to reset, with the
+    Claude Code limits toggle and the note that Codex shows its default
+    limit group only. The footer carries the estimated cost note, one
+    coverage line for the scope (the earliest `coveredFrom`, each Host's
+    skipped archives and unreadable files), and the price table date.
   - On an iPad with a sidebar, Usage is a third list beside Agents and
     Terminals in the sidebar's list menu: All Hosts and each Host with its
-    30-day figure; the detail column uses two columns when wide enough.
+    30-day figure and share in the chosen metric, then the Hosts that are
+    not included. When wide enough, the detail column uses two columns and
+    adds Limits to the Est. Cost / Tokens control: a Limits view with every
+    window per Host in full. The chart and calendar share a selected day in
+    place of the day sheet, the breakdown is a table with a Host column,
+    and each Host's Usage Limits sit in a strip of cards.
   - Host detail keeps a short Usage section (30-day estimated cost, a
-    30-day strip, the tightest limit) that opens the Usage tab scoped to
-    that Host.
+    30-day strip, the tightest limit and its time to reset) that opens the
+    Usage tab scoped to that Host.
 - **Refresh:** query when the section or tab appears (the tab polls every
   Host, whatever its scope), on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the

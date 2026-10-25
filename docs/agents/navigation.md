@@ -119,8 +119,9 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
 - **Usage Limits and Token Usage:** `ConsoleView.usageTab()` hosts the Usage
   tab: [AgentUsageTabView and the iPad sidebar list](../../Sources/Heeler/Usage/AgentUsageTab.swift)
   around [AgentUsageDashboard](../../Sources/Heeler/Usage/AgentUsageDashboard.swift),
-  with [charts](../../Sources/Heeler/Usage/AgentUsageCharts.swift) and
-  [sheets](../../Sources/Heeler/Usage/AgentUsageSheets.swift).
+  with [charts](../../Sources/Heeler/Usage/AgentUsageCharts.swift),
+  [sheets](../../Sources/Heeler/Usage/AgentUsageSheets.swift), and the iPad
+  [wide layout's table, limits strip and Limits view](../../Sources/Heeler/Usage/AgentUsageWide.swift).
   [AgentUsageScope](../../Sources/Heeler/Usage/AgentUsageScope.swift) adds
   Token Usage across Hosts and lists the Hosts left out.
   [HostOnboardingView](../../Sources/Heeler/Hosts/HostOnboardingView.swift)
