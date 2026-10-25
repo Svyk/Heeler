@@ -54,6 +54,39 @@ struct AgentUsageDetailTests {
         #expect(claude.daily?.last?.date == "2026-10-23")
     }
 
+    @Test func theCoverageNoteCountsSkippedAndUnreadableTranscripts() async throws {
+        var object = try #require(JSONSerialization.jsonObject(with: AgentUsageFixture.data()) as? [String: Any])
+        var labelsByCount: [Int: String] = [:]
+        for count in [0, 3] {
+            var scan = try #require(object["scan"] as? [String: Any])
+            scan["skippedArchives"] = count
+            scan["unreadableFiles"] = count
+            object["scan"] = scan
+            let report = try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+            #expect(report.scan?.unreadableFiles == count)
+            let controller = UIHostingController(rootView: AgentUsageCoverage(report: report)
+                .frame(width: 390, alignment: .leading)
+                .environment(\.locale, Locale(identifier: "en_US")))
+            controller.safeAreaRegions = []
+            let bounds = CGRect(origin: .zero,
+                size: controller.sizeThatFits(in: CGSize(width: 390, height: 10_000)))
+            let window = try await makeTestWindow(frame: bounds, rootViewController: controller)
+            defer { window.isHidden = true }
+            controller.view.layoutIfNeeded()
+            labelsByCount[count] = AgentSurfaceReplacementTests.accessibilityLabels(in: controller.view)
+                .joined(separator: ", ")
+        }
+        let clean = try #require(labelsByCount[0])
+        let unreadable = try #require(labelsByCount[3])
+        #expect(clean.contains("Recorded on this Host since"), "Actual labels: \(clean)")
+        #expect(!clean.contains("could not be read"), "Actual labels: \(clean)")
+        #expect(!clean.contains("archives skipped"), "Actual labels: \(clean)")
+        #expect(unreadable.contains(
+            "3 Transcripts or folders could not be read. They are retried on the next refresh."),
+            "Actual labels: \(unreadable)")
+        #expect(unreadable.contains("3 compressed archives skipped."), "Actual labels: \(unreadable)")
+    }
+
     @Test func calendarDaysAreLocalizedWithoutShiftingTheirDay() {
         var farEast = Calendar(identifier: .gregorian)
         farEast.timeZone = TimeZone(identifier: "Pacific/Kiritimati") ?? .gmt

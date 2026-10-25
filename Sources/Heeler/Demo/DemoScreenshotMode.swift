@@ -1286,7 +1286,7 @@
                 "scan": [
                     "state": "complete", "coveredFrom": day(0),
                     "coveredThrough": timestamp.string(from: now.addingTimeInterval(-60)),
-                    "skippedArchives": 0,
+                    "skippedArchives": 0, "unreadableFiles": 0,
                 ],
                 "programs": [claude, codex],
             ]

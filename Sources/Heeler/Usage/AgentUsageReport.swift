@@ -8,6 +8,9 @@ struct AgentUsageReport: Decodable, Equatable, Sendable {
         let coveredFrom: String?
         let coveredThrough: String?
         let skippedArchives: Int
+        /// Transcripts or folders the last run could not read; the plugin
+        /// retries them. Optional so a report without the count still decodes.
+        let unreadableFiles: Int?
     }
 
     struct Tokens: Decodable, Equatable, Sendable {

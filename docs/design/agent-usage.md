@@ -809,8 +809,8 @@ tests and decoded by the Swift tests.
     Token Usage with estimated cost.
   - Tapping it opens the Usage page: today / 7 days / 30 days totals, a 30-day
     daily chart, per-model split, top 10 directories, the coverage note
-    (`coveredFrom`, skipped archives), the price table date, and a note that
-    Codex shows its default limit group only.
+    (`coveredFrom`, skipped archives, unreadable files), the price table
+    date, and a note that Codex shows its default limit group only.
 - **Refresh:** query when the section or page appears, on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the
   Usage Limits requests; polling stops when it turns false. One "Refreshing"

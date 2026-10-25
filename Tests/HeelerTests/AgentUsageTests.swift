@@ -108,8 +108,11 @@ struct AgentUsageStoreTests {
         #expect(codex.daily?.count == 30)
         #expect(codex.daily?.last?.tokens.total == 250)
         #expect(report.scan?.skippedArchives == 0)
+        #expect(report.scan?.unreadableFiles == 0)
         #expect(report.scan?.state == "complete")
         #expect(report.refreshing == false)
+        // A report without the unreadable count still decodes.
+        #expect(try AgentUsageFixture.tokenReport(refreshing: false).scan?.unreadableFiles == nil)
     }
 
     @Test func unknownFieldsAreIgnoredButAnUnknownMajorRequiresAnUpdate() async throws {

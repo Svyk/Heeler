@@ -608,9 +608,9 @@ SSH/keychain availability and current terms remain pre-release checks in
 the [design's open questions](../docs/design/agent-usage.md#open-questions).
 
 Token Usage covers at most 30 days and only the Transcripts still on the
-Host. The page reports coverage and skipped compressed archives. **Estimated
-API cost** uses a bundled price table, not subscription billing; the page
-shows its date and any unpriced tokens. Models or service tiers without a
+Host. The page reports coverage, skipped compressed archives and Transcripts
+it could not read. **Estimated API cost** uses a bundled price table, not
+subscription billing; the page shows its date and any unpriced tokens. Models or service tiers without a
 known price stay unpriced. See the [design](../docs/design/agent-usage.md)
 and [ADR 0026](../docs/adr/0026-plugin-collects-agent-usage-on-the-host.md)
 for collection, cache and privacy boundaries.
