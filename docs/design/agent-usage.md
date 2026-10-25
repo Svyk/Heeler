@@ -708,7 +708,9 @@ tests and decoded by the Swift tests.
   `error` with `reason`.
 - `usageLimits.state`: `ok`, `disabled` (Claude toggle off, or this query
   did not pass `--claude-limits`; a reading another device's query cached is
-  never shown then), `unavailable` with `reason` (`programMissing`,
+  never shown then), `unavailable` with `reason` (`notReadYet` before the
+  first reading of a program whose limits will be read, such as during the
+  first scan or right after the Claude toggle turns on; `programMissing`,
   `programTooOld`, `noPlanLimits`, or `notSignedIn` for Codex), `throttled`
   with `retryAt` and the last good reading (Claude Code), `error` with
   `reason`.

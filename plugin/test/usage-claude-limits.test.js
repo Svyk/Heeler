@@ -181,7 +181,11 @@ test("opting in during a disabled worker schedules Claude after that worker fini
   assert.equal(f.query(false).refreshing, true);
   for (let i = 0; i < 100 && !existsSync(join(f.root, "held")); i++) await sleep(10);
   assert.equal(existsSync(join(f.root, "held")), true);
-  assert.equal(f.query().refreshing, true);
+  const midway = f.query();
+  assert.equal(midway.refreshing, true);
+  // Limits are read after the scan; until then neither program is reported missing.
+  for (const program of midway.programs) assert.deepEqual(program.usageLimits, { state: "unavailable", reason: "notReadYet" });
+  assert.deepEqual(reading(f.query(false)), { state: "disabled" });
   assert.equal(f.requests().length, 0);
   rmSync(join(f.root, "hold"));
   assert.equal(reading(await f.finish()).state, "ok");

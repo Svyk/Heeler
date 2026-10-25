@@ -80,10 +80,9 @@ export function reportFromSnapshot(snapshot, timeZone, refreshing, now = Date.no
       state: "ok", totals: { today: sum(daily.slice(-1)), last7Days: sum(daily.slice(-7)), last30Days: sum(daily) }, daily: daily.map(pricedSummary),
       models: [...models.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.model.localeCompare(b.model)).map(model => ({ ...pricedSummary(model), priced: model.unpricedTokens === 0 })),
       directories: [...directories.values()].sort((a, b) => b.tokens.total - a.tokens.total || a.path.localeCompare(b.path)).slice(0, 10).map(pricedSummary),
-    } : { state: "noData" }, usageLimits: program === "claude" ? (claudeLimits
-      ? expireLimitWindows(snapshot?.usageLimits?.claude || { state: "unavailable", reason: "programMissing" }, now)
-      : { state: "disabled" })
-      : expireLimitWindows(snapshot?.usageLimits?.codex || { state: "unavailable", reason: "programMissing" }, now) };
+    } : { state: "noData" }, usageLimits: program === "claude" && !claudeLimits ? { state: "disabled" }
+      // A program whose limits will be read but have no reading yet is not missing.
+      : expireLimitWindows(snapshot?.usageLimits?.[program] || { state: "unavailable", reason: "notReadYet" }, now) };
   });
   // Clamp the first recorded day into the requested 30-day calendar.
   const since = Number.isFinite(snapshot?.coveredSince) ? dayInZone(snapshot.coveredSince) : null;
