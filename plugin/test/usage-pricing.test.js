@@ -98,7 +98,12 @@ test("the generator deterministically trims source prices and preserves explicit
     "gpt-example": { mode: "responses", input_cost_per_token: 0.000001, output_cost_per_token: 0.000004,
       cache_read_input_token_cost: 0.0000001, input_cost_per_token_above_272k_tokens: 0.000002,
       output_cost_per_token_above_272k_tokens: 0.000006, cache_read_input_token_cost_above_272k_tokens: 0.0000002,
-      input_cost_per_token_priority: 0.000002, output_cost_per_token_priority: 0.000008 },
+      input_cost_per_token_priority: 0.000002, output_cost_per_token_priority: 0.000008,
+      cache_read_input_token_cost_priority: 0.0000002, input_cost_per_token_flex: 0.0000005,
+      output_cost_per_token_flex: 0.000002, cache_read_input_token_cost_flex: 0.00000005,
+      input_cost_per_token_above_272k_tokens_priority: 0.000004, output_cost_per_token_above_272k_tokens_priority: 0.000012 },
+    "gpt-output-only-flex": { mode: "chat", input_cost_per_token: 0.000001, output_cost_per_token: 0.000004,
+      output_cost_per_token_flex: 0.000002 },
     "claude-example": { mode: "chat", input_cost_per_token: 0.000001, output_cost_per_token: 0.000004,
       cache_creation_input_token_cost: 0.00000125, cache_read_input_token_cost: 0.0000001,
       provider_specific_entry: { us: 1.1, fast: 6 } },
@@ -111,11 +116,20 @@ test("the generator deterministically trims source prices and preserves explicit
   result = run(); assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(output, "utf8"), first);
   const table = JSON.parse(first);
-  assert.deepEqual(Object.keys(table.models), ["claude-example", "gpt-example"]);
+  assert.deepEqual(Object.keys(table.models), ["claude-example", "gpt-example", "gpt-output-only-flex"]);
   assert.equal(table.models["claude-example"].fast.input, 0.000006);
   assert.equal(table.models["claude-example"].fast.cacheWrite, 0.0000075);
-  assert.equal(table.models["gpt-example"].longContext.threshold, 272000);
-  assert.equal(table.models["gpt-example"].longContext.base.output, 0.000006);
+  // Priority maps to Fast and flex to Flex, each with only the categories the
+  // source prices; the long-context tier carries its own service tiers.
+  assert.deepEqual(table.models["gpt-example"], {
+    base: { input: 0.000001, output: 0.000004, cacheRead: 0.0000001 },
+    fast: { input: 0.000002, output: 0.000008, cacheRead: 0.0000002 },
+    flex: { input: 0.0000005, output: 0.000002, cacheRead: 0.00000005 },
+    longContext: { threshold: 272000, base: { input: 0.000002, output: 0.000006, cacheRead: 0.0000002 },
+      fast: { input: 0.000004, output: 0.000012 } },
+  });
+  // A service tier without both an input and an output price is not invented.
+  assert.deepEqual(table.models["gpt-output-only-flex"], { base: { input: 0.000001, output: 0.000004 } });
 });
 
 test("Codex cache writes use their own rate or the input rate and reasoning is not charged twice", async t => {
@@ -127,6 +141,16 @@ test("Codex cache writes use their own rate or the input rate and reasoning is n
   const g = fixture(t, { "gpt-fixture": { base } });
   g.transcript("codex", codex("gpt-fixture", "standard", [{ input_tokens: 100, cached_input_tokens: 40, cache_write_input_tokens: 60, output_tokens: 10 }]));
   assert.ok(Math.abs(usage(await g.finish(), "codex").totals.today.estimatedCostUSD - 0.000119) < 1e-12);
+});
+
+test("Codex cache reads without their own rate use the input rate", async t => {
+  const f = fixture(t, { "gpt-fixture": { base: { input: 0.000001, output: 0.000004 } } });
+  f.transcript("codex", codex("gpt-fixture", null, [{ input_tokens: 100, cached_input_tokens: 40, output_tokens: 10 }]));
+  // 60 input + 40 cache read at the input rate + 10 output.
+  assert.ok(Math.abs(usage(await f.finish(), "codex").totals.today.estimatedCostUSD - 0.00014) < 1e-12);
+  const g = fixture(t, { "gpt-fixture": { base: { input: 0.000001, output: 0.000004, cacheRead: 0.0000001 } } });
+  g.transcript("codex", codex("gpt-fixture", null, [{ input_tokens: 100, cached_input_tokens: 40, output_tokens: 10 }]));
+  assert.ok(Math.abs(usage(await g.finish(), "codex").totals.today.estimatedCostUSD - 0.000104) < 1e-12);
 });
 
 test("unknown models and missing service-tier prices stay unpriced while mixed totals retain known estimates", async t => {
