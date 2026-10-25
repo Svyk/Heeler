@@ -1085,7 +1085,7 @@ struct AgentChatStoreTests {
             hostStatus: .connected, conversation: fixture.store.conversation, hasPendingEchoes: false,
             launchNotice: fixture.store.launchNotice)
         #expect(lines == [.launch(.codexSharedServer)])
-        #expect(lines.first?.text.contains(ChatLaunchNotice.unbrokenNoDaemon) == true)
+        #expect(lines.first?.text == "This may be another terminal's conversation.")
     }
 
     @Test(arguments: [

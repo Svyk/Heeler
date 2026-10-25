@@ -85,7 +85,7 @@ extension ChatUnavailableReason {
     func explanation(launchNotice: ChatLaunchNotice?) -> String {
         switch self.launchNotice(launchNotice) {
         case .codexSharedServer?:
-            "herdr can't tell which terminal its conversation is in. Exit Codex, then run codex \(ChatLaunchNotice.unbrokenNoDaemon) resume in the Agent terminal."
+            "Exit Codex, then run codex \(ChatLaunchNotice.unbrokenNoDaemon) resume."
         case nil: explanation
         }
     }
@@ -271,7 +271,7 @@ enum ChatBannerLine: Equatable, Identifiable {
         case .unavailable(let reason, let showingSavedMessages):
             reason.bannerText(showingSavedMessages: showingSavedMessages)
         case .launch(.codexSharedServer):
-            "Started without \(ChatLaunchNotice.unbrokenNoDaemon), so this may be another terminal's conversation."
+            "This may be another terminal's conversation."
         }
     }
 

@@ -20,6 +20,8 @@ If Codex still waits after you have sent prompts, it was probably started withou
 
 Codex was started without `--no-daemon` while its background server runs, so herdr can't tell which terminal its conversation is in ([Set up the Host](chat.md#set-up-the-host)). Agents that herdr brings back after a restart also start without it. Exit Codex and run `codex --no-daemon resume` to continue the same conversation. When a conversation already shows, a banner warns that it may be another terminal's.
 
+Codex tracks the cause in [openai/codex#48500](https://github.com/openai/codex/issues/48500): its background server runs herdr's integration with the settings of the terminal that started the server. [openai/codex#44902](https://github.com/openai/codex/issues/44902) proposes a fix.
+
 ## Conversation Not Found
 
 - A new Claude Code Agent shows this until you send its first prompt.
