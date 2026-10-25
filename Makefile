@@ -99,6 +99,7 @@ check-test-membership: ## Check that the committed project compiles every app te
 	python3 scripts/check-test-target-membership.py
 
 test-tools: check-agent-docs check-test-membership ## Test agent tooling without Xcode or a simulator
+	python3 scripts/test-format-release-notes.py
 	python3 scripts/test-native-test-lifecycle.py
 	python3 scripts/test-check-agent-docs.py
 	python3 scripts/test-check-test-target-membership.py
