@@ -1,0 +1,859 @@
+# heeler
+
+A [herdr plugin](https://herdr.dev/docs/plugins/) that renders a **Pairing Code**
+QR so the Heeler app can add this machine as a Host by scanning it
+(ADR 0007). The `pair` action opens a popup pane: confirm which of the
+machine's addresses go into the code, then scan the QR with the app.
+
+The Pairing Code carries a single-use **Bootstrap Key**: the app connects with
+it once, submits its Device Key public line, and the plugin's Enrollment
+entrypoint appends that key to `authorized_keys` automatically. See
+[Bootstrap Key lifecycle](#bootstrap-key-lifecycle).
+
+The plugin also delivers **Agent Notifications** (ADR 0008) and per-Host
+**Live Activity** updates: two independent `[[events]]` entries on
+`pane.agent_status_changed`. herdr runs every matching hook for the same
+event (verified on 0.8.0). The notify hook pushes encrypted Blocked/Done
+alerts; the activity hook pushes the Host's eligible-agent snapshot to any
+device that has registered a Live Activity token. See
+[Notify hook](#notify-hook) and [Activity hook](#activity-hook).
+
+Starting with plugin 0.4.0, a startup hook also exports the Host's herdr
+sidebar layout for Heeler. Both event hooks refresh it before their notification
+gates. See [Sidebar layout snapshot (v1)](#sidebar-layout-snapshot-v1).
+
+## Requirements
+
+- Node.js >= 20 on `PATH`
+- herdr >= 0.7.5
+- An OpenSSH server on this machine (the code pins its host key fingerprint)
+
+## Install
+
+On a new machine, first install the requirements above and make sure the
+OpenSSH server is running. On macOS, enable **System Settings > General >
+Sharing > Remote Login**. If `/etc/ssh` still has no `ssh_host_*_key.pub`
+files, generate them:
+
+```bash
+sudo ssh-keygen -A
+```
+
+Confirm the command-line requirements:
+
+```bash
+herdr --version   # 0.7.5 or newer
+node --version    # 20 or newer
+```
+
+Install the plugin from GitHub:
+
+```bash
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
+```
+
+The `plugin` branch holds only the files the plugin runs, published from
+`plugin/` on `main`, so the install skips the rest of the repository.
+
+Herdr stores the plugin in its managed checkout and runs the manifest's
+`npm ci` build command automatically. Verify that the plugin is installed and
+enabled:
+
+```bash
+herdr plugin list --plugin heeler
+herdr plugin config-dir heeler
+```
+
+Open the Pairing Code popup:
+
+```bash
+herdr plugin action invoke heeler.pair
+```
+
+The QR, and any reason pairing cannot start, appear in a Herdr popup window,
+not in the terminal that ran invoke.
+
+Scan the code in Heeler to add this machine as a Host, or press `c` on the
+QR screen to copy the Pairing Code and paste it in the app (macOS uses
+`pbcopy`; elsewhere the code is printed for manual selection). Then open the
+Heeler settings, enable Agent Notifications, grant the iOS notification
+permission, and enable Notifications for this Host. Leave **Custom Push
+Relay** empty to use the production endpoint at
+`https://heeler-apns.bybee.dev`.
+
+To update an installed GitHub-managed plugin, run the same `plugin install`
+command again. Plugin 0.6.0 scopes notifications to the herdr session they
+come from; update it on every Host along with the app (see
+[Updating to 0.6.0](#updating-to-060)). The app's Host details show the
+installed version and offer this command when it is older than the plugin
+the app was built alongside.
+
+On herdr 0.9.4, reinstalling a disabled plugin keeps it disabled, where
+herdr 0.9.3 turned it back on. Turn it on afterwards:
+
+```bash
+herdr plugin enable heeler
+```
+
+Unlike `plugin install`, `plugin enable` only works through a running herdr
+session: if the default session is not running, name one that is, for
+example `herdr --session work plugin enable heeler`. For a disabled plugin,
+the app's Host details show the enable command for the Host's session.
+
+To inspect notification or pairing failures:
+
+```bash
+herdr plugin log list --plugin heeler --limit 20
+```
+
+For local development, link the working tree instead. Build it first because
+`plugin link` does not run build commands:
+
+```bash
+cd plugin && npm ci
+herdr plugin link "$(pwd)"
+herdr plugin action invoke heeler.pair
+```
+
+The popup checklist: arrows or `j`/`k` move, space toggles, `a` toggles all,
+enter mints a Bootstrap Key and renders the QR, `q`/escape closes (revoking
+the key). On the QR screen, `c` copies the Pairing Code; any other key
+closes. When the code expires, enter generates a fresh one. Once a device
+enrolls, the QR is replaced by a success screen showing the enrolled Device
+Key's fingerprint and label; press `r` there to revoke that key (removing its
+`authorized_keys` line), or any other key to close.
+
+Starting with plugin 0.5.0, the advertised SSH port is configurable. It is 22
+by default; override it with `pair.json` in the plugin config directory when
+OpenSSH listens elsewhere — for example, Tailscale SSH on port 22 with
+OpenSSH on 2222:
+
+```bash
+herdr plugin config-dir heeler
+# write {"ssh_port": 2222} into that directory as pair.json
+herdr plugin action invoke heeler.pair
+```
+
+| Field      | Type    | Meaning |
+| ---------- | ------- | ------- |
+| `ssh_port` | integer | SSH port advertised in the Pairing Code, `1..65535`. Default 22. An absent `pair.json` means 22; a file that cannot be read or parsed, or an `ssh_port` outside that range, also falls back to 22 and says so in the checklist. |
+| `addresses` | string[] | Addresses (IPs or host names) the phone reaches this machine on but its interfaces do not show: a container behind a published port, a NAT, a DNS name. Listed first in the checklist and pre-checked; the enumerated addresses follow unchecked. Default none. A value that is not a list of non-empty strings without whitespace is ignored and says so in the checklist. |
+
+`addresses` (plugin 0.6.2 and later; older plugins ignore it) is what a
+machine behind a port mapping needs, for example
+herdr in a Docker container whose sshd is published as port 2222 on a NAS
+at `192.168.1.10`. Inside the container the plugin only sees the bridge
+address (`172.17.x.x`), which the phone cannot reach:
+
+```json
+{"ssh_port": 2222, "addresses": ["192.168.1.10", "nas.example.com"]}
+```
+
+The Pairing Code pins the host key found under `/etc/ssh` (`src/host-key.js`),
+so the alternate port must be served by **the same sshd** — another `Port`
+line in `sshd_config`, not a second instance with its own `HostKey`, whose
+fingerprint the code would not match. `pair.json` is re-read on every
+checklist repaint, so an edit made in another pane lands on the next keypress
+without reopening the popup. `addresses` builds the checklist, so it is read
+once when the popup opens.
+
+The checklist and QR screen both show the advertised port, and the checklist
+names an override it could not honor rather than quietly handing back 22 —
+the port a Tailscale-SSH Host is trying to get away from. Pairing still
+requires a real OpenSSH listener (host key under `/etc/ssh`,
+`authorized_keys` forced commands); Tailscale SSH alone cannot run the
+ceremony.
+
+On a machine holding an address that *might* be a tailnet one, the popup asks
+Tailscale once, after the first paint, whether it is serving SSH:
+`tailscale debug prefs` (`RunSSH`), falling back to `tailscale status --json`
+(this node's `sshHostKeys`). If it is, and one of the addresses
+`status --json` reports as this node's own (`Self.TailscaleIPs`) is checked
+while the code still advertises port 22, the checklist says so before the QR
+appears — tailscaled would answer that port, and Enrollment cannot run there.
+
+The warning matches those addresses exactly rather than the `100.64.0.0/10`
+range, which is the whole carrier-grade NAT block: measured on a VPS whose
+own NIC held `100.114.1.129` while `tailscale0` held `100.73.39.6`, a
+range test warns about an address tailscaled never answers for. The range is
+only a screen for whether asking Tailscale is worth a subprocess at all.
+
+Measured against Tailscale 1.102.4: `RunSSH` tracks `tailscale set --ssh`
+in both directions, `sshHostKeys` was absent from `Self` and from every peer
+either way, and `Self.CapMap` is no substitute — its `cap/ssh` and
+`ssh-behavior-v1` entries are ACL grants that survive `--ssh=false`.
+
+Every probe only ever answers yes. No `tailscale` on `PATH` (nor in the macOS
+app bundle), a logged-out tailscaled, an output shape that changed, or a
+readable `RunSSH` with unreadable addresses all read as "not serving" and
+warn about nothing: a false alarm on every pairing would cost more than this
+warning saves.
+
+A missed warning is caught on the phone instead. tailscaled identifies itself
+as `SSH-2.0-Tailscale`, and the app skips any candidate that does before
+comparing its host key or authenticating, then names Tailscale SSH and
+`ssh_port` rather than reporting the Host unreachable. Stopping before
+authentication matters: under a `check` policy tailscaled holds
+authentication open for a browser login, and under `accept` it would run the
+requested command as the user.
+
+## Pairing Code envelope (v1)
+
+The Pairing Code is a single-line string; the QR image is just its rendering.
+
+```
+HERDR-PAIR:<version>:<base64url(JSON, no padding)>
+```
+
+- `HERDR-PAIR` is a literal prefix; anything else is rejected (`bad_prefix`).
+- `<version>` is a decimal integer. This document specifies versions `1` and
+  `2` ([Pairing Code v2](#pairing-code-v2-herdr-endpoint)); any other value
+  is rejected (`unsupported_version`).
+- The body is the payload JSON, UTF-8, encoded as unpadded base64url
+  (RFC 4648 `-`/`_` alphabet). Invalid base64url or JSON is rejected
+  (`bad_encoding`).
+
+### Payload fields
+
+| Wire key | Type    | Required | Meaning |
+| -------- | ------- | -------- | ------- |
+| `addrs`  | string[]| yes      | Candidate addresses in the order the app should try them. Non-empty; each entry a non-empty string without whitespace. IPv6 literals carry no brackets and no zone id. |
+| `port`   | integer | yes      | SSH port, `1..65535`. |
+| `user`   | string  | yes      | SSH username. Non-empty, no whitespace. |
+| `fp`     | string  | yes      | Host key fingerprint exactly as OpenSSH prints it: `SHA256:` + 43 chars of unpadded standard base64. The app pins this instead of showing a TOFU prompt. |
+| `seed`   | string  | no       | Raw 32-byte Ed25519 seed of the Bootstrap Key, unpadded base64url. Present together with `exp` or not at all. |
+| `exp`    | integer | no       | Unix-seconds expiry of the Bootstrap Key. Present together with `seed` or not at all. |
+
+A payload violating these rules is rejected (`bad_payload`). A code without
+`seed`/`exp` is a config-only Pairing Code: same ceremony minus the bootstrap
+connection.
+
+### Canonical encoding
+
+Encoders emit the keys in the order of the table above with no JSON
+whitespace, so a given payload has exactly one canonical code. Decoders do not
+depend on key order.
+
+### Compatibility rules
+
+- Decoders ignore unknown payload fields; additive metadata may appear within
+  v1.
+- Any breaking change (removing, renaming, or re-typing a field, or changing
+  the envelope framing) bumps `<version>`, and both implementations must be
+  updated together.
+
+## Pairing Code v2 (Herdr endpoint)
+
+Version 2 pairs a Host whose herdr lives outside the user's own config home,
+such as a desktop app that bundles herdr and runs it with its own
+`XDG_CONFIG_HOME` (ADR 0023). It keeps the v1 envelope, error codes, and
+compatibility rules, and adds two required fields that name that herdr: its
+API socket and a launcher for it.
+
+| Wire key | Type    | Required | Meaning |
+| -------- | ------- | -------- | ------- |
+| `addrs`  | string[]| yes      | As v1. |
+| `port`   | integer | yes      | As v1. |
+| `user`   | string  | yes      | As v1. |
+| `fp`     | string  | yes      | As v1. |
+| `sock`   | string  | yes      | Absolute path of the herdr API socket. |
+| `herdr`  | string  | yes      | Absolute path of the launcher, an executable that behaves as `herdr` for this socket. |
+| `seed`   | string  | no       | As v1. |
+| `exp`    | integer | no       | As v1. |
+
+Decoders check the v1 fields first, then these rules; a violation is rejected
+(`bad_payload`):
+
+- `sock` and `herdr` are absolute paths without `'`, `\`, or ASCII control
+  characters (U+0000 to U+001F, U+007F). Spaces are allowed.
+- `sock` uses herdr's socket layout: it ends in `/herdr/herdr.sock` (the
+  default session) or `/herdr/sessions/<name>/herdr.sock` with a valid session
+  name ([herdr sessions](#herdr-sessions)), so the hooks can tell which
+  session they serve.
+- `sock` is at most 96 bytes of UTF-8. Attach and wake use herdr's client
+  socket, named by inserting `-client` before `.sock`, and that path must
+  still fit macOS `sun_path` (103 bytes plus the NUL).
+
+Encoders emit the keys in the order of the table above with no JSON
+whitespace, as in v1.
+
+### Why a new version
+
+Adding fields is allowed within v1, but v1 decoders ignore unknown fields. An
+older app would drop `sock` and `herdr` and pair against the default socket and
+the `herdr` on `PATH`, without any error. Under version 2 it refuses the code
+(`unsupported_version`) and saves nothing.
+
+Only the app decodes v2. This plugin emits and decodes v1 and rejects v2 as
+`unsupported_version`. A v1 code that carries `sock` or `herdr` still pairs
+without an endpoint. Endpoints work on macOS and Linux Hosts only; a native
+Windows Host paired from a v2 code fails with an explicit error.
+
+### Launcher contract
+
+For every herdr command on the Host, the app runs the launcher, never a
+`herdr` from `PATH`, as a positional argument of a POSIX shell body that
+exports `HERDR_SOCKET_PATH` as `sock`:
+
+```bash
+LC_ALL=C /bin/sh -c 'export HERDR_SOCKET_PATH="$2"; exec "$1" session list --json' herdr '<herdr>' '<sock>'
+```
+
+The launcher must:
+
+- `exec` the real herdr with the arguments it was given and write nothing of
+  its own to stdout or stderr. `session list --json` and `plugin list --json`
+  output is parsed as one JSON document, and attach runs on a PTY whose output
+  goes straight to the terminal.
+- Run herdr, and the server behind `sock`, with the endpoint's own
+  `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, so `plugin config-dir` and
+  `session list` resolve this instance and neither `notifications.json` nor
+  the plugin's state is shared with the user's own herdr. A shared
+  `notifications.json` would let the endpoint Host's Notification Registration
+  evict the user's existing Host for the same machine. `HERDR_PLUGIN_STATE_DIR`
+  depends only on `XDG_STATE_HOME`, and with a shared one the two default
+  sessions overwrite each other's notification markers and Live Activity
+  state.
+- Give herdr a `PATH` on which this plugin's `node` and the user's agents
+  resolve. The app sets no `PATH`, so a server that the launcher starts
+  otherwise inherits sshd's minimal `PATH`, and the hooks it runs cannot find
+  `node`.
+- Let `remote-client-bridge` start or reach the endpoint's server. The app runs
+  it to wake herdr only when the socket file exists but refuses connections,
+  and for a `sessions/<name>` socket it also exports `HERDR_SESSION`, as for a
+  regular named session.
+
+An exit status of 126 or 127 from the launcher's `session list`, `plugin list`
+or attach is reported as a missing launcher, not as herdr missing from `PATH`.
+A failed wake keeps the original socket error.
+
+## Bootstrap Key lifecycle
+
+Confirming the address checklist mints an ephemeral Ed25519 **Bootstrap Key**.
+Its raw 32-byte seed rides in the Pairing Code (`seed`/`exp`); its public half
+is written to `~/.ssh/authorized_keys` as a restricted line:
+
+```
+restrict,command="'<node>' '<plugin>/src/pair-accept.js' --state-dir '<state>' --pairing-id <id>" ssh-ed25519 <blob> herdr-pairing:<id>:exp:<unix-seconds>
+```
+
+- `restrict` plus the forced command mean the key can do exactly one thing:
+  run the Enrollment accept entrypoint. The command embeds absolute paths
+  because sshd provides no plugin environment.
+- The trailing `herdr-pairing:<id>:exp:<unix-seconds>` comment marks the line
+  so cleanup and the sweep can find it with no state beyond the file.
+- All edits to `authorized_keys` are atomic (exclusive lock, temp file +
+  rename) and preserve the file mode, so sshd `StrictModes` keeps accepting
+  the file.
+
+The line is removed on successful Enrollment (self-revoke), when the 2-minute
+TTL expires, when the popup exits (including SIGTERM/SIGHUP), and by a sweep
+of expired lines every time the popup starts — so a killed popup leaves at
+worst a line that dies with its TTL and is swept at the next start. Pending
+ceremony state lives under `$HERDR_PLUGIN_STATE_DIR/pending/<id>.json`, never
+in the plugin checkout. On successful Enrollment the accept entrypoint writes
+`$HERDR_PLUGIN_STATE_DIR/enrolled/<id>.json` (the enrolled fingerprint and
+line); the popup polls for it to show the success screen and drive the revoke,
+and clears it on exit. An invalid submission does not consume the line; the
+app may retry until the TTL runs out.
+
+### Enrollment accept protocol
+
+The app connects with the Bootstrap Key and writes its Device Key public line
+(`ssh-ed25519 <blob> [comment]`, printable-ASCII comment) followed by a
+newline to stdin. The forced command answers with one line on stdout:
+
+| Response | Meaning |
+| -------- | ------- |
+| `HERDR-ENROLL:OK:<SHA256:fingerprint>` | Device Key appended (or already authorized); bootstrap line revoked. Exit 0. |
+| `HERDR-ENROLL:ERR:invalid_key` | Submission is not a bare Ed25519 public line. Line not consumed; retry allowed. Exit 1. |
+| `HERDR-ENROLL:ERR:no_input` | Nothing arrived on stdin. Line not consumed. Exit 1. |
+| `HERDR-ENROLL:ERR:expired` | TTL passed; the bootstrap line was removed. Regenerate the code. Exit 1. |
+| `HERDR-ENROLL:ERR:unknown_pairing` | No pending ceremony (already used, cleaned up, or never existed). Exit 1. |
+
+Human-readable detail goes to stderr. Manual demo from another machine:
+
+```bash
+# On the phone side stand-in: seed.key holds the Bootstrap Key in any format
+# ssh accepts; the app itself uses the raw seed from the Pairing Code.
+ssh -i seed.key <user>@<host> < device_key.pub
+```
+
+### Shared test vectors
+
+`test-vectors/pairing-code-v1.json` is the single source of truth for the
+envelope, consumed by the Node tests here and the Swift tests in the app.
+Valid vectors must decode to the given payload and (unless `decodeOnly`)
+re-encode to the exact code; invalid vectors must fail with the given error
+code (`bad_prefix`, `unsupported_version`, `bad_encoding`, `bad_payload` —
+these map to the "parse" step of the pairing failure taxonomy).
+`test-vectors/pairing-code-v2.json` has the same shape plus each endpoint's
+`socketPath` and `herdrPath`, and only the Swift tests read it.
+
+## Notification envelope (v1)
+
+The encrypted Agent Notification payload (ADR 0008): the notify hook
+encrypts it on the Host, the Push Relay and APNs carry it opaquely, and the
+app's service extension decrypts it. One compact JSON object:
+
+```json
+{"v": 1, "kid": "<key id>", "n": "<nonce>", "ct": "<ciphertext>"}
+```
+
+### Cleartext fields
+
+| Wire key | Type    | Meaning |
+| -------- | ------- | ------- |
+| `v`      | integer | Envelope version. This document specifies version `1`; any other integer is rejected (`unsupported_version`). |
+| `kid`    | string  | Key id: the first 8 bytes of SHA-256 over the raw 32-byte Notification Key, unpadded base64url. Derived on both ends, never stored. The app uses it to select the right Notification Key (and thus Host) when several Hosts are registered. |
+| `n`      | string  | 12-byte AES-GCM nonce, unpadded base64url. Freshly random per envelope. |
+| `ct`     | string  | AES-256-GCM ciphertext followed by the 16-byte tag, unpadded base64url. |
+
+A missing or mistyped field, invalid base64url, or wrong nonce/tag length is
+rejected (`bad_envelope`).
+
+### Ciphertext
+
+AES-256-GCM under the per-host Notification Key, with the UTF-8 bytes of
+`HERDR-NOTIFY:1` as additional authenticated data so a ciphertext re-framed
+under another version fails authentication. Tampered material or the wrong
+key is rejected (`decrypt_failed`) — GCM cannot tell those apart. The
+plaintext is compact JSON:
+
+| Wire key | Type    | Meaning |
+| -------- | ------- | ------- |
+| `pane`   | string  | herdr pane id the Agent lives in. Non-empty. |
+| `kind`   | string  | Agent kind as herdr reports it (`claude`, `codex`, ...). Non-empty. |
+| `status` | string  | The new Agent Status. An open set: decoders pass unrecognized values through. Non-empty. |
+| `ts`     | integer | Unix-seconds of the status transition. Positive. |
+| `project`| string  | Optional, display only: the workspace label the Agent runs in — the project name the app's alert leads with. Omitted when the Host cannot resolve it. At most 256 characters (the hook trims to 80 before encrypting). |
+| `title`  | string  | Optional, display only: the Agent's terminal title with status glyphs stripped — what it is working on. Same absence and length rules as `project`. |
+
+A plaintext that is not JSON or violates these rules is rejected
+(`bad_payload`). Every rejection is a typed error on the app side; the
+service extension answers any of them with a generic fallback banner, never
+a crash.
+
+### Canonical encoding
+
+Encoders emit both JSON objects with the keys in table order and no
+whitespace, so given inputs yield exactly one envelope; the shared vectors
+assert on the exact string. An optional field with no value is omitted
+entirely rather than sent empty, so absent, null, and `""` all encode
+identically. Decoders do not depend on key order and ignore unknown fields at
+either layer (additive v1 metadata). Any breaking change bumps `v`, and both
+implementations must be updated together.
+
+### Shared test vectors
+
+`test-vectors/notification-payload-v1.json` is the single source of truth,
+consumed by the Node tests here (encrypt direction: non-`decodeOnly` valid
+vectors must be reproduced byte-for-byte) and the Swift tests in the app
+(decrypt direction: valid vectors must yield the payload, invalid vectors —
+including tampered-ciphertext and wrong-key cases — must fail with the given
+error code: `bad_envelope`, `unsupported_version`, `decrypt_failed`,
+`bad_payload`).
+
+## Notification Registration file (v1)
+
+Where a Host learns which devices to notify: the app writes this file over
+SSH during Notification Registration; the notify hook reads it and POSTs one
+push per device entry. It lives at `notifications.json` inside this plugin's
+config directory (the app resolves that directory via
+`herdr plugin config-dir`). Writers replace the whole file atomically
+(temp file + rename). The app keeps at most one entry per device token and
+herdr session; removing an entry revokes that device for that session.
+
+```json
+{
+  "v": 1,
+  "devices": [
+    {
+      "token": "a1b2c3...",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "env": "production",
+      "session": "",
+      "notify": { "blocked": true, "done": true },
+      "live_activity": { "token": "c4d5e6...", "started_at": "2026-01-01T00:00:00Z" }
+    }
+  ]
+}
+```
+
+| Field            | Type    | Meaning |
+| ---------------- | ------- | ------- |
+| `v`              | integer | File format version. This document specifies version `1`; a reader finding any other value must treat the file as absent (send nothing) rather than guess. |
+| `devices`        | array   | One entry per registered device. Empty means no notifications. |
+| `token`          | string  | The device's APNs device token, lowercase hex. Unique within the file per `session`: a device with Hosts on several herdr sessions of this user has one entry per session. |
+| `key`            | string  | Raw 32-byte Notification Key, unpadded base64url. Generated on the device, per Host. |
+| `session`        | string  | The herdr session the entry was registered for: `""` for the default session (never the literal `"default"`), otherwise the session name. See [herdr sessions](#herdr-sessions). Entries without a string `session` were written by older apps and receive every session's deliveries. |
+| `env`            | string  | `production` or `sandbox`: which APNs environment the token belongs to, following the app build that registered it. |
+| `notify.blocked` | boolean | Send a push when an Agent becomes Blocked. |
+| `notify.done`    | boolean | Send a push when an Agent reaches Done. A missing flag means do not send (fail closed). |
+| `live_activity`  | object  | Optional per-device Live Activity registration. Present while the app is showing this Host's activity. See [Activity hook](#activity-hook). |
+| `live_activity.token` | string | The per-activity APNs push token, lowercase hex. Distinct from the alert `token`. |
+| `live_activity.started_at` | string | ISO 8601 timestamp the app wrote when it started (or rotated) the activity. Ignored by the hook; preserved on rewrite. |
+| `live_activity.pinned_pane_ids` | string[] | Optional. Pane ids the device has pinned, most-recently-pinned first. Reorders Live Activity rows; does not change eligibility or counts. Missing, null, non-array, or any non-string entry is ignored (treated as empty). |
+
+Readers ignore unknown fields (additive v1 metadata); breaking changes bump
+`v`, honored by plugin and app together.
+
+### herdr sessions
+
+Every herdr session of one remote user runs this plugin's hooks with the same
+config and state directories, so all sessions read the same
+`notifications.json`, and pane ids repeat across sessions. Each hook process
+derives its own session from `HERDR_SOCKET_PATH` (`src/session.js`), checked in
+this order:
+
+1. Unset or empty: the default session (`""`).
+2. Ends with `/herdr/sessions/<name>/herdr.sock` and `<name>` is a valid herdr
+   session name (1 to 64 bytes of ASCII letters, digits, `.`, `_` and `-`,
+   not `.` or `..`): that name. This comes first, so a session named `herdr`
+   is not mistaken for the default.
+3. Ends with `/herdr/herdr.sock`: the default session (`""`).
+4. Anything else (for example a custom socket override): unknown.
+
+A hook delivers alerts and Live Activity updates only to entries whose
+`session` equals its own, plus legacy entries without a string `session`,
+which every session delivers to as before. A hook whose session is unknown
+delivers to legacy entries only. Names compare exactly (case-sensitive), and
+the name `default` gets no special treatment. The delivery check also runs
+before the debounce, so a session with no entries to deliver to neither sleeps
+nor calls herdr to send anything.
+
+Per-session hook state lives under `HERDR_PLUGIN_STATE_DIR/sessions/<name>/`
+for a named session (`notify/` dedupe markers, `activity/claim.json`,
+`activity/last-state.json`), so one session's dedupe, debounce claim, or ended
+Live Activity never affects another. The default and unknown sessions keep
+the paths earlier plugin versions used, directly under
+`HERDR_PLUGIN_STATE_DIR`. A `410 Unregistered` still prunes by token across
+every session (see the hook sections below).
+
+`test-vectors/notification-session-v1.json` pins the name rule, the socket
+path derivation, and the delivery rule; the Node tests here and the Swift
+tests in the app both read it.
+
+### Releasing a plugin version
+
+Bump `version` in `herdr-plugin.toml`, `package.json` and `package-lock.json`
+together with `test-vectors/plugin-version-v1.json` and
+`HeelerPluginCompatibility.bundled` in the app; the Node and Swift tests
+check that they agree. The app recommends updating any Host whose plugin is
+older, and its per-feature notes (`HeelerPluginFeature`) trust the version
+alone, so bump it with every change the app relies on rather than shipping
+behavior under an unchanged number, as 0.3.0 and 0.4.0 did.
+
+Once the bump is on `main`, run `make plugin` from the repository root to
+publish it to the `plugin` branch, before the app release that bundles it:
+the app's update notice installs from that branch. See
+[Publishing the herdr plugin](https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/releasing.md#publishing-the-herdr-plugin).
+
+### Updating to 0.6.0
+
+- A 0.6.0 plugin with an app that does not write `session` behaves as before:
+  every entry is legacy and every session delivers to it.
+- An app that writes `session` with a plugin older than 0.6.0: the old plugin
+  ignores `session` and delivers every entry from every session, so Hosts on
+  different herdr sessions of the same remote user receive each other's
+  notifications (opening the wrong pane), and one event can arrive as two
+  notifications. Update the plugin on each Host to fix this.
+- Downgrading the app on a device after upgrading mixes up notifications of
+  Hosts that share a server; after upgrading again, re-check each Host's
+  Notifications toggle.
+
+### Updating to 0.6.1
+
+- Plugin 0.6.0 rejected some sidebar settings that herdr 0.9 accepts
+  (`letta`, `machine`, token `rules`, a UTF-8 byte-order mark) and wrote the
+  default layout and sort with a diagnostic. After the update, the next
+  refresh, at server start or the next Agent Status transition, replaces that
+  snapshot without a config edit.
+- A Host whose rows Sync from plugin replaced while 0.6.0 rejected its
+  settings keeps the default fields it saved; sync it again.
+
+### Updating to 0.6.2
+
+- Plugin 0.6.2 reads `addresses` from `pair.json` and offers them first in
+  the pairing checklist. Older plugins ignore the field and list only the
+  machine's own interfaces, so a Host behind a port mapping needs 0.6.2 to
+  pair. Without `addresses` the checklist is unchanged.
+
+## Sidebar layout snapshot (v1)
+
+`src/sidebar-hook.js` runs through `[[startup]]` at server start and live
+handoff. It needs only `HERDR_PLUGIN_CONFIG_DIR`; startup has no
+`HERDR_PLUGIN_EVENT_JSON`. Startup hooks are supported by herdr 0.7.5, so the
+minimum herdr version stays 0.7.5.
+
+The hook reads the config using the server environment inherited by plugin
+processes, in this order:
+
+1. `HERDR_CONFIG_PATH`, when set, is the exact source path.
+2. Otherwise, `XDG_CONFIG_HOME/herdr/config.toml`, when `XDG_CONFIG_HOME` is set.
+3. Otherwise, `HOME/.config/herdr/config.toml` (the system temporary directory
+   replaces `HOME/.config` when `HOME` is unset).
+
+Named sessions share this source; they do not add a session directory to its
+path. The plugin parses TOML with `smol-toml`, validates the sidebar agent
+layout and sort, then writes **`HERDR_PLUGIN_CONFIG_DIR/sidebar.json`**, next
+to `notify.json`. It never writes this snapshot to `HERDR_PLUGIN_STATE_DIR`.
+Writes use an exclusive mode **0600** temporary file followed by atomic rename;
+a newly created plugin config directory has mode **0700**.
+
+A UTF-8 byte-order mark is handled as herdr 0.9.4 handles its usual
+placements: a leading U+FEFF is stripped, and a U+FEFF at the start of a
+later line is removed only when the parser's error points at it, after which
+parsing is retried. A U+FEFF that is string data, such as one at a line start
+inside a multi-line string, parses and is kept. herdr 0.9.4 also removes a
+U+FEFF elsewhere in a line, for example after indentation or after `=`, when
+its parser's error points there; the plugin reports `parse_error` for such a
+file.
+
+`smol-toml` implements TOML 1.1, while herdr 0.9.4 reads TOML 1.0, so the
+plugin accepts some files that herdr rejects: a newline or trailing comma
+inside an inline table and the `\e` and `\xHH` string escapes pass here
+although `herdr config check` reports them. `herdr config check` remains the
+authority on whether herdr accepts a file.
+
+```json
+{
+  "v": 1,
+  "generated_at": 1757040000,
+  "source": {
+    "path": "/home/u/.config/herdr/config.toml",
+    "found": true,
+    "mtime_ms": 1757039000123
+  },
+  "agent_panel_sort": "priority",
+  "sidebar": {"agents": {
+    "row_gap": 0,
+    "rows": [
+      [{"token":"state_icon"},{"token":"terminal_title_stripped","fg":"#6c7086","dim":false}],
+      [{"token":"$pin_icon"},{"token":"workspace","dim":true,"rules":[{"equals":"scratch","ignore_case":true,"hide":true}]},{"token":"agent"}]
+    ],
+    "rows_by_agent": {"claude":[[{"token":"terminal_title_stripped"}]]}
+  }},
+  "diagnostics": []
+}
+```
+
+| Field | Type | Meaning |
+| ----- | ---- | ------- |
+| `v` | integer | Snapshot version, currently `1`. Swift treats any other version as absent. |
+| `generated_at` | integer | Unix seconds when the snapshot was written. Unchanged sources retain their previous snapshot and timestamp. |
+| `source.path` | string | Resolved herdr config path. |
+| `source.found` | boolean | Whether the source was found. Missing source is `false`; a source that can be statted but cannot be read is `true` with a diagnostic. |
+| `source.mtime_ms` | number or null | Source `mtimeMs`, including fractional milliseconds; `null` when the source cannot be statted. |
+| `agent_panel_sort` | string | `spaces` (default) or `priority`; the input alias `workspaces` normalizes to `spaces`. Independent of Heeler's flat / by-Host grouping. |
+| `sidebar.agents.row_gap` | integer | `0..65535`, default `0`. herdr's blank terminal rows between Agent entries, not between lines of one entry. |
+| `sidebar.agents.rows` | token[][] | Whole default layout, at most 16 rows and 16 tokens per row. Empty layouts and rows are valid. |
+| `sidebar.agents.rows_by_agent` | object | Canonical Agent id to whole replacement rows; default `{}`. Unlisted Agents use `rows`. |
+| `diagnostics` | string[] | Empty on success or a missing source. Otherwise `parse_error`, `invalid_token`, `invalid_schema`, or `read_error`. Raw config values and parser excerpts are never included. |
+
+Every token is an object, including TOML string tokens. Builtins are
+`state_icon`, `state_text`, `machine`, `workspace`, `tab`, `pane`, `agent`,
+`terminal_title`, and `terminal_title_stripped`. Custom names must match
+`^\$[A-Za-z0-9_-]{1,32}$` and retain their `$` in the snapshot. A styled TOML
+table accepts only `token`, `fg`, `bold`, `dim`, and `rules`: `fg` must be
+`#RGB` or `#RRGGBB`; `bold` and `dim` must be booleans. Optional style fields
+appear only when explicitly provided, preserving `false` and the original hex
+case. Other config fields are ignored. This is validation of the exported
+subset, not a substitute for `herdr config check` for unrelated herdr
+settings.
+
+`rules` is an array of at most 16 tables; herdr uses the first rule that
+matches the token's text, and a matching rule with `hide = true` hides the
+token. Every rule has exactly one condition: `equals`, `contains`, or
+`starts_with` with a string, or `gt` or `lt` with a finite integer or float.
+`ignore_case` must be a boolean and is allowed only next to a text condition,
+so even `ignore_case = false` beside `gt` or `lt` is invalid. A rule's `fg`
+follows the token `fg` grammar, and `bold`, `dim`, and `hide` must be
+booleans; any other key is invalid. Rules need a text-valued token, so
+`state_icon` accepts only `rules = []`. herdr 0.9.0 does not accept `hide`,
+which herdr 0.9.1 added.
+
+The snapshot exports each rule with only the fields it gave, in the order
+`equals`, `contains`, `starts_with`, `gt`, `lt`, `ignore_case`, `fg`, `bold`,
+`dim`, `hide`. Thresholds are JSON numbers, so `gt = 80` exports `80`. A
+token with `rules = []` exports no `rules` field. The snapshot version stays
+`1`: Swift readers ignore `rules`, so a rule never restyles or hides a token
+in Heeler.
+
+`rows_by_agent` accepts the 24 canonical ids verified against herdr v0.9.4:
+`pi`, `claude`, `codex`, `gemini`, `cursor`, `devin`, `agy`, `cline`, `omp`,
+`mastracode`, `opencode`, `copilot`, `kimi`, `kiro`, `droid`, `amp`, `grok`,
+`hermes`, `kilo`, `qodercli`, `qwen`, `letta`, `maki`, and `muse`. Aliases,
+case variations, and unknown ids are invalid. A future herdr release that
+adds canonical ids, built-in agent tokens, styled-token keys, or rule fields
+requires updating the validator, this README and the shared vectors together.
+The validator follows herdr's grammar for these fields but is not a complete
+copy of it: herdr also accepts a few unusual shapes that the plugin rejects
+with `invalid_schema`, such as `ui = []`, `agents = []` under `[ui.sidebar]`,
+or a rule written as an array (`rules = [["x"]]`).
+
+Missing files or fields use the snapshot defaults: sort `spaces`, `row_gap: 0`,
+`rows: [[{"token":"state_icon"},{"token":"workspace"},{"token":"tab"}],
+[{"token":"agent"}]]`, and `rows_by_agent: {}`. These are not herdr 0.9's
+defaults: herdr 0.9.0 and later put `machine` after `state_icon` in the
+first row, which Heeler does not render, and the snapshot defaults leave it
+out. TOML parse errors, invalid tokens, or invalid schema revert the
+**entire layout and sort** to those defaults with a diagnostic. Read errors
+also produce defaults with a diagnostic and are retried at the next
+invocation.
+
+Both `notify-hook.js` and `activity-hook.js` refresh at the beginning of
+`main()`, before debounce, dedupe, or no-device exits. An unchanged source
+path, existence, and `mtimeMs` reuses a snapshot without diagnostics, without
+reparsing or rewriting. A snapshot with diagnostics is parsed again at every
+refresh, so an updated plugin replaces an older plugin's rejection without a
+config edit, and it is rewritten only when the result changes. A
+missing/corrupt snapshot is rebuilt. Other changes that preserve the source
+mtime are not detected. Snapshot write failures are logged but do not prevent
+the event hooks from delivering notifications.
+
+There is no watcher and config reload does not run startup hooks. A config
+edit with no Agent Status transition is picked up at the next transition or
+server start. The snapshot reflects the file on disk, not any live TUI
+`agent.view.set` sort override. It is this Host's own herdr configuration: a
+herdr client elsewhere that has this Host as a saved machine renders its
+sidebar from that client's own settings, as herdr's configuration docs
+describe. Heeler never installs or updates this plugin; older installations
+have no `sidebar.json`, which the app treats as nil without a version gate.
+
+Swift readers ignore unknown fields and drop individual unknown token names,
+such as `machine`. The app resolves whole layouts in this order: the Host's
+saved user layout, the Host's plugin snapshot, Heeler default. There is no
+global user layout, and the default is never offered as a choice. Rows are
+never merged across sources. Its renderer skips `state_icon` and
+`state_text` because the status column already shows Agent Status; `$name`
+resolves as plain text from `AgentInfo.tokens["name"]`. Heeler's Pin is
+independent. Styles are retained in the Swift model; rendering may ignore
+them (color is ignored by default).
+
+### Shared test vectors
+
+`test-vectors/sidebar-layout-v1.json` is shared by the Node parser tests and
+the Swift snapshot decoder tests, and registered as a `HeelerTests` resource.
+Its `valid` and `invalid` arrays contain `name`, `toml`, and a full expected
+`snapshot`; invalid entries also contain the expected `error` diagnostic.
+Node asserts normalized layout equality and whole-layout fallback. Swift
+consumes the structured snapshots to assert decoded layout, defaults, and
+diagnostics, expecting the app to drop token names it does not model, such as
+`machine`, and to ignore `rules`; it does not parse TOML. A U+FEFF in a
+vector is written as the JSON escape `\ufeff`, so it stays visible. Change the
+contract and vectors together.
+
+## Notify hook
+
+The manifest `[[events]]` hook on `pane.agent_status_changed` runs
+`src/notify-hook.js` as one short-lived process per Agent Status transition;
+there is no long-running watcher. Only **Blocked** and **Done** notify, and
+only for devices whose registration entry sets the matching `notify` flag.
+
+Anti-noise, in order:
+
+1. **Debounce**: the script sleeps ~5 s, re-checks the pane's current status
+   through `HERDR_BIN_PATH` (`herdr agent get <pane>`), and aborts if the
+   status moved on (or the agent is gone).
+2. **Dedupe**: the last notified status is recorded per pane under
+   `HERDR_PLUGIN_STATE_DIR/notify/` (`HERDR_PLUGIN_STATE_DIR/sessions/<name>/notify/`
+   for a named [herdr session](#herdr-sessions)); a same-status repeat sends
+   nothing. A *different* status that survives its own debounce re-arms the
+   pane.
+
+Each eligible device gets one `POST https://heeler-apns.bybee.dev/push` by
+default (see `relay/README.md`), carrying the encrypted envelope and an opaque
+per-pane `collapse` key (derived from the device's Notification Key and the
+pane id, so the relay cannot guess the pane while newer statuses still replace
+older notifications). Transient failures (network errors, 429, 5xx) are
+retried up to 3 attempts; a `410 Unregistered` verdict prunes every entry
+with that token from `notifications.json`, whatever its session (preserving
+any fields this plugin does not understand);
+other 4xx verdicts are final.
+
+Plugin-side settings live in `notify.json` next to the registration file in
+the plugin config dir:
+
+| Field            | Type    | Meaning |
+| ---------------- | ------- | ------- |
+| `relay_url`      | string  | Optional Push Relay base URL override for a self-built app. Defaults to `https://heeler-apns.bybee.dev`; the app writes the resolved value during Notification Registration. |
+| `debounce_ms`    | integer | Debounce sleep override for the alert notify hook. Default 5000. |
+| `activity_debounce_ms` | integer | Latest-wins debounce sleep for the Live Activity hook. Default 1500. |
+| `retry_delay_ms` | integer | Delay between retry attempts. Default 1000. |
+
+### Hook event JSON (verified against herdr 0.7.5)
+
+`HERDR_PLUGIN_EVENT_JSON` as captured empirically from a live herdr 0.7.5
+event hook invocation — note the `event` value is snake_case on the wire even
+though the manifest subscribes to the dot name:
+
+```json
+{"event":"pane_agent_status_changed",
+ "data":{"type":"pane_agent_status_changed","pane_id":"wV:p1",
+         "workspace_id":"wV","agent_status":"blocked","agent":"claude"}}
+```
+
+`agent` (plus `title`, `display_agent`, `state_labels` per herdr source) is
+optional. herdr's wire shapes carry no stability guarantee, so the hook parses
+leniently: it requires only `data.pane_id` and `data.agent_status` and ignores
+everything it does not recognize.
+
+## Activity hook
+
+The second manifest `[[events]]` hook on `pane.agent_status_changed` runs
+`src/activity-hook.js` as its own short-lived process. herdr invokes both
+this command and `src/notify-hook.js` for the same event (verified on
+0.8.0); there is no in-plugin dispatcher. It is independent of the alert
+notify hook: `notify` flags do not gate it, and a Host with no
+`live_activity` registration delivered to this hook's
+[herdr session](#herdr-sessions) sends nothing. The `activity/` paths below
+are relative to the session's state directory.
+
+The hook lists the Host's agents through `HERDR_BIN_PATH` (`herdr agent list`),
+resolves workspace labels best-effort through `herdr workspace list`, and drives
+one Live Activity per Host. Eligible statuses are **Working**,
+**Blocked**, and **Done**; idle and unknown panes are hidden. The encrypted
+details envelope uses the same Notification Key as alerts, sealed under AAD
+`HERDR-ACTIVITY:1` (see `docs/agents/live-activity-contract.md` and
+`test-vectors/live-activity-content-v1.json`).
+
+Anti-noise, in order:
+
+1. **Cheap exits**: no device has a `live_activity` object with a plausible
+   hex token, valid env, and 32-byte key; or `activity/last-state.json`
+   recorded `ended: true` and the incoming status is not working/blocked/done.
+2. **Latest-wins debounce**: the script writes `activity/claim.json` and
+   sleeps `activity_debounce_ms` (default 1500). A newer claim from an
+   overlapping invocation wins; the loser exits without sending.
+3. **Unchanged snapshot**: a `{pane_id: status}` map identical to last-state
+   sends nothing.
+
+An empty eligible set sends `event: end` (skipped if already ended) with zero
+counts, `dismissal_date` equal to the timestamp, and an envelope whose
+`agents` array is empty. Otherwise it sends `event: update` with
+`stale_date` = timestamp + 900. Priority is **10** only when some pane is
+blocked now and was not blocked in last-state (absent last-state counts as
+empty); otherwise **5**.
+
+Each eligible device gets one `POST /push` with `kind: liveactivity`, the
+activity token, and the sealed envelope. Transient failures (network errors,
+429, 5xx) are retried up to 3 attempts. A `410 Unregistered` verdict deletes
+only that entry's `live_activity` field, preserving the alert `token`, `key`,
+`notify` flags, and any field this plugin does not understand. A relay-origin
+`413` degrades the envelope once per step (drop every `title` while retaining
+the displayed workspace/kind/status, then send `agents: []`) and retries;
+the hook also pre-degrades when the projected ciphertext would exceed the Live
+Activity size budget.
+
+Last-state (`activity/last-state.json`: `sent_at_ms`, `statuses`, `ended`) is
+written only after at least one successful delivery. All state writes are
+temp-file + rename.
+
+## Tests
+
+```bash
+npm test
+```
+
+Uses Node's built-in test runner; no test dependencies.
