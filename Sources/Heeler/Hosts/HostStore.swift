@@ -175,13 +175,15 @@ final class HostStore {
         try persist()
     }
 
-    /// Removes the Host and its stored password.
+    /// Removes the Host, its stored password, and the device's consent to
+    /// read its Claude Code limits.
     func remove(_ id: Host.ID) throws {
         try ensureCatalogIsWritable()
         guard let index = hosts.firstIndex(where: { $0.id == id }) else {
             throw HostStoreError.unknownHost
         }
         try secrets.removeSecret(account: Self.passwordAccount(for: id))
+        defaults?.removeObject(forKey: AgentUsageStore.claudeLimitsPreferenceKey(for: id))
         hosts.remove(at: index)
         catalogEntries.removeAll { $0.knownHostID == id }
         try persist()

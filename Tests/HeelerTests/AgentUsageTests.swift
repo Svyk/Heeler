@@ -555,6 +555,23 @@ struct ClaudeUsagePreferenceTests {
         #expect(afterRefresh.programs?.first?.usageLimits.state == "disabled")
     }
 
+    @Test func removingAHostForgetsItsClaudeLimitsConsent() throws {
+        let name = "claude-consent-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let removed = Host(name: "Removed", address: "removed.invalid", username: "u")
+        let kept = Host(name: "Kept", address: "kept.invalid", username: "u")
+        let catalog = HostStore(defaults: defaults, secrets: InMemorySecretStore())
+        try catalog.add(removed)
+        try catalog.add(kept)
+        for host in [removed, kept] {
+            AgentUsageStore(hostID: host.id, defaults: defaults) { _, _ in .idle }.claudeLimitsEnabled = true
+        }
+        try catalog.remove(removed.id)
+        #expect(defaults.object(forKey: AgentUsageStore.claudeLimitsPreferenceKey(for: removed.id)) == nil)
+        #expect(defaults.bool(forKey: AgentUsageStore.claudeLimitsPreferenceKey(for: kept.id)))
+    }
+
     @Test func thePerHostTogglePersistsOnThisDeviceAndReachesTransport() async throws {
         let name = "claude-usage-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: name))
