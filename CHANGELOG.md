@@ -44,7 +44,7 @@ Entries reference the pull request that made the change.
 - Chat says when a Codex Agent was started without `--no-daemon` while
   Codex's shared background server runs: Chat explains how to restart it,
   with a link to the guide, and a banner over a conversation warns that it
-  may be another terminal's.
+  may be another terminal's. (#513)
 
 ### Changed
 
