@@ -282,14 +282,24 @@ test("coverage starts at the first recorded day, not the first day with usage",a
   rmSync(f.cache(),{recursive:true});const kept=await f.finish();assert.equal(tokens(kept),4);assert.equal(kept.scan.coveredFrom,"2026-09-21");
 });
 
-test("expired keys and buckets are pruned without rereading unchanged Transcripts",async t=>{
-  const f=fixture(t);const now=Date.now();f.setClock(now);
-  const path=f.transcript("prune.jsonl",[assistant("aging",100,{timestamp:new Date(now-30.9*86400000).toISOString()}),assistant("recent",7)]);
-  assert.equal(tokens(await f.finish()),7);assert.ok(readFileSync(join(f.cache(),"keys.log"),"utf8").includes('aging'));
-  f.clearReads();f.setClock(now+86400000);assert.equal(tokens(await f.finish()),7);
+test("expired keys leave the totals at once and the log only when a whole UTC day expires",async t=>{
+  const f=fixture(t);const day=86400000;const now=Date.parse("2026-10-20T12:00:00Z");f.setClock(now);
+  const log=()=>readFileSync(join(f.cache(),"keys.log"),"utf8");
+  // The worker keeps 31 days; the report shows 30 calendar days, so read its buckets.
+  const kept=()=>JSON.parse(readFileSync(join(f.cache(),"buckets.json"))).buckets.filter(b=>"model" in b).reduce((sum,b)=>sum+b.tokens.total,0);
+  // 2026-09-19T18:00Z stays within 31 days until 2026-10-20T18:00Z.
+  const path=f.transcript("prune.jsonl",[assistant("aging",100,{timestamp:new Date(now-30.75*day).toISOString()}),assistant("recent",7,{timestamp:new Date(now-day).toISOString()})]);
+  await f.finish();assert.equal(kept(),107);const initial=generation(f);
+  // Expired at once, but part of 2026-09-19 is still within 31 days: no rewrite.
+  f.clearReads();f.setClock(now+0.3*day);await f.finish();assert.equal(kept(),7);
+  assert.equal(generation(f),initial);assert.ok(log().includes('aging'));
+  // Once all of 2026-09-19 is older than 31 days, the log drops it.
+  f.setClock(now+0.6*day);await f.finish();assert.equal(kept(),7);
+  assert.notEqual(generation(f),initial);assert.equal(log().includes('aging'),false);
   assert.deepEqual(f.reads().filter(r=>r.path===path),[]);
-  assert.equal(readFileSync(join(f.cache(),"keys.log"),"utf8").includes('aging'),false);
-  const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
+  const pruned=generation(f);f.setClock(now+0.9*day);await f.finish();assert.equal(kept(),7);assert.equal(generation(f),pruned);
+  const incremental=await f.finish();rmSync(f.cache(),{recursive:true});
+  assert.deepEqual((await f.finish()).programs,incremental.programs);assert.equal(kept(),7);
 });
 
 test("an unfinished Codex leading burst resumes from its saved bytes and metadata",async t=>{

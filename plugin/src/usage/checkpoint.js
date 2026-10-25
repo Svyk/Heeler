@@ -31,7 +31,11 @@ export function removeAbandonedTemporaries(directory) {
   }
 }
 
-/** A committed snapshot binds offsets to exactly one prefix of the contribution log. */
+/**
+ * A committed snapshot binds offsets to exactly one prefix of the contribution
+ * log. Keys older than 31 days leave the totals at once; the log itself is
+ * rewritten (`prune`) only once a whole UTC day of it has expired.
+ */
 export async function loadCheckpoint(directory, snapshot, heartbeat) {
   const checkpoint = snapshot?.checkpoint;
   if (!checkpointCurrent(checkpoint)) return null;
@@ -44,8 +48,9 @@ export async function loadCheckpoint(directory, snapshot, heartbeat) {
     const groups = new Map();
     let generation;
     let bytes = 0;
-    let expired = false;
+    let prune = false;
     const cutoff = Date.now() - 31 * DAY;
+    const expiredDays = Math.floor(cutoff / DAY) * DAY;
     for await (const { line, offset } of transcriptEntries(logPath, heartbeat)) {
       if (offset > checkpoint.keyBytes) break;
       if (!line) return null;
@@ -59,7 +64,7 @@ export async function loadCheckpoint(directory, snapshot, heartbeat) {
       if (line.key) {
         const { replaces, ...record } = line;
         keys.set(line.key, record);
-        expired ||= line.timestamp < cutoff;
+        prune ||= line.timestamp < expiredDays;
       }
     }
     if (bytes !== checkpoint.keyBytes || generation !== checkpoint.generation) return null;
@@ -67,14 +72,14 @@ export async function loadCheckpoint(directory, snapshot, heartbeat) {
     truncateSync(logPath, checkpoint.keyBytes);
     const buckets = new Map();
     for (const [key, value] of keys) {
-      if (value.timestamp < cutoff) { keys.delete(key); expired = true; }
+      if (value.timestamp < cutoff) keys.delete(key);
       else changeBucket(buckets, value, 1);
     }
     for (const [group, peers] of groups) {
       for (const key of peers) if (!keys.has(key)) peers.delete(key);
       if (!peers.size) groups.delete(group);
     }
-    return { files: JSON.parse(filesText), keys, groups, buckets, generation, expired };
+    return { files: JSON.parse(filesText), keys, groups, buckets, generation, prune };
   } catch { return null; }
 }
 

@@ -98,7 +98,7 @@ async function run() {
     const buckets = rebuilding ? new Map() : previous.buckets;
     const keys = rebuilding ? new Map() : previous.keys;
     const groups = rebuilding ? new Map() : previous.groups;
-    const newGeneration = rebuilding || previous.expired;
+    const newGeneration = rebuilding || previous.prune;
     const log = cacheWrite(() => newGeneration ? startLog(directory, keys, groups) : openLog(directory, previous.generation));
     const fileStates = rebuilding ? {} : match.states;
     let lastSnapshot = performance.now();

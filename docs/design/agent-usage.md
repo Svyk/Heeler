@@ -400,8 +400,9 @@ size:
     sidechain flag, total). A later winner appends a replacing line. A run
     appends through one descriptor in 1 MiB chunks and flushes before a
     snapshot records the log's length.
-  - The log is rewritten only when pruning drops days or a rebuild starts.
-    The rewrite streams the live keys into a temporary file and renames it
+  - Keys older than 31 days leave the totals at once, but the log is
+    rewritten only when a rebuild starts or a whole UTC day of its keys has
+    expired, so at most once a day. The rewrite streams the live keys into a temporary file and renames it
     over the log; a crash leaves either the old log, which its checkpoint
     still matches, or a new generation that no checkpoint matches yet, which
     rebuilds.
@@ -836,7 +837,8 @@ tests and decoded by the Swift tests.
     a rollout, replacing it with its `.zst`, or replacing a `.zst` with a
     longer plain file; an unreadable file or directory, or a truncated
     `.zst`, is skipped and counted without a rebuild; a lock whose heartbeat
-    is fresh survives a long run; a worker killed at each cache write,
+    is fresh survives a long run; expired keys leave the totals at once and
+    the log once a whole UTC day expires; a worker killed at each cache write,
     including a torn log append, recovers a fresh scan's totals.
   - Roots: a root created after the first scan keeps the cache directory;
     an unused sibling cache directory is deleted after 31 days.
