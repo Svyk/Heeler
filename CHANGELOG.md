@@ -41,6 +41,10 @@ Entries reference the pull request that made the change.
   Cloudflare client on the phone carries the connection, so the Mac opens no
   port, and a Host connects through either a private network route or a VPS
   running the tunnel client. English or Simplified Chinese. (#487)
+- Chat says when a Codex Agent was started without `--no-daemon` while
+  Codex's shared background server runs: Chat explains how to restart it,
+  with a link to the guide, and a banner over a conversation warns that it
+  may be another terminal's. (#513)
 
 ### Changed
 

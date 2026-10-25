@@ -14,7 +14,13 @@ herdr hasn't told Heeler which conversation the Agent is in yet.
 2. On the Host, run `herdr integration status` and install the program's integration if it isn't `current` ([Set up the Host](chat.md#set-up-the-host)), then restart the Agent.
 3. Tap **Check Again**.
 
-If Codex still waits after you have sent prompts, exit it and start it again with `codex --no-daemon`, or `codex --no-daemon resume` to continue the same conversation.
+If Codex still waits after you have sent prompts, it was probably started without `--no-daemon`: see the next section.
+
+## Codex Started Without --no-daemon
+
+Codex was started without `--no-daemon` while its background server runs, so herdr can't tell which terminal its conversation is in ([Set up the Host](chat.md#set-up-the-host)). Agents that herdr brings back after a restart also start without it, unless you use the alias in [Set up the Host](chat.md#set-up-the-host). Exit Codex and run `codex --no-daemon resume` to continue the same conversation. When a conversation already shows, a banner warns that it may be another terminal's.
+
+Codex tracks the cause in [openai/codex#48500](https://github.com/openai/codex/issues/48500): its background server runs herdr's integration with the settings of the terminal that started the server. [openai/codex#44902](https://github.com/openai/codex/issues/44902) proposes a fix, and herdr follows it in [herdrdev/herdr#4649](https://github.com/herdrdev/herdr/issues/4649).
 
 ## Conversation Not Found
 
@@ -24,6 +30,10 @@ If Codex still waits after you have sent prompts, exit it and start it again wit
 ## Chat says the terminal shows another conversation
 
 Chat sends only while the Agent's terminal shows the same conversation. This happens after `/resume` or `/fork` in Grok Build, or after switching to another session in OpenCode. Go back to the conversation in the terminal, then send again.
+
+## Chat shows an earlier Codex conversation
+
+Codex tells herdr about a conversation only when you send it a prompt. After `/new` or `/resume` in the terminal, send a prompt there and Chat follows. After `/fork`, or after going back to a conversation you opened earlier, Chat can stay on the old one: exit Codex, run `codex --no-daemon resume`, pick the conversation, and send a prompt.
 
 ## The Agent's input box already has text
 

@@ -625,6 +625,10 @@ final class ConsoleStore {
                     guard let self else { return nil }
                     return await self.cachedChats.cachedSession(for: agent, on: host)
                 },
+                processInfo: { [weak self] in
+                    guard let self else { throw TransportError.cancelled }
+                    return try await self.projection(for: hostID).processInfo(paneID: paneID)
+                },
                 screen: BlockedScreenIO(
                     readScreen: { [weak self] in
                         guard let self else { throw TransportError.cancelled }

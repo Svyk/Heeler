@@ -329,6 +329,14 @@ final class HostConsoleProjection {
         }
     }
 
+    /// The processes in the Agent's foreground job, which say how its
+    /// program was launched.
+    func processInfo(paneID: String) async throws -> PaneProcessInfo {
+        try await session.withTransport { transport in
+            try await transport.paneProcessInfo(paneID: paneID)
+        }
+    }
+
     func fileStager() -> FileStager {
         let session = session
         return { file, reporter in

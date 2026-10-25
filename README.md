@@ -28,13 +28,13 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
 
 ## Screenshots
 
-| Agent Console | Direct Input + Terminal keyboard | Live terminal |
+| Agent Console | Live terminal | Chat |
 | --- | --- | --- |
-| <img src="docs/images/console-iphone.png" width="240" alt="Agent Console listing Agents across Hosts with their status on iPhone" /> | <img src="docs/images/agent-iphone.png" width="240" alt="Agent Direct Input with shortcuts and a full Terminal keyboard on iPhone" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="Agent's live terminal with Direct Input on iPhone" /> |
+| <img src="docs/images/console-iphone.png" width="240" alt="Agent Console listing Agents across Hosts with their status on iPhone" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="Agent's live terminal with Direct Input on iPhone" /> | <img src="docs/images/chat-iphone.png" width="240" alt="Chat showing an Agent's conversation as native messages on iPhone" /> |
 
-| Changes | File diff | Terminals |
+| Keyboard | Changes | Terminals |
 | --- | --- | --- |
-| <img src="docs/images/changes-iphone.png" width="240" alt="Changes listing a Checkout's staged and unstaged files on iPhone" /> | <img src="docs/images/diff-iphone.png" width="240" alt="A changed JSON file with its edited words highlighted on iPhone" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="Terminals tab listing shell panes by Host and Workspace on iPhone" /> |
+| <img src="docs/images/agent-iphone.png" width="240" alt="Agent Direct Input with shortcuts and a full Terminal Keyboard on iPhone" /> | <img src="docs/images/changes-iphone.png" width="240" alt="Changes listing a Checkout's staged and unstaged files on iPhone" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="Terminals tab listing shell panes by Host and Workspace on iPhone" /> |
 
 | Skills | Hosts | Live Activity |
 | --- | --- | --- |
@@ -52,6 +52,10 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
   scrollback, momentum touch scrolling that also drives full-screen TUIs,
   long-press selection, takeover of a stale terminal owner, and quietly
   collected web links to open later.
+- **Chat** — read an Agent's conversation as native messages instead of a
+  terminal screen, reply from the Composer, and answer a Blocked Agent with
+  buttons; for Claude Code, Codex, Pi, Oh My Pi, Grok Build, and OpenCode
+  ([Read more](https://docs.heeler.bybee.dev/chat)).
 - **Composer** — draft locally with the full iOS keyboard (autocorrect, IME,
   dictation), then Send once; the tools keyboard adds Agent control keys,
   Agent Skills, reusable Snippets, and terminal appearance.
@@ -122,50 +126,6 @@ code carries the addresses, the host key fingerprint, and SSH key enrollment.
 The same [plugin](plugin/README.md) delivers the encrypted notifications once
 you enable them for the Host in the app. For every step, the popup's keys, and
 troubleshooting, see the [pairing guide](https://docs.heeler.bybee.dev/pairing).
-
-## Native Chat
-
-On macOS and Linux Hosts, Chat displays Claude Code, Codex, Pi, Oh My Pi, Grok Build and OpenCode conversations from what each program records on the Host, read over SSH. Saved conversations remain readable while reconnecting. Chat needs the conversation reference reported by herdr to identify the correct transcript; installing the integration alone does not prove that the current Agent has reported one.
-
-For Pi and Oh My Pi, install the corresponding `herdr integration install pi`
-or `herdr integration install omp` on the Host and restart that Agent to load
-its extension. Chat reads the v2/v3 JSONL file the integration reports, including
-custom session directories. Messages, reasoning, tool results and compaction
-boundaries use the native timeline. Custom editors and extension dialogs stay
-available in the terminal. See [format and compatibility details](docs/research/pi-transcript-format.md).
-
-For Grok Build, run `herdr integration install grok` on the Host and restart
-the Agent. Chat reads `~/.grok/sessions`; a custom `GROK_HOME` isn't found.
-herdr follows `/new`, `/clear` and a message sent from the dashboard, but not
-`/resume`, `/fork` or going back from the dashboard, so Chat holds a message
-when Grok Build shows another session. See [format and compatibility details](docs/research/grok-build-transcript-format.md).
-
-For OpenCode 2.x, Chat reads the conversation from OpenCode's own database with
-a short read-only query on the Host, so the Host needs `sqlite3` or `python3`.
-herdr's OpenCode integration must be installed, with
-`herdr integration install opencode` on the Host before starting OpenCode, and
-Chat follows the session it reports. Chat sends while OpenCode is idle; steer a
-running turn from the terminal. After `/new` in the terminal, Chat says
-OpenCode has left the conversation and shows none until you open one or send a
-first message there. Add Image and Add File put the file's path into the draft
-as text, and OpenCode can take a message that is only a path as an attachment,
-so add a few words before the path. See [how Chat reads OpenCode](docs/adr/0025-opencode-chat-reads-its-session-store.md).
-
-### Codex shows “Waiting for Conversation”
-
-Codex CLI 0.161.0 normally starts or reuses a shared background server for interactive sessions. With herdr 0.9.3 and Codex integration v8, that server can retain another terminal's environment. The integration can then report a conversation ID to the wrong herdr pane, leaving Chat waiting even after prompts have been sent. See the [versioned compatibility observations](docs/agents/herdr-compatibility.md#versioned-observations).
-
-For this combination, start Codex inside the herdr pane with:
-
-```bash
-codex --no-daemon
-```
-
-To resume an existing conversation, use `codex --no-daemon resume` and select it. If you already use `--yolo`, keep it alongside the new flag: `codex --no-daemon --yolo`.
-
-`--no-daemon` uses an independent backend with the current terminal's environment. It retains access to your existing login, configuration, and saved conversations. The shared backend supports multiple clients and remote access; the trade-off here is an additional independent backend for each CLI invocation.
-
-This flag applies only when launching Codex. Changing a shell alias or function does not migrate an already-running session: let its work finish, exit it, then resume with the flag. Heeler does not add this flag to your shell automatically. Cached messages can still be shown when a previously known ID is temporarily missing, but caching cannot establish an Agent's first conversation binding. For a genuinely new conversation, send its first prompt before checking again.
 
 ## Opening an Agent from another app
 
