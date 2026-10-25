@@ -10,7 +10,7 @@ enum HostSetupGuide {
     static let windowsGuideURL = URL(
         string: "https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/windows-setup.md")
     static let pluginInstallArguments = [
-        "plugin", "install", "ZingerLittleBee/Heeler/plugin", "--ref", "main", "--yes",
+        "plugin", "install", "ZingerLittleBee/Heeler", "--ref", "plugin", "--yes",
     ]
     static let pluginInstallCommand = (["herdr"] + pluginInstallArguments).joined(separator: " ")
     static let pairCommand = "herdr plugin action invoke heeler.pair"

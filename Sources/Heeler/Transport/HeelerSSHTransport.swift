@@ -963,6 +963,13 @@ actor HeelerSSHTransport: Transport {
                 .agent)
     }
 
+    func paneProcessInfo(paneID: String) async throws -> PaneProcessInfo {
+        try await request(
+            method: "pane.process_info", params: PaneProcessInfoParams(paneID: paneID),
+            decoding: PaneProcessInfoResponse.self
+        ).processInfo
+    }
+
     /// Runs one Chat file operation on the held session-file SFTP channel.
     ///
     /// Chat polls a transcript every second or so, often over cellular, so its

@@ -44,9 +44,19 @@ Entries reference the pull request that made the change.
   Cloudflare client on the phone carries the connection, so the Mac opens no
   port, and a Host connects through either a private network route or a VPS
   running the tunnel client. English or Simplified Chinese. (#487)
+- Chat says when a Codex Agent was started without `--no-daemon` while
+  Codex's shared background server runs: Chat explains how to restart it,
+  with a link to the guide, and a banner over a conversation warns that it
+  may be another terminal's. (#513)
 
 ### Changed
 
+- Install the Heeler plugin with
+  `herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes`. It
+  downloads about 3 MB instead of the whole 150 MB repository. The Setup
+  Guide and the plugin update notice use the new command; a Host installed
+  with the old one keeps updating from it until it runs the new one, which
+  replaces the old install. (#514)
 - A working Grok Build Agent's terminal Composer keeps Send instead of
   showing Stop, because Esc doesn't stop a Grok Build turn. Stop it with
   Chat's Stop, which presses Ctrl+C, or with Ctrl+C in the terminal. (#482)

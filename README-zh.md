@@ -28,13 +28,13 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 
 ## 截图
 
-| Agent Console | Direct Input + Terminal 键盘 | 实时终端 |
+| Agent Console | 实时终端 | Chat |
 | --- | --- | --- |
-| <img src="docs/images/console-iphone.png" width="240" alt="iPhone 上跨 Host 列出 Agent 及其状态的 Agent Console" /> | <img src="docs/images/agent-iphone.png" width="240" alt="iPhone 上使用 Direct Input、快捷键和完整 Terminal 键盘的 Agent 终端" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="iPhone 上使用 Direct Input 的 Agent 实时终端" /> |
+| <img src="docs/images/console-iphone.png" width="240" alt="iPhone 上跨 Host 列出 Agent 及其状态的 Agent Console" /> | <img src="docs/images/live-terminal-iphone.png" width="240" alt="iPhone 上使用 Direct Input 的 Agent 实时终端" /> | <img src="docs/images/chat-iphone.png" width="240" alt="iPhone 上以原生消息显示 Agent 对话的 Chat" /> |
 
-| Changes | 文件 diff | Terminals |
+| Keyboard | Changes | Terminals |
 | --- | --- | --- |
-| <img src="docs/images/changes-iphone.png" width="240" alt="iPhone 上列出 Checkout 已暂存和未暂存文件的 Changes" /> | <img src="docs/images/diff-iphone.png" width="240" alt="iPhone 上高亮改动词的 JSON 文件 diff" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="iPhone 上按 Host 和工作区列出 shell 窗格的 Terminals 标签页" /> |
+| <img src="docs/images/agent-iphone.png" width="240" alt="iPhone 上使用 Direct Input、快捷键和完整 Terminal Keyboard 的 Agent 终端" /> | <img src="docs/images/changes-iphone.png" width="240" alt="iPhone 上列出 Checkout 已暂存和未暂存文件的 Changes" /> | <img src="docs/images/terminal-iphone.png" width="240" alt="iPhone 上按 Host 和工作区列出 shell 窗格的 Terminals 标签页" /> |
 
 | Skills | Hosts | 实时活动 |
 | --- | --- | --- |
@@ -51,6 +51,9 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 - **Attach** —— libghostty 渲染的 Agent 真实终端：原生历史回看、也能驱动全屏
   TUI 的惯性触摸滚动、长按选择、接管失效的终端占用者，并静默收集网页链接
   供稍后打开。
+- **Chat** —— 以原生消息而不是终端画面阅读 Agent 的对话，在 Composer 里
+  回复，并用按钮回答 Blocked 的 Agent；支持 Claude Code、Codex、Pi、
+  Oh My Pi、Grok Build 和 OpenCode（[了解更多](https://docs.heeler.bybee.dev/zh/chat)）。
 - **Composer** —— 在本地用完整的 iOS 键盘起草（自动纠错、输入法、听写），
   一次 Send 投递；工具键盘另有 Agent 控制键、Agent Skills、可复用的
   Snippets 和终端外观。
@@ -103,7 +106,7 @@ Windows 原生 Host（herdr >= 0.9.3）通过 SSH 连接，需手动添加。
 —— macOS 上是 **系统设置 > 通用 > 共享 > 远程登录**）：
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 herdr plugin action invoke heeler.pair
 ```
 

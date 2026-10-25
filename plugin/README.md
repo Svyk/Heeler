@@ -52,8 +52,11 @@ node --version    # 20 or newer
 Install the plugin from GitHub:
 
 ```bash
-herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes
+herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 ```
+
+The `plugin` branch holds only the files the plugin runs, published from
+`plugin/` on `main`, so the install skips the rest of the repository.
 
 Herdr stores the plugin in its managed checkout and runs the manifest's
 `npm ci` build command automatically. Verify that the plugin is installed and
@@ -546,6 +549,11 @@ behavior under an unchanged number, as 0.3.0 and 0.4.0 did.
 
 Before each plugin release, [refresh and review the bundled price table](#maintaining-the-price-table).
 
+Once the bump is on `main`, run `make plugin` from the repository root to
+publish it to the `plugin` branch, before the app release that bundles it:
+the app's update notice installs from that branch. See
+[Publishing the herdr plugin](https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/releasing.md#publishing-the-herdr-plugin).
+
 ### Updating to 0.6.0
 
 - A 0.6.0 plugin with an app that does not write `session` behaves as before:
@@ -612,7 +620,7 @@ Host. The page reports coverage, skipped compressed archives and Transcripts
 it could not read. **Estimated API cost** uses a bundled price table, not
 subscription billing; the page shows its date and any unpriced tokens. Models or service tiers without a
 known price stay unpriced. See the [design](../docs/design/agent-usage.md)
-and [ADR 0026](../docs/adr/0026-plugin-collects-agent-usage-on-the-host.md)
+and [ADR 0027](../docs/adr/0027-plugin-collects-agent-usage-on-the-host.md)
 for collection, cache and privacy boundaries.
 
 ### Maintaining the price table

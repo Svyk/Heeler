@@ -129,7 +129,7 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
   reads snapshots, and [usage-worker.js](../../plugin/src/usage-worker.js)
   coordinates [scanners, limit readers, buckets and pricing](../../plugin/src/usage).
   Read the [design](../design/agent-usage.md) and
-  [ADR 0026](../adr/0026-plugin-collects-agent-usage-on-the-host.md).
+  [ADR 0027](../adr/0027-plugin-collects-agent-usage-on-the-host.md).
   Focused app coverage: `AgentUsageStoreTests` and `ClaudeUsagePreferenceTests`
   in [AgentUsageTests](../../Tests/HeelerTests/AgentUsageTests.swift),
   [probe](../../Tests/HeelerTests/AgentUsageProbeTests.swift),
@@ -181,7 +181,7 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
 
 | Area | Entry and verification |
 | --- | --- |
-| herdr plugin | [plugin/README.md](../../plugin/README.md), `plugin/herdr-plugin.toml`, `npm test` in `plugin/` |
+| herdr plugin | [plugin/README.md](../../plugin/README.md), `plugin/herdr-plugin.toml`, `npm test` in `plugin/`; `make plugin` ([publish-plugin.sh](../../scripts/publish-plugin.sh), `bash scripts/test-publish-plugin.sh`) publishes it to the `plugin` branch ([ADR 0026](../adr/0026-plugin-distribution-branch.md)) |
 | Push Relay | [relay/README.md](../../relay/README.md), `npm test` in `relay/` |
 | Marketing site | [landing](../../landing), its `package.json` scripts, [landing CI](../../.github/workflows/landing.yml) |
 | Docs site | [docs-site/README.md](../../docs-site/README.md) publishes selected `docs/guides/` (English and `docs/guides/zh/`); `pnpm test`, `pnpm run check`, `pnpm run build`, `pnpm run check:links` in `docs-site/`, [docs site CI](../../.github/workflows/docs-site.yml) |

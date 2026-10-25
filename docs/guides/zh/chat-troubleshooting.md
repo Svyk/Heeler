@@ -1,4 +1,4 @@
-<!-- Translated from docs/guides/chat-troubleshooting.md at 657257fc -->
+<!-- Translated from docs/guides/chat-troubleshooting.md at c9c8167e -->
 # Chat 疑难排解
 
 这里是 [Chat](chat.md) 中最常见问题的处理方法。Chat 里的其他提示大多会直接说明该怎么做。如果 Chat 做不到某件事，轻点 **Show Agent Terminal**，在终端中继续。
@@ -15,7 +15,13 @@ herdr 还没有告诉 Heeler 这个 Agent 正在哪个对话中。
 2. 在 Host 上运行 `herdr integration status`，如果该程序的集成不是 `current`，安装它（参见[配置 Host](chat.md#配置-host)），然后重启 Agent。
 3. 轻点 **Check Again**。
 
-如果已经发送过提示，Codex 仍在等待，请退出它，然后用 `codex --no-daemon` 重新启动；要继续原来的对话，用 `codex --no-daemon resume`。
+如果已经发送过提示，Codex 仍在等待，很可能是启动时没有加 `--no-daemon`：参见下一节。
+
+## Codex Started Without --no-daemon
+
+Codex 启动时没有加 `--no-daemon`，而它的后台服务正在运行，所以 herdr 无法判断它的对话在哪个终端里（参见[配置 Host](chat.md#配置-host)）。herdr 重启后恢复的 Agent 也不带这个参数，除非你用了[配置 Host](chat.md#配置-host) 中的别名。请退出 Codex，然后运行 `codex --no-daemon resume` 继续原来的对话。如果已经显示了对话，顶部的横幅会提醒它可能属于另一个终端。
+
+Codex 在 [openai/codex#48500](https://github.com/openai/codex/issues/48500) 中跟踪这个问题的原因：它的后台服务运行 herdr 集成时，使用的是启动该服务的那个终端的设置。[openai/codex#44902](https://github.com/openai/codex/issues/44902) 提出了修复方案，herdr 在 [herdrdev/herdr#4649](https://github.com/herdrdev/herdr/issues/4649) 中跟进。
 
 ## Conversation Not Found
 
@@ -25,6 +31,10 @@ herdr 还没有告诉 Heeler 这个 Agent 正在哪个对话中。
 ## Chat 提示终端显示的是另一个对话
 
 只有当 Agent 的终端显示的是同一个对话时，Chat 才会发送消息。在 Grok Build 中执行 `/resume` 或 `/fork` 之后，或在 OpenCode 中切换到另一个会话之后，就会出现这种情况。请在终端中回到原来的对话，然后重新发送。
+
+## Chat 显示的是之前的 Codex 对话
+
+Codex 只有在你给对话发送提示时，才会把这个对话告诉 herdr。在终端中执行 `/new` 或 `/resume` 后，在那里发送一条提示，Chat 就会跟上。执行 `/fork` 之后，或回到之前打开过的对话之后，Chat 可能停留在旧对话上：请退出 Codex，运行 `codex --no-daemon resume`，选择该对话，然后发送一条提示。
 
 ## The Agent's input box already has text
 

@@ -461,10 +461,7 @@ struct AgentChatSurfaceView: View {
             }
         }
         .chatContentColumn()
-        .padding(.bottom, Self.floatingControlsBottomPadding)
     }
-
-    private static let floatingControlsBottomPadding: CGFloat = 12
 
     /// The timeline runs edge to edge: under the status bar, the back
     /// header and the banners over its top, and under the Composer and the
@@ -476,7 +473,7 @@ struct AgentChatSurfaceView: View {
                 collapseRequest: collapseRequest,
                 topObstruction: topInset + headerObstruction + bannerHeight,
                 bottomEdge: conversationBottom,
-                collapseControlClearance: collapseControlHeight + Self.floatingControlsBottomPadding,
+                collapseControlClearance: collapseControlHeight,
                 textSize: ChatTextSettings.size(system: dynamicTypeSize, offset: textSizeOffset),
                 font: chatFont,
                 actions: timelineActions)
@@ -566,7 +563,7 @@ struct AgentChatSurfaceView: View {
             ChatEmptyConversationView(description: reason.explanation)
         case .unavailable(let reason):
             ChatUnavailableView(
-                reason: reason,
+                reason: reason, launchNotice: chat?.launchNotice,
                 retry: { chat?.retry() },
                 showAgentTerminal: { showAgentTerminal() })
         case .disconnected:
@@ -610,7 +607,10 @@ struct AgentChatSurfaceView: View {
     private var bannerContent: [Banner] {
         let lines = ChatBannerLine.lines(
             hostStatus: console.hostStatuses[agent.hostID], conversation: chat?.conversation,
-            hasPendingEchoes: !pendingEchoes.isEmpty)
+            hasPendingEchoes: !pendingEchoes.isEmpty, launchNotice: chat?.launchNotice)
+        let terminalOffered = lines.contains {
+            if case .unavailable(let reason, _) = $0 { !reason.isWaiting } else { false }
+        }
         return lines.map { line in
             var banner = Banner(
                 id: line.id, systemImage: line.systemImage, text: line.text, showsProgress: line.showsProgress)
@@ -625,6 +625,11 @@ struct AgentChatSurfaceView: View {
                     banner.actionTitle = AgentDetailSurface.terminal.showTitle
                     banner.action = { showAgentTerminal() }
                 }
+            case .launch:
+                if !terminalOffered {
+                    banner.actionTitle = AgentDetailSurface.terminal.showTitle
+                    banner.action = { showAgentTerminal() }
+                }
             }
             return banner
         }
@@ -635,7 +640,7 @@ struct AgentChatSurfaceView: View {
     private var presentation: ChatSurfacePresentation {
         ChatSurfacePresentation(
             conversation: chat?.conversation, hasPendingEchoes: !pendingEchoes.isEmpty,
-            isHostConnected: isHostConnected)
+            isHostConnected: isHostConnected, checkingLaunch: chat?.isCheckingLaunch ?? false)
     }
 
     /// What the timeline is rebuilt from; anything else it shows comes

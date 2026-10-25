@@ -17,6 +17,10 @@ struct AgentChatSource: Sendable {
     /// Looks up only a saved binding for this exact Agent identity, waiting
     /// for the local directory to load. It never confirms a live session.
     var cachedSession: @Sendable (Agent) async -> AgentSessionInfo? = { _ in nil }
+    /// The processes in the Agent's foreground job (`pane.process_info`),
+    /// which say how its program was launched; nil where nothing can read
+    /// them.
+    var processInfo: (@Sendable () async throws -> PaneProcessInfo)?
     /// The Agent's pane, which a Blocked card reads and answers.
     var screen: BlockedScreenIO = .unavailable
 }
@@ -144,6 +148,20 @@ final class AgentChatStore {
     /// send until the user is back in this conversation. Only the prompt
     /// log sets it; what the screen shows is read afresh at each send.
     private(set) var sessionConcern: ChatSessionConcern?
+    /// Why the conversation herdr reports may not be the one in the Agent's
+    /// terminal, read from how the program was launched. It describes the
+    /// process, so it outlives a change of conversation.
+    private(set) var launchNotice: ChatLaunchNotice?
+    /// Whether a read of the launch has finished, so a missing notice
+    /// means none rather than not known yet.
+    private(set) var hasCheckedLaunch = false
+
+    /// Until the first read of the launch, waiting for a session may be
+    /// the notice's case, which a prompt won't end: Chat keeps looking
+    /// rather than ask for one.
+    var isCheckingLaunch: Bool {
+        program.mayShareSessionServer && source.processInfo != nil && !hasCheckedLaunch
+    }
 
     @ObservationIgnored private let source: AgentChatSource
     @ObservationIgnored private let timing: Timing
@@ -167,6 +185,14 @@ final class AgentChatStore {
     @ObservationIgnored private var staleTitle: String?
     /// Retry asks the start-screen watch for a look at the screen.
     @ObservationIgnored private var screenCheckRequested = false
+    /// Whether the next visible step reads how the program was launched.
+    @ObservationIgnored private var needsLaunchCheck = true
+    @ObservationIgnored private var lastLaunchCheck: Date?
+    /// Whether the last read of the launch failed, which the next session
+    /// recheck tries again.
+    @ObservationIgnored private var launchCheckFailed = false
+    /// The transport reads no processes, so Chat stops asking.
+    @ObservationIgnored private var launchCheckUnavailable = false
     @ObservationIgnored private var engine: ChatConversationEngine?
     @ObservationIgnored private var restored = false
     @ObservationIgnored private var appliedRevision: Int?
@@ -351,6 +377,7 @@ final class AgentChatStore {
         viewers.insert(viewer)
         isVisible = true
         needsAgentRefresh = true
+        needsLaunchCheck = true
         startLoop()
         blocked.show()
     }
@@ -375,6 +402,7 @@ final class AgentChatStore {
     func resume() {
         isSuspended = false
         needsAgentRefresh = true
+        needsLaunchCheck = true
         startLoop()
         blocked.resume()
     }
@@ -504,6 +532,7 @@ final class AgentChatStore {
         nextOpen = nil
         failedOpens = 0
         screenCheckRequested = true
+        needsLaunchCheck = true
         wake()
     }
 
@@ -633,6 +662,9 @@ final class AgentChatStore {
         let bindingReturned = isAwaitingSession && staleSession == nil && reported != .noSession
         let previous = ChatAgentActivity(agent.status)
         agent = next
+        // A program started again in the pane changes its status or
+        // session, which is when its launch may have changed.
+        if statusChanged || sessionChanged || identityChanged { needsLaunchCheck = true }
         if sessionChanged || identityChanged || bindingReturned {
             sessionRecordRevision += 1
             adopt(reported, replacingAgent: identityChanged)
@@ -678,6 +710,8 @@ final class AgentChatStore {
         guard let engine, !isAwaitingSession else {
             matchSends()
             refreshBackgroundWork()
+            // The launch may be why no session comes.
+            if launchCheckIsDue { await checkLaunch() }
             return
         }
         let context = projectionContext
@@ -731,6 +765,9 @@ final class AgentChatStore {
             if engine === self.engine { workflowProgress = progress }
         }
         refreshBackgroundWork()
+        // After the transcript, which never waits on it.
+        guard !Task.isCancelled else { return }
+        if launchCheckIsDue { await checkLaunch() }
     }
 
     private func restoreIfNeeded() async {
@@ -901,8 +938,61 @@ final class AgentChatStore {
             blocked.update(activity: ChatAgentActivity(fresh.status))
             noteActivity(ChatAgentActivity(fresh.status))
             forgetStaleSession()
+            needsLaunchCheck = true
         }
         adopt(resolveReported(fresh.agentSession), replacingAgent: identityChanged)
+    }
+
+    /// Due while Chat shows the conversation, after anything that may mean
+    /// the program was started again, and every session recheck while a
+    /// notice shows, so it clears once the user restarts the program, or
+    /// after a failed read.
+    private var launchCheckIsDue: Bool {
+        guard program.mayShareSessionServer, isVisible, source.processInfo != nil, !launchCheckUnavailable else {
+            return false
+        }
+        if needsLaunchCheck { return true }
+        guard launchNotice != nil || launchCheckFailed, let lastLaunchCheck else { return false }
+        return now().timeIntervalSince(lastLaunchCheck) >= timing.sessionRecheck
+    }
+
+    /// Reads whether Codex in the Agent's pane runs on its shared server:
+    /// launched without an option that keeps it off one, while one runs. A
+    /// failed read keeps the last answer; Chat itself never depends on it.
+    private func checkLaunch() async {
+        guard let processInfo = source.processInfo else { return }
+        needsLaunchCheck = false
+        lastLaunchCheck = now()
+        let info: PaneProcessInfo
+        do {
+            info = try await processInfo()
+        } catch {
+            guard !Task.isCancelled else { return }
+            if case .hostFeatureUnavailable? = error as? TransportError {
+                launchCheckUnavailable = true
+                launchNotice = nil
+            } else {
+                launchCheckFailed = true
+            }
+            hasCheckedLaunch = true
+            return
+        }
+        var notice: ChatLaunchNotice?
+        if CodexLaunch.launchesOnSharedServer(info) == true {
+            do {
+                let socket = CodexLaunch.controlSocketPath(home: try await source.files.home())
+                if try await source.files.status(socket) != nil { notice = .codexSharedServer }
+            } catch {
+                guard !Task.isCancelled else { return }
+                launchCheckFailed = true
+                hasCheckedLaunch = true
+                return
+            }
+        }
+        guard !Task.isCancelled else { return }
+        launchCheckFailed = false
+        if launchNotice != notice { launchNotice = notice }
+        hasCheckedLaunch = true
     }
 
     private func sameIdentity(_ lhs: Agent, _ rhs: Agent) -> Bool {
@@ -1837,6 +1927,16 @@ extension ChatProgram {
         switch self {
         case .claude, .codex, .pi, .omp, .grok: false
         case .opencode: true
+        }
+    }
+
+    /// Whether the program can run on a shared background server whose
+    /// hooks report sessions for the wrong pane, which Chat reads from how
+    /// it was launched (`AgentChatStore.checkLaunch`).
+    var mayShareSessionServer: Bool {
+        switch self {
+        case .codex: true
+        case .claude, .pi, .omp, .grok, .opencode: false
         }
     }
 }

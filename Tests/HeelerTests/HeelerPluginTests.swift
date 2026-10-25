@@ -186,7 +186,7 @@ struct HeelerPluginPresentationTests {
         let prefix = #"/bin/sh -c 'export HERDR_SOCKET_PATH="$1"; shift; exec "$@"' herdr '/tmp/custom herdr/herdr/sessions/work/herdr.sock' '/tmp/custom herdr/bin/launch' "#
         #expect(notice.commands == [
             prefix + "plugin uninstall herdr-mobile.pairing",
-            prefix + "plugin install 'ZingerLittleBee/Heeler/plugin' --ref main --yes",
+            prefix + "plugin install 'ZingerLittleBee/Heeler' --ref plugin --yes",
             prefix + "plugin enable heeler",
         ])
         #expect(try #require(HeelerPluginPresentation(
@@ -199,7 +199,7 @@ struct HeelerPluginPresentationTests {
             (.unsupportedPlatform, "Not supported on Windows"),
             (.unavailable, "Unknown"),
             (.installed(HeelerPluginInstallation(version: "0.6.0")), "0.6.0"),
-            // main moved ahead of this build.
+            // The plugin branch moved ahead of this build.
             (.installed(HeelerPluginInstallation(version: "0.7.0")), "0.7.0"),
             (.installed(HeelerPluginInstallation(version: "0.6.0", source: .local)), "0.6.0 · Linked locally"),
             // Unparseable: nothing to compare, so nothing to recommend.
@@ -367,7 +367,7 @@ struct HeelerPluginPresentationTests {
             ).notice)
         #expect(
             notice.commands == [
-                "herdr plugin install ZingerLittleBee/Heeler/plugin --ref main --yes",
+                "herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes",
                 "herdr --session work plugin enable heeler",
             ])
     }

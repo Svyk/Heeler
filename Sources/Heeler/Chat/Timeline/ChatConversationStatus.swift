@@ -29,7 +29,7 @@ extension ChatUnavailableReason {
         case .noSession(.claude):
             "herdr hasn't reported a Claude Code session ID for this Agent. Chat will keep checking. You can continue in the Agent terminal."
         case .noSession(.codex):
-            "herdr hasn't reported a Codex session ID for this Agent. Codex reports it after the first prompt, also after a resume, so send a prompt to show the conversation here. Chat will keep checking, and you can continue in the Agent terminal."
+            "Codex reports its conversation after a prompt. Send one to show it here."
         case .noSession(.pi):
             "herdr hasn't reported a Pi conversation for this Agent yet. Pi reports it once it has started, after you answer whether to trust the project folder. If this lasts, check the Pi integration on the Host. Chat will keep checking, and you can continue in the Agent terminal."
         case .noSession(.omp):
@@ -61,6 +61,32 @@ extension ChatUnavailableReason {
             problem.explanation
         case .startScreen(let program):
             "\(program.chatName) is on its home screen, so the conversation herdr reported is no longer open there. Open a conversation in the terminal, or send a first message there to start one. Chat follows it once herdr reports it."
+        }
+    }
+
+    /// The notice that replaces this reason's wait: a Codex Agent launched
+    /// on its shared server and waiting for a session, which a prompt won't
+    /// end.
+    func launchNotice(_ notice: ChatLaunchNotice?) -> ChatLaunchNotice? {
+        notice == .codexSharedServer && self == .noSession(.codex) ? notice : nil
+    }
+
+    func title(launchNotice: ChatLaunchNotice?) -> String {
+        switch self.launchNotice(launchNotice) {
+        case .codexSharedServer?: "Codex Started Without \(ChatLaunchNotice.unbrokenNoDaemon)"
+        case nil: title
+        }
+    }
+
+    func systemImage(launchNotice: ChatLaunchNotice?) -> String {
+        self.launchNotice(launchNotice) == nil ? systemImage : "exclamationmark.bubble"
+    }
+
+    func explanation(launchNotice: ChatLaunchNotice?) -> String {
+        switch self.launchNotice(launchNotice) {
+        case .codexSharedServer?:
+            "Exit Codex, then run codex \(ChatLaunchNotice.unbrokenNoDaemon) resume."
+        case nil: explanation
         }
     }
 
@@ -155,7 +181,12 @@ enum ChatSurfacePresentation: Equatable {
     case disconnected
 
     /// `conversation` is nil while there is no Chat to read.
-    init(conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool, isHostConnected: Bool) {
+    /// `checkingLaunch` keeps a wait the launch may explain looking until
+    /// the launch is read (`AgentChatStore.isCheckingLaunch`).
+    init(
+        conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool, isHostConnected: Bool,
+        checkingLaunch: Bool = false
+    ) {
         guard let conversation else {
             self = .disconnected
             return
@@ -167,7 +198,9 @@ enum ChatSurfacePresentation: Equatable {
         switch conversation.phase {
         case .locating: self = isHostConnected ? .locating : .awaitingHost
         case .following: self = .empty
-        case .unavailable(let reason): self = .unavailable(reason)
+        case .unavailable(let reason):
+            let mayBeNotice = reason.launchNotice(.codexSharedServer) != nil
+            self = checkingLaunch && mayBeNotice && isHostConnected ? .locating : .unavailable(reason)
         }
     }
 }
@@ -178,12 +211,14 @@ enum ChatBannerLine: Equatable, Identifiable {
     case notConnected(showingSavedMessages: Bool)
     case readFailure(TransportError)
     case unavailable(ChatUnavailableReason, showingSavedMessages: Bool)
+    case launch(ChatLaunchNotice)
 
     var id: String {
         switch self {
         case .connecting, .notConnected: "host"
         case .readFailure: "read"
         case .unavailable: "unavailable"
+        case .launch: "launch"
         }
     }
 
@@ -191,7 +226,8 @@ enum ChatBannerLine: Equatable, Identifiable {
     /// while there is no Chat to read. Saved messages are transcript entries
     /// this device kept; messages sent from it and not yet recorded are not.
     static func lines(
-        hostStatus: EventsSessionStatus?, conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool
+        hostStatus: EventsSessionStatus?, conversation: ChatConversationSnapshot?, hasPendingEchoes: Bool,
+        launchNotice: ChatLaunchNotice? = nil
     ) -> [ChatBannerLine] {
         let showingSaved = conversation?.transcript.entries.isEmpty == false
         switch hostStatus {
@@ -208,6 +244,18 @@ enum ChatBannerLine: Equatable, Identifiable {
             lines.append(
                 .unavailable(reason, showingSavedMessages: !conversation.transcript.entries.isEmpty))
         }
+        // Over a conversation, or the search for one. A placeholder saying
+        // why there is none shows no conversation to warn about, and
+        // Waiting for Conversation explains the notice itself.
+        if let launchNotice {
+            switch conversation.phase {
+            case .following, .locating: lines.append(.launch(launchNotice))
+            case .unavailable:
+                if conversation.showsTimeline(hasPendingEchoes: hasPendingEchoes) {
+                    lines.append(.launch(launchNotice))
+                }
+            }
+        }
         return lines
     }
 
@@ -222,6 +270,8 @@ enum ChatBannerLine: Equatable, Identifiable {
         case .readFailure(let failure): "Couldn't read the conversation. \(failure.presentation.explanation)"
         case .unavailable(let reason, let showingSavedMessages):
             reason.bannerText(showingSavedMessages: showingSavedMessages)
+        case .launch(.codexSharedServer):
+            "This may be another terminal's conversation."
         }
     }
 
@@ -231,6 +281,7 @@ enum ChatBannerLine: Equatable, Identifiable {
         case .notConnected: "wifi.slash"
         case .readFailure: "exclamationmark.triangle"
         case .unavailable(let reason, _): reason.systemImage
+        case .launch: "exclamationmark.bubble"
         }
     }
 
@@ -238,7 +289,7 @@ enum ChatBannerLine: Equatable, Identifiable {
         switch self {
         case .connecting: true
         case .unavailable(let reason, _): reason.isWaiting
-        case .notConnected, .readFailure: false
+        case .notConnected, .readFailure, .launch: false
         }
     }
 }
@@ -270,19 +321,23 @@ extension ChatProgram {
 /// In the conversation's place while there is nothing to show.
 struct ChatUnavailableView: View {
     let reason: ChatUnavailableReason
+    var launchNotice: ChatLaunchNotice?
     let retry: () -> Void
     let showAgentTerminal: () -> Void
 
     var body: some View {
         ContentUnavailableView {
-            Label(reason.title, systemImage: reason.systemImage)
+            Label(reason.title(launchNotice: launchNotice), systemImage: reason.systemImage(launchNotice: launchNotice))
         } description: {
-            Text(reason.explanation)
+            Text(reason.explanation(launchNotice: launchNotice))
         } actions: {
             Button(AgentDetailSurface.terminal.showTitle, action: showAgentTerminal)
                 .buttonStyle(.bordered)
             if reason.offersRetry {
                 Button("Check Again", action: retry)
+            }
+            if let guide = reason.launchNotice(launchNotice)?.guideURL {
+                Link("Read More", destination: guide)
             }
         }
         .accessibilityIdentifier("chat.unavailable")

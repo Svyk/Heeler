@@ -43,6 +43,8 @@ to the tool that produced it:
 `plugin/package.json` and `relay/package.json` are `"private": true`. A
 package that is never published declares nothing, so their `version`
 fields are not part of a release and `make publish` leaves them alone.
+The herdr plugin has a release of its own:
+[Publishing the herdr plugin](#publishing-the-herdr-plugin).
 
 ## Version resolution
 
@@ -249,6 +251,55 @@ Once, before the first release:
    published nothing; a published tag never moves.
 3. **Rehearse**: run the workflow from `main`. It must pass before the
    first `make publish`.
+
+## Publishing the herdr plugin
+
+The herdr plugin ships separately from the app, from the `plugin` branch:
+
+```sh
+make plugin                     # publish plugin/ from origin/main
+make plugin DRY_RUN=1           # build and check it, push nothing
+make plugin YES=1               # skip the confirmation prompt
+make plugin SOURCE=<commit>     # publish an earlier commit on main
+```
+
+Users install it with
+`herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes`. The
+branch holds only what the plugin runs (`herdr-plugin.toml`,
+`package.json`, `package-lock.json`, `src/`, `README.md`) plus the
+repository `LICENSE`, at its root, so an install fetches about 3 MB
+instead of the whole repository. Development and tests stay in `plugin/`
+on `main`; nobody commits to the `plugin` branch by hand. `make publish`
+and `release.yml` never touch it.
+
+[`scripts/publish-plugin.sh`](../../scripts/publish-plugin.sh), in order:
+
+1. **Fetch** `origin/main` and `origin/plugin`. The tree comes from
+   `SOURCE`, which defaults to `origin/main` and must be on it, so local
+   commits and uncommitted edits never reach the branch.
+2. **Refuse** an entry of `plugin/` that is listed as neither shipped nor
+   dev-only, a `herdr-plugin.toml` version that differs from
+   `package.json`, and changed files under a version that is not newer
+   than the published one. An unchanged tree publishes nothing.
+3. **Check** the tree: `npm ci` the way herdr's build step runs it, then
+   the plugin tests against it.
+4. **Print the plan and ask**, then append one commit,
+   `chore(plugin): publish X.Y.Z`, whose body names the source commit, and
+   push it. The push is never forced, so every published version stays
+   installable with `--ref <commit>`.
+
+When the app depends on a new plugin version, bump it on `main` (see the
+plugin README's "Releasing a plugin version"), run `make plugin`, and only
+then cut the app release that bundles it. An app that expects a version
+the branch lacks tells users to update, and the update reinstalls the old
+one.
+
+Hosts installed with the old command
+(`ZingerLittleBee/Heeler/plugin --ref main`) keep updating from `main`, and
+released apps still show it, so `plugin/` on `main` must stay installable.
+Installing with the new command replaces such an install in place: herdr
+0.7.5 and later replace any GitHub-installed plugin with the same id and
+refuse only a linked one, which the app's notice uninstalls first.
 
 ## `make publish` versus `make bump && make testflight`
 

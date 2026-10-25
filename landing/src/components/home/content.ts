@@ -29,15 +29,15 @@ export const path = [
 
 export const pairLines = [
   '<span class="tk-comment"># on the machine running herdr</span>',
-  '<span class="tk-fn">herdr</span> plugin install ZingerLittleBee/Heeler/plugin <span class="tk-string">--ref main --yes</span>',
+  '<span class="tk-fn">herdr</span> plugin install ZingerLittleBee/Heeler <span class="tk-string">--ref plugin --yes</span>',
   '<span class="tk-fn">herdr</span> plugin action invoke heeler.pair',
 ];
 
 // The closing steps' commands, wrapped so every line fits a phone-width column.
 export const addCommandLines = [
   '<span class="tk-fn">herdr</span> plugin install \\',
-  '  ZingerLittleBee/Heeler/plugin \\',
-  '  <span class="tk-string">--ref main --yes</span>',
+  '  ZingerLittleBee/Heeler \\',
+  '  <span class="tk-string">--ref plugin --yes</span>',
   '<span class="tk-fn">herdr</span> plugin action invoke heeler.pair',
 ];
 
