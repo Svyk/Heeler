@@ -265,7 +265,10 @@ The record shapes are documented in
 - Cache writes are `cache_creation.ephemeral_5m_input_tokens` and
   `ephemeral_1h_input_tokens`; when the split is missing, all of
   `cache_creation_input_tokens` is treated as 5-minute writes.
-- Directory: the session's `cwd`, else the decoded project directory name.
+- Directory: the record's own `cwd`; without one, the latest `cwd` an
+  earlier record of the same file carried; else the decoded project
+  directory name. A session that changes directory is split across its
+  directories.
 
 ### Counting rules: Codex
 
@@ -320,6 +323,14 @@ file's own thread id is `session_meta.payload.id`.
   - An own-thread marker after the burst never moves the boundary. A newer
     Codex writes one when it resumes an old fork, after the child's own
     usage.
+  - Subagents written by Codex 0.142.0 to 0.152 without a trigger marker
+    (reviews, v1 subagents, the guardian) never end their inherited
+    prefix, so their `token_count` usage counts as zero: with neither an
+    own-thread `thread_settings_applied` nor a trigger, their own events
+    cannot be told from a copied prefix, and counting them would count the
+    parent's usage again. From 0.153.0 their own `token_usage_record`s are
+    counted, since records are never inherited, so this affects only older
+    files and leaves the window as they age out.
   - Decide by markers and timestamps, never by `cli_version`. A read that
     ends inside the leading burst keeps its pending `token_count` events in
     `carry` until a later event, or the clock, is more than 1000 ms past the
@@ -611,7 +622,9 @@ plugin asks Claude Code itself, as it asks Codex.
 - The answer carries `subscription_type` (the plan), `rate_limits_available`
   and `rate_limits`. `rate_limits_available: false` means plan limits do not
   apply (in its schema's words: API key, Bedrock, Vertex, or missing profile
-  scope) and maps to `unavailable` with `noPlanLimits`.
+  scope) and maps to `unavailable` with `noPlanLimits`. Claude Code 2.1.310
+  also answers this way when it cannot read its keychain item, so a keychain
+  failure shows as `noPlanLimits`, not as a failed request.
 - A Claude Code without `get_usage` answers with an error whose text starts
   `Unsupported control request subtype` (2.1.309 answers unknown subtypes
   this way). That error maps to `unavailable` with `programTooOld`, not to
@@ -909,9 +922,11 @@ tests and decoded by the Swift tests.
   - Claude limits: a stub `claude` that speaks the stream-json control
     protocol and asserts the flags, `skip_behaviors` and that no user
     message arrives, including `rate_limits_available: false`, an
-    `Unsupported control request subtype` error, a window with null
-    `utilization` or `resets_at`, a failure with and without a last good
-    reading, and readings past their reset time; a query without
+    `Unsupported control request subtype` error, a version at or before
+    2.1.12 (no stream-json process, one version check per executable), a
+    window with null `utilization` or `resets_at`, a failure with and
+    without a last good reading, a non-error answer that drops it, and
+    readings past their reset time; a query without
     `--claude-limits` that hides a cached Claude reading.
   - Runtime: the event hook writes a missing `runtime.json` and
     `runtime-node`, records `HOME`, and leaves identical files alone;
@@ -920,9 +935,10 @@ tests and decoded by the Swift tests.
 - **App:** decoding the shared vector, unknown fields and window ids,
   windows labeled by length, feature gating, store re-query loop, toggle
   plumbing, and the bounded script's quoting.
-- **Real Host:** the Linux/field lane runs the query against a seeded
-  `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, and checks that the exec returns
-  while the worker it started is still running.
+- **Real Host:** no automated lane runs the query on a real Host. The
+  plugin tests run the query and the worker as child processes against
+  fixture roots, including queries that return while their worker still
+  runs; checks on a real Host are manual before release.
 - **Real data:** before release, compare Claude Code totals on a real Host
   with ccusage for the same days, since sidechain rules decide most of the
   total.
@@ -956,8 +972,8 @@ Tracked under #494 as vertical slices:
 ## Open questions
 
 - Whether Claude Code started from an SSH session on an unlocked Mac can read
-  its keychain item: verify on a real Host. A failure surfaces as a
-  `get_usage` failure.
+  its keychain item: verify on a real Host. On 2.1.310 a failure surfaces
+  as `noPlanLimits`, indistinguishable from a sign-in without plan limits.
 - The first Claude Code version with `get_usage` and `skip_behaviors`:
   feature-detect.
 - Whether Claude's parent `usage` includes advisor iterations: decide from a

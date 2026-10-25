@@ -102,3 +102,7 @@ JSON document from it with one bounded SSH exec per query
   either can change with a Claude Code release.
 - This deviates from the Transcript being read only by the app: the plugin now
   reads Transcripts on the Host as well, still read-only.
+- The plugin itself never writes Transcripts, but starting `codex app-server`
+  for Usage Limits runs Codex's own startup maintenance where the user's Codex
+  enables it (migrating legacy rollouts and compressing cold ones to
+  `.jsonl.zst`), as any Codex start does. The Transcript scan handles both.
