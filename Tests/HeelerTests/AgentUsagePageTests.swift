@@ -109,7 +109,7 @@ struct AgentUsagePageInteractionTests {
         let transport = ScriptedTransport()
         let complete = try AgentUsageFixture.report()
         let partial = try AgentUsageFixture.report(refreshing: true)
-        await transport.setHeelerPlugin(.success(.init(version: "0.7.0")))
+        await transport.setHeelerPlugin(.success(.init(pluginRoot: "/plugins/heeler", version: "0.7.0")))
         await transport.setAgentUsage(.success(complete))
         let store = AgentUsageStore(hostID: hostID,
             transports: ScriptedTransportProvider(transports: [hostID: transport]))

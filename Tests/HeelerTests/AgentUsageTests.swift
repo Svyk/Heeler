@@ -127,6 +127,43 @@ struct AgentUsageStoreTests {
         #expect(await transport.agentUsageTimeZones == [timeZone])
     }
 
+    @Test func oneReadListsPluginsOnceAndRunsTheInstallationItResolved() async throws {
+        let transport = ScriptedTransport()
+        await transport.setHeelerPlugin(.success(.init(pluginRoot: "/opt/heeler plugin", version: "0.7.0")))
+        let report = try AgentUsageFixture.report()
+        await transport.setAgentUsage(.success(report))
+        let state = try await AgentUsageStore.read(over: transport, timeZone: "US/Pacific", claudeLimits: true)
+        #expect(state == .available(report))
+        #expect(await transport.heelerPluginReads == 1)
+        #expect(await transport.agentUsageReads == 1)
+        #expect(await transport.agentUsageTimeZones == ["US/Pacific"])
+        #expect(await transport.agentUsageClaudeLimits == [true])
+        #expect(await transport.agentUsagePluginRoots == ["/opt/heeler plugin"])
+    }
+
+    @Test func theProductionReadGatesThePluginBeforeAnyQuery() async throws {
+        let cases: [(HeelerPluginInstallation?, AgentUsageStore.State)] = [
+            (nil, .requirement("Usage needs the Heeler plugin 0.7.0 or newer on this Host.")),
+            (.init(pluginRoot: "/plugins/heeler", version: "0.6.2"),
+             .requirement("Usage needs plugin 0.7.0 or newer; this Host has 0.6.2.")),
+            (.init(pluginRoot: "/plugins/heeler", version: "seven"),
+             .requirement("Could not verify the plugin version. Usage needs plugin 0.7.0 or newer.")),
+            (.init(pluginRoot: "/plugins/heeler", version: "0.7.0", isEnabled: false),
+             .requirement("Enable the Heeler plugin on this Host to read Usage.")),
+            (.init(version: "0.7.0"),
+             .requirement("herdr did not report where the Heeler plugin is installed. Update herdr on this Host to read Usage.")),
+        ]
+        for (plugin, expected) in cases {
+            let transport = ScriptedTransport()
+            await transport.setHeelerPlugin(.success(plugin))
+            await transport.setAgentUsage(.success(try AgentUsageFixture.report()))
+            let state = try await AgentUsageStore.read(over: transport, timeZone: "UTC", claudeLimits: false)
+            #expect(state == expected)
+            #expect(await transport.heelerPluginReads == 1)
+            #expect(await transport.agentUsageReads == 0)
+        }
+    }
+
     @Test func aDisabledPluginDoesNotRunUsage() async {
         let hostID = UUID()
         let transport = ScriptedTransport()

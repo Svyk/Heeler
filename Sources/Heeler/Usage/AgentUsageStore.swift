@@ -102,6 +102,8 @@ final class AgentUsageStore {
     nonisolated static func read(
         over transport: any Transport, timeZone: String, claudeLimits: Bool
     ) async throws -> State {
+        // The read's only plugin listing: the query runs the installation
+        // it resolved.
         guard let plugin = try await transport.readHeelerPlugin() else {
             return .requirement("Usage needs the Heeler plugin 0.7.0 or newer on this Host.")
         }
@@ -114,7 +116,12 @@ final class AgentUsageStore {
         guard plugin.isEnabled else {
             return .requirement("Enable the Heeler plugin on this Host to read Usage.")
         }
-        let report = try await transport.readAgentUsage(timeZone: timeZone, claudeLimits: claudeLimits)
+        guard let pluginRoot = plugin.pluginRoot else {
+            return .requirement(
+                "herdr did not report where the Heeler plugin is installed. Update herdr on this Host to read Usage.")
+        }
+        let report = try await transport.readAgentUsage(
+            timeZone: timeZone, claudeLimits: claudeLimits, pluginRoot: pluginRoot)
         return report.runtime == "missing" ? .runtimeMissing : .available(report)
     }
 }

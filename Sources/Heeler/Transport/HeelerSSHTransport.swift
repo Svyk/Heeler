@@ -1729,20 +1729,8 @@ actor HeelerSSHTransport: Transport {
         return HeelerPluginInstallation(result)
     }
 
-    func readAgentUsage(timeZone: String, claudeLimits: Bool) async throws -> AgentUsageReport {
-        try await requirePOSIXHost(feature: "Usage")
-        guard let plugin = try await readHeelerPlugin(), plugin.isEnabled,
-            let version = plugin.parsedVersion, HeelerPluginFeature.usage.isSupported(by: version),
-            let root = plugin.pluginRoot
-        else {
-            throw TransportError.channelFailed(detail: "Usage needs Heeler plugin 0.7.0 or newer.")
-        }
-        return try await readAgentUsage(
-            timeZone: timeZone, claudeLimits: claudeLimits, pluginRoot: root)
-    }
-
-    /// Executes an already resolved plugin installation. Keeping resolution
-    /// separate also lets real-SSH fixtures supply a scratch installation.
+    /// Executes an already resolved plugin installation, so one read lists
+    /// plugins once. Real-SSH fixtures supply a scratch installation.
     func readAgentUsage(
         timeZone: String, claudeLimits: Bool, pluginRoot: String
     ) async throws -> AgentUsageReport {

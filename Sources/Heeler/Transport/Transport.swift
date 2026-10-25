@@ -243,8 +243,12 @@ protocol Transport: Sendable {
     /// on Hosts the plugin does not support (native Windows).
     func readHeelerPlugin() async throws -> HeelerPluginInstallation?
 
-    /// Reads aggregate usage from the Host plugin, never credentials or Transcripts.
-    func readAgentUsage(timeZone: String, claudeLimits: Bool) async throws -> AgentUsageReport
+    /// Runs the Usage query of the plugin installed at `pluginRoot`, which
+    /// the caller resolved with `readHeelerPlugin()`. Reads aggregate usage,
+    /// never credentials or Transcripts.
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport
 
     /// Lists the skills / custom slash commands installed for a kind on this
     /// Host: global sources under the remote home plus project sources under
@@ -477,7 +481,9 @@ extension Transport {
             detail: "This transport cannot list herdr plugins.")
     }
 
-    func readAgentUsage(timeZone: String, claudeLimits: Bool) async throws -> AgentUsageReport {
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport {
         throw TransportError.hostFeatureUnavailable(feature: "Usage")
     }
 
