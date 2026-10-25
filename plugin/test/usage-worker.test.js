@@ -165,29 +165,6 @@ test("symlinked Claude roots are scanned once and old records are excluded", asy
   assert.equal(log.includes('"message-old"'), false);
 });
 
-test("queries observe a partial scan without starting another worker", async t => {
-  const f = fixture(t);
-  const timestamp = new Date().toISOString();
-  for (let file = 0; file < 12; file++) f.transcript(`${file}.jsonl`, Array.from({ length: 1500 }, (_, i) => assistant(`${file}-${i}`, 1, { timestamp })));
-  assert.equal(f.query().refreshing, true);
-  let pid;
-  let sawPartial = false;
-  for (let i = 0; i < 300; i++) {
-    const report = f.query();
-    if (!report.refreshing) break;
-    const lockPath = join(f.cache(), "worker.lock");
-    let lock;
-    try { lock = JSON.parse(readFileSync(lockPath, "utf8")); } catch { continue; }
-    if (!pid) pid = lock.pid;
-    assert.equal(lock.pid, pid);
-    assert.notEqual(pid, process.pid);
-    if (report.scan.state === "partial" && claude(report).state === "ok") sawPartial = true;
-    await sleep(10);
-  }
-  assert.equal(sawPartial, true);
-  assert.equal(claude(await f.finish()).totals.today.tokens.total, 54_000);
-});
-
 test("fresh heartbeats keep a long-running lock and dead or reused pids are reclaimed", async t => {
   const f = fixture(t);
   await f.finish();

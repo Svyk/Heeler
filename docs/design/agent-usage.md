@@ -397,15 +397,19 @@ size:
   - `keys.log`: one line per counted record: its dedupe key, its
     contribution (bucket, model, directory, normalized tokens, cost, unpriced
     tokens) and, for Claude Code, what decides a collision (`sessionId`,
-    sidechain flag, total). A later winner appends a replacing line. The log
-    is rewritten only when pruning drops days or a rebuild starts; a heavy
-    user's log runs to tens of megabytes, too large to rewrite after every
-    batch.
+    sidechain flag, total). A later winner appends a replacing line. A run
+    appends through one descriptor in 1 MiB chunks and flushes before a
+    snapshot records the log's length.
+  - The log is rewritten only when pruning drops days or a rebuild starts.
+    The rewrite streams the live keys into a temporary file and renames it
+    over the log; a crash leaves either the old log, which its checkpoint
+    still matches, or a new generation that no checkpoint matches yet, which
+    rebuilds.
   - `limits.json`: the last Usage Limits readings (percentages, reset times,
     errors, `nextAllowedAt`); never credentials.
   - `worker.lock`: `O_EXCL` lockfile with pid, process start time and a
-    heartbeat the worker refreshes after every batch and every limit
-    request. It is stale when the pid is gone or belongs to another process,
+    heartbeat the worker refreshes at least once a second while it reads,
+    with every snapshot and after every limit request. It is stale when the pid is gone or belongs to another process,
     or when the heartbeat is older than 10 minutes. A long rebuild keeps its
     lock. The start time comes from `/proc/<pid>/stat` on Linux and
     `/bin/ps` elsewhere; when either side has none, a live pid with a fresh
@@ -475,8 +479,10 @@ size:
 - A full scan processes files newest first, so the recent days fill in first;
   `scan.state` is `partial` until every file in the window is done, then
   `complete`.
-- The worker writes the cache atomically after each batch of files, so a
-  query mid-scan returns partial, correctly labeled data.
+- The worker commits progress atomically (`files.json`, then
+  `buckets.json`) at most once a second, always at a line boundary, plus a
+  final snapshot, so a query mid-scan returns partial, correctly labeled
+  data.
 - Files whose `mtime` is older than the window are skipped without reading.
 - A run fails when the worker throws (a full disk, an unwritable cache) or
   leaves its lock behind (killed or hung; the next query counts it when it
@@ -830,7 +836,8 @@ tests and decoded by the Swift tests.
     a rollout, replacing it with its `.zst`, or replacing a `.zst` with a
     longer plain file; an unreadable file or directory, or a truncated
     `.zst`, is skipped and counted without a rebuild; a lock whose heartbeat
-    is fresh survives a long run.
+    is fresh survives a long run; a worker killed at each cache write,
+    including a torn log append, recovers a fresh scan's totals.
   - Roots: a root created after the first scan keeps the cache directory;
     an unused sibling cache directory is deleted after 31 days.
   - Time and price: folding into +5:45 and DST days; per-request

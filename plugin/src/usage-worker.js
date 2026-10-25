@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { appendFileSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { setPriority } from "node:os";
 import { readUsageRuntime } from "./usage-runtime.js";
 import { cacheDirectory, usageRoots, readJSON, writeJSON, releaseWorker, activeLock, recordFailure, clearFailures, RETENTION } from "./usage/cache.js";
 import { claudeFiles, transcriptEntries, claudeContribution } from "./usage/claude-scanner.js";
-import { loadCheckpoint, startLog, saveCheckpoint, matchFiles } from "./usage/checkpoint.js";
+import { loadCheckpoint, startLog, openLog, saveCheckpoint, matchFiles, removeAbandonedTemporaries } from "./usage/checkpoint.js";
 import { changeBucket } from "./usage/buckets.js";
 import { priceContribution, pricingVersion } from "./usage/pricing.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
@@ -67,6 +67,7 @@ async function run() {
       catch { /* An unreadable sibling is left for its owner. */ }
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
+    cacheWrite(() => removeAbandonedTemporaries(directory));
     const previousSnapshot = readJSON(join(directory, "buckets.json"));
     const limits = readJSON(join(directory, "limits.json")) || {};
     const maintainHeartbeat = () => { if (Date.now() - lock.heartbeat >= 1000) heartbeat(); };
@@ -97,9 +98,10 @@ async function run() {
     const buckets = rebuilding ? new Map() : previous.buckets;
     const keys = rebuilding ? new Map() : previous.keys;
     const groups = rebuilding ? new Map() : previous.groups;
-    const keysPath = join(directory, "keys.log");
-    const generation = rebuilding || previous.expired ? startLog(keysPath, keys, groups) : previous.generation;
+    const newGeneration = rebuilding || previous.expired;
+    const log = cacheWrite(() => newGeneration ? startLog(directory, keys, groups) : openLog(directory, previous.generation));
     const fileStates = rebuilding ? {} : match.states;
+    let lastSnapshot = performance.now();
     const snapshot = (complete, final = false) => {
       heartbeat();
       // A routine incremental run only adds to the totals: until it finishes,
@@ -119,12 +121,19 @@ async function run() {
         // one older than the window covers the window's start.
         coveredSince: Object.values(fileStates).reduce((earliest, file) => Number.isFinite(file.firstAt) && (earliest === null || file.firstAt < earliest)
           ? file.firstAt : earliest, olderTranscripts ? cutoff : null) };
-      cacheWrite(() => saveCheckpoint(directory, fileStates, generation, preserveSnapshot && !scan.complete
+      cacheWrite(() => saveCheckpoint(directory, fileStates, log, preserveSnapshot && !scan.complete
         ? { ...previousSnapshot, complete: false, rebuilding: true, limitsVersion: 1,
           usageLimits: progress.usageLimits, nextLimitsAt: progress.nextLimitsAt, nextClaudeLimitsAt: progress.nextClaudeLimitsAt }
         : { ...progress, rebuilding: false }));
+      lastSnapshot = performance.now();
     };
-    const appendKey = record => cacheWrite(() => appendFileSync(keysPath, JSON.stringify(record) + "\n"));
+    // Each snapshot rewrites files.json and buckets.json, so progress commits at
+    // most once a second. Callers check only at line boundaries: the offset then
+    // points past a line whose contributions are all in the log.
+    const snapshotDue = () => { if (performance.now() - lastSnapshot >= 1000) snapshot(false); };
+    // Commit a new generation at once: until then the old checkpoint no longer matches the log.
+    if (newGeneration) snapshot(false);
+    const appendKey = record => cacheWrite(() => log.append(record));
     const threads = new Map();
     const parentTotals = new Map();
     let pendingPrefix = false;
@@ -156,7 +165,6 @@ async function run() {
       }
       return parentTotals.get(id);
     };
-    let processed = 0;
     for (const file of files) {
       const logicalPath = file.logicalPath || file.path;
       const state = fileStates[logicalPath] ||= { dev: file.dev, ino: file.ino, size: file.size, mtimeMs: file.mtimeMs,
@@ -167,18 +175,13 @@ async function run() {
         const carry = state.carry;
         let parent = carry.parentId && !carry.inheritedEnded ? await totalsForParent(carry.parentId) : null;
         const countContributions = contributions => {
-          let due = false;
           for (const contribution of contributions) {
             const candidate = priceContribution(contribution);
             if (keys.has(candidate.key)) continue;
             keys.set(candidate.key, candidate);
             changeBucket(buckets, candidate, 1);
             appendKey(candidate);
-            processed++;
-            due ||= processed % 1000 === 0;
           }
-          // The offset already points past this line: commit only at a line boundary.
-          if (due) snapshot(false);
         };
         try {
           if (!state.finished) for await (const entry of codexLines(file, runtime, maintainHeartbeat, state.offset)) {
@@ -187,6 +190,7 @@ async function run() {
             const reading = codexRolloutLimits(entry.line);
             if (reading && (!carry.latestLimits || reading.observedAt >= carry.latestLimits.observedAt)) carry.latestLimits = reading;
             countContributions(consumeCodexLine(carry, entry.line, state.offset, cutoff, parent));
+            snapshotDue();
             if (carry.parentId && parent === null) parent = await totalsForParent(carry.parentId);
           }
           countContributions(finishCodexRead(carry, Date.now(), parent));
@@ -200,11 +204,13 @@ async function run() {
           if (error instanceof ArchiveUnavailableError) state.skipped = true;
           else state.unreadable = true;
         }
-        snapshot(false);
+        snapshotDue();
         continue;
       }
       try {
         if (!state.finished) for await (const { line, offset } of transcriptEntries(file.path, maintainHeartbeat, state.offset)) {
+          // The previous line is complete here.
+          snapshotDue();
           state.offset = offset;
           noteFirstRecord(state, line);
           if (typeof line?.cwd === "string") state.carry.directory = line.cwd;
@@ -237,8 +243,6 @@ async function run() {
           keys.set(candidate.key, candidate);
           changeBucket(buckets, candidate, 1);
           appendKey({ ...candidate, replaces: removed });
-          processed++;
-          if (processed % 1000 === 0) snapshot(false);
         }
         state.finished = true;
         state.unreadable = false;
@@ -246,7 +250,7 @@ async function run() {
         if (runFailure(error)) throw error;
         state.unreadable = true;
       }
-      snapshot(false);
+      snapshotDue();
     }
     snapshot(!pendingPrefix, true);
     // Reserve each program's cadence before starting it, so a worker that dies
@@ -270,6 +274,7 @@ async function run() {
       || { state: "error", reason: "requestFailed" }, fallback);
     writeJSON(join(directory, "limits.json"), limits);
     snapshot(!pendingPrefix, true);
+    log.close();
     clearFailures(directory);
   } catch (error) {
     // A displaced worker did not fail; its successor owns the refresh.

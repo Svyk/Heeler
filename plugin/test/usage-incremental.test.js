@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, appendFileSync, chmodSync, realpathSync, renameSync, utimesSync, statSync, existsSync } from "node:fs";
+import { execFile, spawnSync } from "node:child_process";
+import { promisify } from "node:util";
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, appendFileSync, chmodSync, realpathSync, renameSync, utimesSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,30 +42,60 @@ if(fs.existsSync(clockPath)) {
 }
 const append=fs.appendFileSync;
 const rename=fs.renameSync;
-function crash(point) {
-  if(!fs.existsSync(root+'/fault.json'))return;
-  const wanted=JSON.parse(fs.readFileSync(root+'/fault.json'));
-  if(wanted!==point)return;
+const open=fs.openSync;
+const write=fs.writeSync;
+const truncate=fs.truncateSync;
+const fsync=fs.fsyncSync;
+const worker=process.argv[1]?.endsWith('usage-worker.js');
+// With a tick every snapshot check is due, so progress commits at every line boundary.
+if(worker&&fs.existsSync(root+'/tick')){let elapsed=0;performance.now=()=>(elapsed+=1000);}
+const fault=()=>{try{return JSON.parse(fs.readFileSync(root+'/fault.json'))}catch{return undefined}};
+function kill() {
   fs.writeFileSync(root+'/fault-reached',String(process.pid));
   process.kill(process.pid,'SIGKILL');
 }
-fs.appendFileSync=function(path,data,...args) {
-  const result=append.call(this,path,data,...args);
-  if(String(path).endsWith('/keys.log')&&String(data).includes('"tokens"'))crash('keys');
+function crash(point) { if(fault()===point)kill(); }
+// Numbered cache writes: {at:k} kills the worker at the k-th one.
+let events=0;
+const event=()=>{events++;return fault()?.at===events;};
+if(worker)process.on('exit',()=>fs.writeFileSync(root+'/events',String(events)));
+const logs=new Set();
+fs.openSync=function(path,...args) {
+  const fd=open.call(this,path,...args);
+  if(/[/]keys[.]log([.].+[.]tmp)?$/.test(String(path)))logs.add(fd);
+  return fd;
+};
+fs.writeSync=function(fd,data,...args) {
+  if(!logs.has(fd))return write.call(this,fd,data,...args);
+  if(event()){
+    // Tear the write: only its first half reaches the log.
+    const [offset=0,length=data.length-offset]=args;
+    write.call(this,fd,data,offset,Math.max(1,Math.floor(length/2)));
+    kill();
+  }
+  const result=write.call(this,fd,data,...args);
+  if(String(data).includes('"tokens"'))crash('keys');
   return result;
 };
+fs.truncateSync=function(...args){const result=truncate.apply(this,args);if(event())kill();return result;};
+fs.fsyncSync=function(fd){const result=fsync.call(this,fd);if(logs.has(fd)&&event())kill();return result;};
 fs.renameSync=function(from,to) {
   const result=rename.call(this,from,to);
   if(String(to).endsWith('/files.json'))crash('files');
   if(String(to).endsWith('/buckets.json'))crash('buckets');
+  if(/[/](keys[.]log|files[.]json|buckets[.]json|limits[.]json)$/.test(String(to))&&event())kill();
   return result;
 };
 const original=fs.createReadStream;
+// A hold holding a number lets that many Transcript reads through first.
+let opened=0;
+const holdAfter=()=>{try{const n=Number(fs.readFileSync(root+'/hold','utf8'));return Number.isInteger(n)?n:0}catch{return null}};
 fs.createReadStream=function(path,options) {
   const transcript=String(path).endsWith('.jsonl')||String(path).endsWith('.zst');
   if(transcript)append(${JSON.stringify(trace)},JSON.stringify({path:String(path),start:options?.start||0})+'\\n');
   const stream=original.call(this,path,options);
-  if(transcript&&fs.existsSync(root+'/hold'))return Readable.from((async function*(){
+  const after=transcript?holdAfter():null;
+  if(after!==null&&opened++>=after)return Readable.from((async function*(){
     fs.writeFileSync(root+'/read-started','ready');
     while(fs.existsSync(root+'/hold'))await new Promise(resolve=>setTimeout(resolve,10));
     yield* stream;
@@ -83,13 +114,14 @@ syncBuiltinESMExports();
   let cachedDirectory;
   const cache = () => cachedDirectory ||= join(env.HERDR_PLUGIN_STATE_DIR, "usage", readdirSync(join(env.HERDR_PLUGIN_STATE_DIR, "usage"))[0]);
   const query = () => { const r = spawnSync(node, [join(plugin, "src", "usage-query.js"), "--tz", "UTC"], { env, encoding: "utf8", timeout: 10_000 }); assert.equal(r.status, 0, r.stderr); cache(); return JSON.parse(r.stdout); };
+  const queryAsync = async () => { const r = await promisify(execFile)(node, [join(plugin, "src", "usage-query.js"), "--tz", "UTC"], { env, encoding: "utf8", timeout: 10_000 }); cache(); return JSON.parse(r.stdout); };
   const finish = async () => { for (let i=0;i<400;i++) { const r=query(); if(!r.refreshing)return r; await sleep(15); } assert.fail("worker did not finish"); };
   const stale = () => { const path=join(cache(), "buckets.json"); const value=JSON.parse(readFileSync(path)); value.generatedAt=new Date(Date.now()-61_000).toISOString(); writeFileSync(path,JSON.stringify(value)); };
   const transcript = (name, lines) => { const path=join(env.CLAUDE_CONFIG_DIR,"projects","-work-é",name); mkdirSync(join(path,".."),{recursive:true}); writeFileSync(path,records(lines)); return realpathSync(path); };
   const reads = () => { try{return readFileSync(trace,"utf8").trim().split("\n").filter(Boolean).map(JSON.parse)}catch{return []} };
   const clearReads = () => writeFileSync(trace, "");
   t.after(() => { try { const lock=JSON.parse(readFileSync(join(cache(),"worker.lock"))); if(lock.pid!==process.pid)process.kill(lock.pid,"SIGKILL"); }catch{} rmSync(root,{recursive:true,force:true}); });
-  return { root,env,cache,query,finish,stale,transcript,reads,clearReads, setClock: time => writeFileSync(join(root,"clock.json"),JSON.stringify(time)) };
+  return { root,env,cache,query,queryAsync,finish,stale,transcript,reads,clearReads, setClock: time => writeFileSync(join(root,"clock.json"),JSON.stringify(time)) };
 }
 
 test("Claude appends seek from the last complete byte and match a full scan", async t => {
@@ -299,26 +331,15 @@ test("a killed worker resumes or rebuilds without counting uncommitted contribut
   }
 });
 
-test("a worker killed after a batch snapshot keeps every contribution of the line it was in",async t=>{
-  const f=fixture(t);const at=offset=>new Date(Date.now()-60_000+offset).toISOString();
-  const trigger=codexLine("inter_agent_communication",{trigger_turn:true},at(0));
-  // 998 records, then one line that releases three burst counts: the 1000th
-  // contribution, and the batch snapshot it triggers, falls inside that line.
-  rollout(f,"burst",[meta("burst",{session_id:"parent"},at(0)),...Array.from({length:998},(_,i)=>response("burst",`r${i}`,1)),
-    trigger,count(10,10,at(0)),count(30,20,at(0)),count(60,30,at(0)),count(100,40,at(0)),codexLine("turn_context",{model:"gpt-test"},at(5000))]);
-  writeFileSync(join(f.root,"fault.json"),JSON.stringify("buckets"));
-  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"fault-reached"));rmSync(join(f.root,"fault.json"));
-  assert.equal(tokens(await f.finish(),"codex"),998+20+30+40);
-  const recovered=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,recovered.programs);
-});
-
 test("a routine incremental run keeps the finished scan state until it finishes",async t=>{
   const f=fixture(t);const newer=f.transcript("newer.jsonl",[assistant("newer",5)]);const older=f.transcript("older.jsonl",[assistant("older",7)]);
   const first=await f.finish();assert.equal(tokens(first),12);assert.equal(first.scan.state,"complete");
   appendFileSync(older,records([assistant("older-more",100)]));appendFileSync(newer,records([assistant("newer-more",3)]));
   const later=new Date(Date.now()+2000);utimesSync(newer,later,later);
-  f.stale();writeFileSync(join(f.root,"fault.json"),JSON.stringify("buckets"));
-  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"fault-reached"));rmSync(join(f.root,"fault.json"));
+  // Commit after every line and hold the second Transcript's read, then end the worker there.
+  f.stale();writeFileSync(join(f.root,"tick"),"");writeFileSync(join(f.root,"hold"),"1");
+  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"read-started"));
+  process.kill(JSON.parse(readFileSync(join(f.cache(),"worker.lock"))).pid,"SIGKILL");rmSync(join(f.root,"hold"));
   // The worker died after committing only the newest file's append.
   const during=f.query();assert.equal(tokens(during),15);
   assert.equal(during.scan.state,"complete");assert.equal(during.scan.coveredThrough,first.scan.coveredThrough);
@@ -352,6 +373,70 @@ test("persisted cross-session aliases suppress a sidechain replay appended on a 
   appendFileSync(path,records([{...copy,isSidechain:true,requestId:"replayed",message:{...copy.message,usage:{input_tokens:1000}}}]));f.stale();
   assert.equal(tokens(await f.finish()),10);
   const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
+});
+
+test("queries observe a partial scan without starting another worker",async t=>{
+  const f=fixture(t);
+  f.transcript("first.jsonl",Array.from({length:30},(_,i)=>assistant(`first-${i}`,1)));
+  f.transcript("second.jsonl",Array.from({length:30},(_,i)=>assistant(`second-${i}`,2)));
+  writeFileSync(join(f.root,"tick"),"");writeFileSync(join(f.root,"hold"),"1");
+  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"read-started"));
+  const pid=JSON.parse(readFileSync(join(f.cache(),"worker.lock"))).pid;
+  const partial=f.query();assert.equal(partial.refreshing,true);assert.equal(partial.scan.state,"partial");
+  assert.ok([30,60].includes(tokens(partial)));
+  assert.equal(JSON.parse(readFileSync(join(f.cache(),"worker.lock"))).pid,pid);
+  rmSync(join(f.root,"hold"));assert.equal(tokens(await f.finish()),90);
+});
+
+async function killScenario(t,change){
+  const day=86400000;const now=Date.parse("2026-10-20T12:00:00Z");const iso=time=>new Date(time).toISOString();
+  const f=fixture(t);f.setClock(now);
+  const main=f.transcript("main.jsonl",[assistant("aging",100,{timestamp:iso(now-30.75*day)})]);
+  const shared=assistant("shared",11,{timestamp:iso(now-2*day)});const parent=f.transcript("parent.jsonl",[shared]);
+  const copy=f.transcript("copy.jsonl",[{...shared,sessionId:"copy"}]);
+  await f.finish();const initial=generation(f);
+  // A day later: 2026-09-19 expires whole, a streamed snapshot grows, a
+  // sidechain replay loses to its parent and a Codex line releases a burst.
+  f.setClock(now+0.6*day);
+  const streamed=assistant("streamed",3,{timestamp:iso(now)});
+  appendFileSync(main,records([streamed,{...streamed,message:{...streamed.message,usage:{input_tokens:9}}}]));
+  appendFileSync(copy,records([{...shared,sessionId:"copy",isSidechain:true,requestId:"replayed",message:{...shared.message,usage:{input_tokens:1000}}}]));
+  const at=offset=>iso(now-60_000+offset);
+  rollout(f,"burst",[meta("burst",{session_id:"parent"},at(0)),codexLine("token_usage_record",{thread_id:"burst",response_id:"r0",usage:{input_tokens:1}},at(0)),
+    codexLine("inter_agent_communication",{trigger_turn:true},at(0)),count(10,10,at(0)),count(30,20,at(0)),count(60,30,at(0)),codexLine("turn_context",{model:"gpt-test"},at(5000))]);
+  if(change==="rebuild"){const later=new Date(now+day);utimesSync(parent,later,later);}
+  const template=join(f.root,"template");cpSync(f.cache(),template,{recursive:true});
+  rmSync(f.cache(),{recursive:true});const expected=(await f.finish()).programs;
+  // Every line boundary commits, so the run passes through every kind of write.
+  writeFileSync(join(f.root,"tick"),"");
+  const restore=()=>{rmSync(f.cache(),{recursive:true});cpSync(template,f.cache(),{recursive:true});rmSync(join(f.root,"fault-reached"),{force:true});};
+  restore();assert.deepEqual((await f.finish()).programs,expected);
+  assert.notEqual(generation(f),initial);assert.equal(readFileSync(join(f.cache(),"keys.log"),"utf8").includes("aging"),false);
+  const writes=Number(readFileSync(join(f.root,"events"),"utf8"));
+  // Poll the lock file rather than spawning a query every few milliseconds.
+  const settle=async()=>{for(;;){const report=await f.queryAsync();if(!report.refreshing)return report;while(existsSync(join(f.cache(),"worker.lock")))await sleep(5);}};
+  const killAt=async k=>{
+    restore();writeFileSync(join(f.root,"fault.json"),JSON.stringify({at:k}));
+    assert.equal((await f.queryAsync()).refreshing,true);
+    for(let i=0;i<2000&&!existsSync(join(f.root,"fault-reached"))&&existsSync(join(f.cache(),"worker.lock"));i++)await sleep(5);
+    assert.ok(existsSync(join(f.root,"fault-reached")),`${change}: write ${k} of ${writes} was not reached`);
+    rmSync(join(f.root,"fault.json"));
+    assert.deepEqual((await settle()).programs,expected,`${change}: killed at write ${k} of ${writes}`);
+    assert.deepEqual(readdirSync(f.cache()).filter(name=>name.endsWith(".tmp")),[]);
+  };
+  return { change, writes, expected, killAt };
+}
+
+test("a worker killed at any cache write recovers the totals of a fresh full scan",async t=>{
+  // Two lanes per change share its write points; all lanes run at once.
+  const lanes=[];
+  for(const change of ["prune","rebuild"])for(let lane=0;lane<2;lane++)lanes.push(await killScenario(t,change));
+  for(const lane of lanes){
+    const twin=lanes.find(other=>other.change===lane.change);
+    assert.equal(lane.writes,twin.writes);assert.deepEqual(lane.expected,twin.expected);assert.ok(lane.writes>=15,`${lane.writes} writes`);
+  }
+  t.diagnostic(lanes.filter((_,i)=>i%2===0).map(lane=>`${lane.change}: ${lane.writes} writes`).join(", "));
+  await Promise.all(lanes.map(async (lane,index)=>{for(let k=1+index%2;k<=lane.writes;k+=2)await lane.killAt(k);}));
 });
 
 test("a checkpoint from another scanner version rebuilds even when fresh",async t=>{

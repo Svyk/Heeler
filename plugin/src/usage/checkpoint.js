@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, fsyncSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeSync } from "node:fs";
 import { basename, join } from "node:path";
 import { writeJSON, DAY } from "./cache.js";
 import { transcriptEntries } from "./claude-scanner.js";
@@ -14,6 +14,7 @@ export const CHECKPOINT_VERSION = 2;
  * Version 2 recovers rollout tails appended before Codex compressed them.
  */
 export const SCANNER_VERSION = 2;
+const CHUNK = 1 << 20;
 
 const digest = text => createHash("sha256").update(text).digest("hex");
 
@@ -21,6 +22,13 @@ const digest = text => createHash("sha256").update(text).digest("hex");
 export function checkpointCurrent(checkpoint) {
   return checkpoint?.version === CHECKPOINT_VERSION && checkpoint.scannerVersion === SCANNER_VERSION
     && checkpoint.pricingFingerprint === pricingFingerprint;
+}
+
+/** A worker killed mid-write leaves its temporary files behind; only the lock holder writes these. */
+export function removeAbandonedTemporaries(directory) {
+  for (const name of readdirSync(directory)) {
+    if (/^(?:keys\.log|files\.json|buckets\.json|limits\.json)\..+\.tmp$/.test(name)) rmSync(join(directory, name), { force: true });
+  }
 }
 
 /** A committed snapshot binds offsets to exactly one prefix of the contribution log. */
@@ -70,22 +78,73 @@ export async function loadCheckpoint(directory, snapshot, heartbeat) {
   } catch { return null; }
 }
 
-export function startLog(path, keys = new Map(), groups = new Map()) {
-  const generation = randomUUID();
-  writeFileSync(path, JSON.stringify({ generation }) + "\n", { mode: 0o600 });
-  // Rewrite only at rebuild/prune boundaries, never at each batch.
-  const entries = [];
-  for (const value of keys.values()) { const { replaces, ...record } = value; entries.push(JSON.stringify(record)); }
-  for (const [group, peers] of groups) for (const key of peers) entries.push(JSON.stringify({ alias: { group, key } }));
-  if (entries.length) writeFileSync(path, entries.join("\n") + "\n", { flag: "a" });
-  return generation;
+function writeAll(fd, text) {
+  const buffer = Buffer.from(text);
+  for (let done = 0; done < buffer.length;) done += writeSync(fd, buffer, done, buffer.length - done);
 }
 
-export function saveCheckpoint(directory, files, generation, snapshot) {
+/**
+ * Appends through one descriptor in buffered chunks. A crash loses only
+ * buffered lines, which no checkpoint covers yet: `bytes` flushes before it
+ * reports the length a checkpoint commits.
+ */
+class ContributionLog {
+  constructor(fd, generation) { this.fd = fd; this.generation = generation; this.chunks = []; this.length = 0; }
+  append(record) {
+    const text = JSON.stringify(record) + "\n";
+    this.chunks.push(text);
+    this.length += text.length;
+    if (this.length >= CHUNK) this.flush();
+  }
+  flush() {
+    if (!this.chunks.length) return;
+    const text = this.chunks.join("");
+    this.chunks = [];
+    this.length = 0;
+    writeAll(this.fd, text);
+  }
+  bytes() { this.flush(); return fstatSync(this.fd).size; }
+  close() { closeSync(this.fd); }
+}
+
+/** Continue the log a checkpoint was loaded from; it was already truncated to that checkpoint. */
+export function openLog(directory, generation) {
+  return new ContributionLog(openSync(join(directory, "keys.log"), "a"), generation);
+}
+
+/**
+ * Write a new generation holding the live keys into a temporary file and
+ * rename it into place, so the old log stays intact until the new one is
+ * complete. Until a snapshot commits the new generation, the old checkpoint no
+ * longer matches the log and the next run rebuilds.
+ */
+export function startLog(directory, keys = new Map(), groups = new Map()) {
+  const path = join(directory, "keys.log");
+  const generation = randomUUID();
+  const temporary = `${path}.${generation}.tmp`;
+  const log = new ContributionLog(openSync(temporary, "ax", 0o600), generation);
+  try {
+    log.append({ generation });
+    for (const value of keys.values()) { const { replaces, ...record } = value; log.append(record); }
+    for (const [group, peers] of groups) for (const key of peers) log.append({ alias: { group, key } });
+    log.flush();
+    fsyncSync(log.fd);
+    renameSync(temporary, path);
+    return log;
+  } catch (error) {
+    try { log.close(); } catch { /* The write error is the one to report. */ }
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+export function saveCheckpoint(directory, files, log, snapshot) {
+  // Flush first: the committed length must cover every contribution behind these offsets.
+  const keyBytes = log.bytes();
   writeJSON(join(directory, "files.json"), files);
   const filesText = readFileSync(join(directory, "files.json"), "utf8");
   writeJSON(join(directory, "buckets.json"), { ...snapshot, checkpoint: {
-    version: CHECKPOINT_VERSION, scannerVersion: SCANNER_VERSION, pricingFingerprint, generation, filesHash: digest(filesText), keyBytes: statSync(join(directory, "keys.log")).size,
+    version: CHECKPOINT_VERSION, scannerVersion: SCANNER_VERSION, pricingFingerprint, generation: log.generation, filesHash: digest(filesText), keyBytes,
   } });
 }
 
