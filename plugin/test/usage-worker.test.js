@@ -135,11 +135,23 @@ test("root identity stays stable when missing roots appear and old siblings are 
   writeFileSync(join(sibling, "buckets.json"), "{}");
   const old = new Date(Date.now() - 32 * 86_400_000);
   utimesSync(join(sibling, "buckets.json"), old, old);
+  // A cache whose first scan never committed has no buckets.json; its own
+  // files and the directory date it instead.
+  const abandoned = join(f.env.HERDR_PLUGIN_STATE_DIR, "usage", "zz-abandoned");
+  const fresh = join(f.env.HERDR_PLUGIN_STATE_DIR, "usage", "zz-fresh");
+  for (const directory of [abandoned, fresh]) {
+    mkdirSync(directory);
+    writeFileSync(join(directory, "keys.log"), "{}\n");
+  }
+  utimesSync(join(abandoned, "keys.log"), old, old);
+  utimesSync(abandoned, old, old);
+  utimesSync(fresh, old, old);
   f.transcript("new.jsonl", [assistant("new")]);
   f.stale();
   assert.equal(claude(await f.finish()).totals.today.tokens.total, 12);
   assert.equal(f.cache(), original);
-  assert.deepEqual(readdirSync(join(f.env.HERDR_PLUGIN_STATE_DIR, "usage")), [original.split("/").at(-1)]);
+  assert.deepEqual(readdirSync(join(f.env.HERDR_PLUGIN_STATE_DIR, "usage")).sort(), ["zz-fresh", original.split("/").at(-1)].sort());
+  rmSync(fresh, { recursive: true });
   assert.equal(statSync(original).mode & 0o777, 0o700);
 });
 

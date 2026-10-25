@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { appendFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { setPriority } from "node:os";
 import { readUsageRuntime } from "./usage-runtime.js";
@@ -16,6 +16,14 @@ import { readClaudeLimits, cacheClaudeLimits } from "./usage/claude-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 class LockLostError extends Error {}
+/** A cache's last write: its snapshot, or, before a first commit, its newest entry. */
+function lastWritten(directory) {
+  try { return statSync(join(directory, "buckets.json")).mtimeMs; }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  let newest = lstatSync(directory).mtimeMs;
+  for (const name of readdirSync(directory)) newest = Math.max(newest, lstatSync(join(directory, name)).mtimeMs);
+  return newest;
+}
 async function run() {
   const { values } = parseArgs({ options: { config: { type: "string" }, "lock-token": { type: "string" }, "claude-limits": { type: "boolean", default: false } } });
   try { setPriority(10); } catch { /* Lower priority is best effort on the Host. */ }
@@ -43,8 +51,8 @@ async function run() {
     for (const name of readdirSync(join(runtime.stateDir, "usage"))) {
       const sibling = join(runtime.stateDir, "usage", name);
       if (sibling === directory) continue;
-      try { if (statSync(join(sibling, "buckets.json")).mtimeMs < cutoff && !activeLock(sibling)) rmSync(sibling, { recursive: true, force: true }); }
-      catch { /* Incomplete sibling caches are left for their owner. */ }
+      try { if (lastWritten(sibling) < cutoff && !activeLock(sibling)) rmSync(sibling, { recursive: true, force: true }); }
+      catch { /* An unreadable sibling is left for its owner. */ }
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const previousSnapshot = readJSON(join(directory, "buckets.json"));

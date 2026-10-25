@@ -204,7 +204,9 @@ Multiple roots per program are merged into one total for that program.
 `CODEX_HOME`), made absolute but not resolved, whether or not they exist yet.
 Installing a program or creating a legacy directory later therefore does not
 move the cache. Each worker run deletes sibling `<stateDir>/usage/*`
-directories whose `buckets.json` has not been written for 31 days.
+directories that no live worker holds and whose `buckets.json` has not been
+written for 31 days; a sibling without one is dated by its directory and
+files instead.
 
 ### Counting rules: Claude Code
 
