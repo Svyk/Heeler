@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 // a proxy URL may embed credentials, so runtime.json stays private (0600).
 const PROXY_NAMES = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
   "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "CODEX_CA_CERTIFICATE"];
-export const ENVIRONMENT_NAMES = ["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", ...PROXY_NAMES];
+const ENVIRONMENT_NAMES = ["PATH", "HOME", "USER", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", ...PROXY_NAMES];
 
 function executableOnPath(name, path) {
   if (typeof path !== "string") return null;
