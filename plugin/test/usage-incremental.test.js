@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
+import { matchFiles } from "../src/usage/checkpoint.js";
+
 const plugin = fileURLToPath(new URL("..", import.meta.url));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const records = lines => lines.map(line => JSON.stringify(line)).join("\n") + "\n";
@@ -184,6 +186,17 @@ test("a rollout tail appended before compression is read from the saved offset",
   f.clearReads();f.stale();assert.equal(tokens(await f.finish(),"codex"),40);assert.equal(generation(f),initial);
   assert.deepEqual(f.reads().filter(r=>r.path===path+".zst").length,1);
   const incremental=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,incremental.programs);
+});
+
+test("a reused inode claims an unlisted old state only under the same file name",()=>{
+  const now=Date.now();const old={program:"claude",dev:1,ino:7,size:100,mtimeMs:now-30.5*86400000,offset:100,finished:true,compressed:false,carry:{}};
+  const file=(path,extra={})=>({path,program:"claude",dev:1,ino:7,size:400,mtimeMs:now,...extra});
+  // A Transcript deleted by cleanup frees its inode for an unrelated new file.
+  const reused=matchFiles([file("/p/new.jsonl")],{"/p/old.jsonl":old},now);
+  assert.deepEqual(reused,{states:{},rebuild:false});
+  const archived={...old,program:"codex"};
+  const moved=matchFiles([file("/c/archived_sessions/rollout-a.jsonl",{program:"codex",size:100,mtimeMs:old.mtimeMs})],{"/c/sessions/2026/10/01/rollout-a.jsonl":archived},now);
+  assert.equal(moved.rebuild,false);assert.equal(moved.states["/c/archived_sessions/rollout-a.jsonl"].offset,100);
 });
 
 test("expired keys and buckets are pruned without rereading unchanged Transcripts",async t=>{

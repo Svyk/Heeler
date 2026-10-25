@@ -419,8 +419,10 @@ size:
     `cleanupPeriodDays` of 30, Claude Code's cleanup deletes only such files
     (a project directory whose newest file is older than the period); a user
     who sets it lower gets a rebuild after each cleanup.
-  - The same `dev/ino` at a new path, such as a rollout archived from
-    `sessions/` to `archived_sessions/`. Its state moves with it.
+  - The same `dev/ino` and file name at a new path, such as a rollout
+    archived from `sessions/` to `archived_sessions/`. Its state moves with
+    it. A file system may reuse a deleted file's inode for an unrelated new
+    file, so a different name never inherits a state.
   - A plain rollout replaced by its `.jsonl.zst`. The logical file keeps its
     state. Codex copies the source mtime when it compresses, so an unchanged
     `mtimeMs` means the file is not read again; otherwise lines appended after

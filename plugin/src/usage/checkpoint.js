@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync, truncateSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { writeJSON, DAY } from "./cache.js";
 import { transcriptEntries } from "./claude-scanner.js";
 import { changeBucket } from "./buckets.js";
@@ -74,24 +74,28 @@ export function saveCheckpoint(directory, files, generation, snapshot) {
   } });
 }
 
-/** Match paths before inodes so moves retain their parser identity and response keys. */
+/**
+ * Match paths before inodes so moves retain their parser identity and response
+ * keys. Archiving keeps the base name; a freed inode reused by another file
+ * does not, so an identity claim also requires the same logical base name.
+ */
 export function matchFiles(files, previous, now) {
   const states = {};
   const claimed = new Set();
   const currentPaths = new Set(files.map(file => file.logicalPath || file.path));
   const byIdentity = new Map();
-  const identity = file => JSON.stringify([file.program, file.dev, file.ino]);
+  const identity = (file, path) => JSON.stringify([file.program, file.dev, file.ino, basename(path)]);
   for (const [path, state] of Object.entries(previous)) {
     if (currentPaths.has(path)) continue;
-    const candidates = byIdentity.get(identity(state)) || [];
+    const candidates = byIdentity.get(identity(state, path)) || [];
     candidates.push(path);
-    byIdentity.set(identity(state), candidates);
+    byIdentity.set(identity(state, path), candidates);
   }
   let rebuild = false;
   for (const file of files) {
     const path = file.logicalPath || file.path;
     const oldPath = Object.hasOwn(previous, path) ? path
-      : byIdentity.get(identity(file))?.find(candidate => !claimed.has(candidate));
+      : byIdentity.get(identity(file, path))?.find(candidate => !claimed.has(candidate));
     if (!oldPath) continue;
     claimed.add(oldPath);
     const old = previous[oldPath];
