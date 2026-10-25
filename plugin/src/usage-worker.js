@@ -123,6 +123,7 @@ async function run() {
         const carry = state.carry;
         let parent = carry.parentId && !carry.inheritedEnded ? await totalsForParent(carry.parentId) : null;
         const countContributions = contributions => {
+          let due = false;
           for (const contribution of contributions) {
             const candidate = priceContribution(contribution);
             if (keys.has(candidate.key)) continue;
@@ -130,8 +131,10 @@ async function run() {
             changeBucket(buckets, candidate, 1);
             appendFileSync(keysPath, JSON.stringify(candidate) + "\n");
             processed++;
-            if (processed % 1000 === 0) snapshot(false);
+            due ||= processed % 1000 === 0;
           }
+          // The offset already points past this line: commit only at a line boundary.
+          if (due) snapshot(false);
         };
         try {
           if (!state.finished) for await (const entry of codexLines(file, runtime, maintainHeartbeat, state.offset)) {

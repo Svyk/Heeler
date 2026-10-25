@@ -55,6 +55,7 @@ fs.appendFileSync=function(path,data,...args) {
 fs.renameSync=function(from,to) {
   const result=rename.call(this,from,to);
   if(String(to).endsWith('/files.json'))crash('files');
+  if(String(to).endsWith('/buckets.json'))crash('buckets');
   return result;
 };
 const original=fs.createReadStream;
@@ -247,6 +248,19 @@ test("a killed worker resumes or rebuilds without counting uncommitted contribut
     if(point==="keys")assert.equal(generation(f),before);else assert.notEqual(generation(f),before);
     const recovered=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,recovered.programs);
   }
+});
+
+test("a worker killed after a batch snapshot keeps every contribution of the line it was in",async t=>{
+  const f=fixture(t);const at=offset=>new Date(Date.now()-60_000+offset).toISOString();
+  const trigger=codexLine("inter_agent_communication",{trigger_turn:true},at(0));
+  // 998 records, then one line that releases three burst counts: the 1000th
+  // contribution, and the batch snapshot it triggers, falls inside that line.
+  rollout(f,"burst",[meta("burst",{session_id:"parent"},at(0)),...Array.from({length:998},(_,i)=>response("burst",`r${i}`,1)),
+    trigger,count(10,10,at(0)),count(30,20,at(0)),count(60,30,at(0)),count(100,40,at(0)),codexLine("turn_context",{model:"gpt-test"},at(5000))]);
+  writeFileSync(join(f.root,"fault.json"),JSON.stringify("buckets"));
+  assert.equal(f.query().refreshing,true);await waitFor(join(f.root,"fault-reached"));rmSync(join(f.root,"fault.json"));
+  assert.equal(tokens(await f.finish(),"codex"),998+20+30+40);
+  const recovered=await f.finish();rmSync(f.cache(),{recursive:true});assert.deepEqual((await f.finish()).programs,recovered.programs);
 });
 
 test("a rebuild keeps the previous snapshot visible until its replacement is complete",async t=>{
