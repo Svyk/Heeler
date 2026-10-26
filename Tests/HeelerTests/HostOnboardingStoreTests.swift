@@ -19,11 +19,12 @@ struct HostOnboardingStoreTests {
         password: String? = nil,
         sessions: [HerdrSession] = [],
         plugin: Result<HeelerPluginInstallation?, TransportError>? = nil,
+        pluginSteps: FakePluginSteps = FakePluginSteps(),
         fingerprintTimeout: Duration = .seconds(5)
     ) throws -> (HostOnboardingStore, FakeTransportConnector) {
         let connector = FakeTransportConnector(
             outcome: outcome, presentedKeyBlob: presentedKeyBlob, sessions: sessions,
-            plugin: plugin)
+            plugin: plugin, pluginSteps: pluginSteps)
         let secrets = InMemorySecretStore()
         if let password {
             try secrets.write(
@@ -100,6 +101,279 @@ struct HostOnboardingStoreTests {
         #expect(store.pluginStatus == .unavailable)
         let transport = try #require(await connector.transports.last)
         #expect(await transport.pluginReadsWhileOpen.isEmpty)
+    }
+
+    private static let outdated = HeelerPluginInstallation(version: "0.5.0")
+    private static let current = HeelerPluginInstallation(
+        version: HeelerPluginCompatibility.bundled.description)
+
+    /// Checks the Host, then runs its plugin notice's action.
+    private func checkThenRunPluginAction(
+        _ store: HostOnboardingStore
+    ) async throws -> HeelerPluginPresentation.Notice.Action {
+        await store.runChecks()
+        let action = try #require(store.pluginPresentation.notice?.action)
+        await store.runPluginAction(action)
+        return action
+    }
+
+    @Test func aPluginActionRunsOverItsOwnConnectionAndClearsTheNotice() async throws {
+        let (store, connector) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(pluginAfterStep: [0: .success(Self.current)]))
+
+        let action = try await checkThenRunPluginAction(store)
+
+        #expect(action.steps == [.install])
+        #expect(store.pluginAction == .idle)
+        #expect(store.pluginStatus == .installed(Self.current))
+        #expect(store.pluginPresentation.notice == nil)
+        let transports = await connector.transports
+        #expect(transports.count == 2)
+        let transport = try #require(transports.last)
+        #expect(await transport.ranPluginSteps == [.install])
+        // The plugin is read before the install and after it, over the same
+        // connection, then it closes.
+        #expect(await transport.pluginReadsWhileOpen == [true, true])
+        #expect(await transport.pluginBranchReads == 1)
+        #expect(await transport.isClosed)
+    }
+
+    /// herdr installs whatever the plugin branch holds, which can be older
+    /// than the Host's plugin.
+    @Test func anInstallNeverReplacesANewerPlugin() async throws {
+        let ahead = HeelerPluginInstallation(version: "0.6.1")
+        let (store, connector) = try makeStore(
+            plugin: .success(ahead),
+            pluginSteps: FakePluginSteps(branchVersion: .success(PluginVersion(0, 6, 0))))
+
+        await store.runChecks()
+        await store.runPluginAction(
+            HeelerPluginPresentation.Notice.Action(title: "Update Plugin", steps: [.install]))
+
+        let transport = try #require(await connector.transports.last)
+        #expect(await transport.ranPluginSteps.isEmpty)
+        #expect(await transport.isClosed)
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "The Host has plugin 0.6.1, newer than the published 0.6.0, so Heeler "
+                + "did not update it.")))
+        #expect(store.pluginStatus == .installed(ahead))
+    }
+
+    /// Skipping the update leaves the action's other steps to run.
+    @Test func aSkippedUpdateStillTurnsThePluginOn() async throws {
+        let disabled = HeelerPluginInstallation(version: "0.6.1", isEnabled: false)
+        let enabled = HeelerPluginInstallation(version: "0.6.1")
+        let (store, connector) = try makeStore(
+            plugin: .success(disabled),
+            pluginSteps: FakePluginSteps(
+                pluginAfterStep: [0: .success(enabled)],
+                branchVersion: .success(PluginVersion(0, 6, 0))))
+
+        let action = try await checkThenRunPluginAction(store)
+
+        #expect(action.steps == [.install, .enable(pluginID: "heeler")])
+        #expect(await connector.transports.last?.ranPluginSteps == [.enable(pluginID: "heeler")])
+        #expect(store.pluginStatus == .installed(enabled))
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "The Host has plugin 0.6.1, newer than the published 0.6.0, so Heeler "
+                + "did not update it.")))
+    }
+
+    /// The action rereads the plugin rather than trusting the checks, which
+    /// these stores never ran: another device may have changed it since.
+    /// Anything the notice would not offer an install over stops it, and
+    /// the status stays, so the sheet keeps the action it explains.
+    @Test func anInstallStopsWhenTheRereadPluginIsNotOneItReplaces() async throws {
+        let changed = HeelerPluginActionFailure(
+            message: "The plugin on the Host changed since the checks, so nothing changed. "
+                + "Run the checks again.")
+        let cases: [(HeelerPluginInstallation, String)] = [
+            (HeelerPluginInstallation(version: "dev"), "unknown version"),
+            (HeelerPluginInstallation(version: "0.5.0", hasManifestWarning: true), "stale manifest"),
+            (HeelerPluginInstallation(version: "0.5.0", repository: "someone/Heeler"), "fork"),
+            (HeelerPluginInstallation(version: "0.5.0", repository: nil), "unnamed repository"),
+            (HeelerPluginInstallation(version: "0.5.0", source: .local), "linked checkout"),
+            (HeelerPluginInstallation(pluginID: "herdr-mobile.pairing", version: "0.3.0"), "legacy id"),
+        ]
+        for (installation, label) in cases {
+            let (store, connector) = try makeStore(plugin: .success(installation))
+
+            await store.runPluginAction(
+                HeelerPluginPresentation.Notice.Action(title: "Update Plugin", steps: [.install]))
+
+            let transport = try #require(await connector.transports.last)
+            #expect(await transport.ranPluginSteps.isEmpty, "\(label)")
+            #expect(await transport.pluginBranchReads == 0, "\(label)")
+            #expect(store.pluginAction == .failed(changed), "\(label)")
+            #expect(store.pluginStatus == .checking, "\(label)")
+        }
+    }
+
+    @Test func anInstallStopsWhenThePluginCannotBeReread() async throws {
+        let (store, connector) = try makeStore(plugin: .failure(.timedOut))
+
+        await store.runPluginAction(
+            HeelerPluginPresentation.Notice.Action(title: "Update Plugin", steps: [.install]))
+
+        #expect(await connector.transports.last?.ranPluginSteps == [])
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "Heeler could not read the Host's plugin before changing it, so nothing "
+                + "changed. Run the checks again.")))
+    }
+
+    @Test func anInstallStopsWhenTheBranchCannotBeRead() async throws {
+        let (store, connector) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(branchVersion: .failure(PluginBranchVersionError(
+                exitStatus: 128, output: "fatal: unable to access 'https://github.com/'"))))
+
+        _ = try await checkThenRunPluginAction(store)
+
+        #expect(await connector.transports.last?.ranPluginSteps == [])
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "Heeler could not check which plugin version the Host would install, so "
+                + "nothing changed. Check that the Host can reach github.com.",
+            detail: "fatal: unable to access 'https://github.com/'")))
+    }
+
+    /// Nothing to downgrade, so the branch is not read.
+    @Test func aFirstInstallSkipsTheBranchRead() async throws {
+        let (store, connector) = try makeStore(
+            plugin: .success(nil),
+            pluginSteps: FakePluginSteps(
+                pluginAfterStep: [0: .success(Self.current)],
+                branchVersion: .failure(PluginBranchVersionError(exitStatus: 1, output: ""))))
+
+        let action = try await checkThenRunPluginAction(store)
+
+        #expect(action.steps == [.install])
+        let transport = try #require(await connector.transports.last)
+        #expect(await transport.ranPluginSteps == [.install])
+        #expect(await transport.pluginBranchReads == 0)
+        #expect(store.pluginAction == .idle)
+    }
+
+    @Test func aFailedStepStopsTheActionAndSaysWhy() async throws {
+        let disabled = HeelerPluginInstallation(version: "0.5.0", isEnabled: false)
+        let error = HeelerPluginStepError(
+            step: .install, exitStatus: 1,
+            stderr: Data("error: plugin build failed\nPlugin was not installed.\n".utf8),
+            stdout: Data())
+        let (store, connector) = try makeStore(
+            plugin: .success(disabled), pluginSteps: FakePluginSteps(failures: [0: error]))
+
+        let action = try await checkThenRunPluginAction(store)
+
+        #expect(action.steps == [.install, .enable(pluginID: "heeler")])
+        #expect(await connector.transports.last?.ranPluginSteps == [.install])
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(error)))
+        #expect(store.pluginStatus == .installed(disabled))
+
+        // Running the checks again clears the failure.
+        await store.runChecks()
+        #expect(store.pluginAction == .idle)
+    }
+
+    /// A step that timed out may still have finished on the Host.
+    @Test func theRereadPluginDecidesAfterATimeout() async throws {
+        let (store, _) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(
+                pluginAfterStep: [0: .success(Self.current)],
+                failures: [0: TransportError.timedOut]))
+
+        _ = try await checkThenRunPluginAction(store)
+
+        #expect(store.pluginAction == .idle)
+        #expect(store.pluginStatus == .installed(Self.current))
+    }
+
+    /// The plugin branch can lag behind the version this build expects.
+    @Test func anInstallThatStaysOutdatedSaysWhichVersionHerdrFound() async throws {
+        let (store, _) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(branchVersion: .success(PluginVersion(0, 5, 0))))
+
+        _ = try await checkThenRunPluginAction(store)
+
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "herdr installed plugin 0.5.0, the newest published, but this app "
+                + "expects \(HeelerPluginCompatibility.bundled).")))
+        #expect(store.pluginStatus == .installed(Self.outdated))
+    }
+
+    @Test func aNoticeThatRemainsIsPointedAt() async throws {
+        let leftover = HeelerPluginInstallation(
+            version: HeelerPluginCompatibility.bundled.description,
+            leftoverLegacyIDs: ["herdr-mobile.pairing"])
+        let (store, _) = try makeStore(plugin: .success(leftover))
+
+        let action = try await checkThenRunPluginAction(store)
+
+        #expect(action.title == "Remove Old Copy")
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "The change finished, but the plugin still needs the attention "
+                + "described above.")))
+    }
+
+    /// The step's connection is gone, so the read back cannot tell.
+    @Test func aDroppedConnectionMayStillHaveChangedThePlugin() async throws {
+        let (store, _) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(
+                pluginAfterStep: [0: .failure(.sshUnreachable(detail: "gone"))],
+                failures: [0: TransportError.sshUnreachable(detail: "gone")]))
+
+        _ = try await checkThenRunPluginAction(store)
+
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "The connection ended during the change, which may still finish on "
+                + "the Host. Run the checks again.",
+            detail: TransportError.sshUnreachable(detail: "gone").presentation.message)))
+        #expect(store.pluginStatus == .installed(Self.outdated))
+    }
+
+    @Test func anUnreadablePluginKeepsTheLastStatus() async throws {
+        let (store, _) = try makeStore(
+            plugin: .success(Self.outdated),
+            pluginSteps: FakePluginSteps(pluginAfterStep: [0: .failure(.timedOut)]))
+
+        _ = try await checkThenRunPluginAction(store)
+
+        #expect(store.pluginStatus == .installed(Self.outdated))
+        guard case .failed(let failure) = store.pluginAction else {
+            Issue.record("expected a failure, got \(store.pluginAction)")
+            return
+        }
+        #expect(failure.message.contains("could not be read back"))
+    }
+
+    @Test func aPluginActionThatCannotConnectSaysWhy() async throws {
+        let (store, _) = try makeStore(
+            outcome: .connectFails(.sshUnreachable(detail: "Connection refused")))
+
+        await store.runPluginAction(
+            HeelerPluginPresentation.Notice.Action(title: "Update Plugin", steps: [.install]))
+
+        #expect(store.pluginAction == .failed(HeelerPluginActionFailure(
+            message: "Heeler could not connect to the Host, so nothing changed.",
+            detail: TransportError.sshUnreachable(detail: "Connection refused")
+                .presentation.message)))
+    }
+
+    /// A connect that times out sent nothing, unlike a step that times out.
+    @Test func aConnectTimeoutSaysNothingChanged() async throws {
+        let (store, _) = try makeStore(outcome: .connectFails(.timedOut))
+
+        await store.runPluginAction(
+            HeelerPluginPresentation.Notice.Action(title: "Update Plugin", steps: [.install]))
+
+        guard case .failed(let failure) = store.pluginAction else {
+            Issue.record("expected a failure, got \(store.pluginAction)")
+            return
+        }
+        #expect(failure.message == "Heeler could not connect to the Host, so nothing changed.")
     }
 
     @Test func cancellingChecksEndsThemAtOnceWithoutATimeout() async throws {

@@ -1,4 +1,5 @@
 import Foundation
+import HeelerSSH
 import Testing
 
 @testable import Heeler
@@ -65,14 +66,14 @@ struct HeelerPluginListResultTests {
             PluginListResult.self, fromResponseLine: Data(Self.liveResponse.utf8), requestID: "r1")
         #expect(
             HeelerPluginInstallation(result)
-                == HeelerPluginInstallation(version: "0.6.0", source: .local))
+                == HeelerPluginInstallation(version: "0.6.0", source: .local, repository: nil))
     }
 
     @Test func prefersTheCurrentIDAndIgnoresOtherPlugins() throws {
         let installation = try decode(
             #"{"plugin_id":"other","version":"9.9.9"},"#
                 + #"{"plugin_id":"heeler","version":"0.5.0","source":{"kind":"github"}}"#)
-        #expect(installation == HeelerPluginInstallation(version: "0.5.0"))
+        #expect(installation == HeelerPluginInstallation(version: "0.5.0", repository: nil))
     }
 
     /// Both run their hooks, so the leftover is worth naming.
@@ -83,7 +84,8 @@ struct HeelerPluginListResultTests {
         #expect(
             installation
                 == HeelerPluginInstallation(
-                    version: "0.6.0", leftoverLegacyIDs: ["herdr-mobile.pairing"]))
+                    version: "0.6.0", leftoverLegacyIDs: ["herdr-mobile.pairing"],
+                    repository: nil))
         let disabledLegacy = try decode(
             #"{"plugin_id":"herdr-mobile.pairing","version":"0.3.0","enabled":false},"#
                 + #"{"plugin_id":"heeler","version":"0.6.0","source":{"kind":"github"}}"#)
@@ -282,7 +284,8 @@ struct HeelerPluginPresentationTests {
                 + "and turn it on.")
         #expect(
             notice.commands == [
-                "herdr plugin uninstall herdr-mobile.pairing", install,
+                "herdr --session work plugin uninstall herdr-mobile.pairing",
+                "herdr --session work plugin install ZingerLittleBee/Heeler --ref plugin --yes",
                 "herdr --session work plugin enable heeler",
             ])
         #expect(notice.notes.count == 4)
@@ -356,10 +359,10 @@ struct HeelerPluginPresentationTests {
         #expect(linked.commands == ["herdr --session work plugin enable heeler"])
     }
 
-    /// `herdr plugin enable` asks the server of the session it targets, so
-    /// it names the Host's session. Install writes the plugin registry that
-    /// every session shares, so it names none.
-    @Test func onlyTheEnableCommandNamesTheHostsSession() throws {
+    /// The commands are the ones the action runs, which name the Host's
+    /// session: enable asks that session's server, and install and uninstall
+    /// check its protocol first, though they write the shared registry.
+    @Test func everyCommandNamesTheHostsSession() throws {
         let notice = try #require(
             HeelerPluginPresentation(
                 .installed(HeelerPluginInstallation(version: "0.5.0", isEnabled: false)),
@@ -367,9 +370,19 @@ struct HeelerPluginPresentationTests {
             ).notice)
         #expect(
             notice.commands == [
-                "herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes",
+                "herdr --session work plugin install ZingerLittleBee/Heeler --ref plugin --yes",
                 "herdr --session work plugin enable heeler",
             ])
+        let legacy = try #require(
+            HeelerPluginPresentation(
+                .installed(HeelerPluginInstallation(
+                    version: "0.6.0", leftoverLegacyIDs: ["herdr-mobile.pairing"])),
+                session: "work", bundled: PluginVersion(0, 6, 0)
+            ).notice)
+        #expect(legacy.commands == ["herdr --session work plugin uninstall herdr-mobile.pairing"])
+        #expect(
+            HeelerPluginPresentation(.notInstalled, session: "work").notice?.commands
+                == ["herdr --session work plugin install ZingerLittleBee/Heeler --ref plugin --yes"])
     }
 
     @Test func aDisabledPluginIsEnabledNotReinstalled() throws {
@@ -393,6 +406,9 @@ struct HeelerPluginPresentationTests {
                 session: "", bundled: PluginVersion(0, 6, 0)
             ).notice)
         #expect(github.commands == [install])
+        // herdr's registry version may be stale, so a reinstall could be a
+        // downgrade the app cannot see.
+        #expect(github.action == nil)
         let linked = try #require(
             HeelerPluginPresentation(
                 .installed(
@@ -440,6 +456,300 @@ struct HeelerPluginPresentationTests {
         for status in unconfirmed {
             #expect(status.requirements(for: HeelerPluginFeature.allCases).isEmpty, "\(status)")
         }
+    }
+}
+
+@Suite("Heeler plugin actions")
+struct HeelerPluginActionTests {
+    private func action(
+        _ installation: HeelerPluginInstallation
+    ) -> HeelerPluginPresentation.Notice.Action? {
+        HeelerPluginPresentation(
+            .installed(installation), session: "work", bundled: PluginVersion(0, 6, 0)
+        ).notice?.action
+    }
+
+    @Test func eachNoticeHeelerCanRunCarriesItsSteps() {
+        let cases: [(HeelerPluginInstallation, String, [HeelerPluginStep])] = [
+            (HeelerPluginInstallation(version: "0.5.0"), "Update Plugin", [.install]),
+            (
+                HeelerPluginInstallation(version: "0.5.0", isEnabled: false),
+                "Update and Turn On", [.install, .enable(pluginID: "heeler")]
+            ),
+            (
+                HeelerPluginInstallation(version: "0.6.0", isEnabled: false),
+                "Turn On Plugin", [.enable(pluginID: "heeler")]
+            ),
+            // A linked plugin is still turned on, just never reinstalled.
+            (
+                HeelerPluginInstallation(version: "0.5.0", isEnabled: false, source: .local),
+                "Turn On Plugin", [.enable(pluginID: "heeler")]
+            ),
+            // The update runs before the removal, so a failed one changes nothing.
+            (
+                HeelerPluginInstallation(
+                    version: "0.5.0", leftoverLegacyIDs: ["herdr-mobile.pairing"]),
+                "Update Plugin", [.install, .uninstall(pluginID: "herdr-mobile.pairing")]
+            ),
+            (
+                HeelerPluginInstallation(
+                    version: "0.6.0", source: .local, leftoverLegacyIDs: ["herdr-mobile.pairing"]),
+                "Remove Old Copy", [.uninstall(pluginID: "herdr-mobile.pairing")]
+            ),
+        ]
+        for (installation, title, steps) in cases {
+            #expect(
+                action(installation)
+                    == HeelerPluginPresentation.Notice.Action(title: title, steps: steps),
+                "\(installation)")
+        }
+        #expect(
+            HeelerPluginPresentation(.notInstalled, session: "").notice?.action
+                == HeelerPluginPresentation.Notice.Action(title: "Install Plugin", steps: [.install]))
+    }
+
+    /// The user acts on the Host where herdr would refuse, where the plugin
+    /// id changes under Notification Registration, or where the version is
+    /// too uncertain to rule out a downgrade.
+    @Test func noticesHeelerCannotRunHaveNoAction() throws {
+        let installations = [
+            HeelerPluginInstallation(version: "0.6.0", hasManifestWarning: true),
+            HeelerPluginInstallation(version: "0.5.0", isEnabled: false, hasManifestWarning: true),
+            HeelerPluginInstallation(
+                version: "0.5.0", hasManifestWarning: true,
+                leftoverLegacyIDs: ["herdr-mobile.pairing"]),
+            HeelerPluginInstallation(version: "0.5.0", source: .local),
+            HeelerPluginInstallation(version: "0.5.0", source: .unknown),
+            HeelerPluginInstallation(version: "0.6.0", source: .local, hasManifestWarning: true),
+            HeelerPluginInstallation(pluginID: "herdr-mobile.pairing", version: "0.3.0"),
+            HeelerPluginInstallation(
+                pluginID: "herdr-mobile.pairing", version: "0.3.0",
+                disabledCurrentIDSource: .github),
+        ]
+        for installation in installations {
+            let notice = try #require(
+                HeelerPluginPresentation(
+                    .installed(installation), session: "", bundled: PluginVersion(0, 6, 0)
+                ).notice, "\(installation)")
+            #expect(notice.action == nil, "\(installation)")
+        }
+    }
+
+    /// An install finds Node.js first for its `npm ci` build; an uninstall
+    /// builds nothing. scripts/test-node-toolchain-probe.py runs the probe.
+    @Test func stepsRunHerdrWithTheNoticesArgumentsInTheHostsSession() {
+        let install = HeelerPluginStep.install.herdrArguments ?? []
+        #expect(
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: install, session: "", launcher: nil, findsNode: true)
+                == "/bin/sh -c '\(HerdrHostPath.pathExport); "
+                + "__h_herdr=$(command -v herdr) || exit 127; \(NodeToolchainProbe.script)"
+                + #"exec "$__h_herdr" plugin install '\''ZingerLittleBee/Heeler'\'' --ref plugin --yes'"#)
+        #expect(
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: ["plugin", "uninstall", "herdr-mobile.pairing"], session: "work",
+                launcher: nil, findsNode: false)
+                == "/bin/sh -c '\(HerdrHostPath.pathExport); exec herdr --session work plugin "
+                + "uninstall herdr-mobile.pairing'")
+        #expect(HeelerPluginStep.uninstall(pluginID: "herdr-mobile.pairing").herdrArguments
+            == ["plugin", "uninstall", "herdr-mobile.pairing"])
+        #expect(HeelerPluginStep.enable(pluginID: "heeler").herdrArguments == nil)
+        // The probe sits inside single quotes.
+        #expect(!NodeToolchainProbe.script.contains("'"))
+    }
+
+    /// The launcher runs with the endpoint's socket and no PATH prefixes (ADR
+    /// 0023); an install still looks for Node.js before it.
+    @Test func anEndpointRunsItsLauncher() throws {
+        let launcher = try #require(
+            HerdrLauncher(executablePath: "/opt/herdr/launch", socketPath: "/tmp/h/herdr.sock"))
+        #expect(
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: ["plugin", "uninstall", "herdr-mobile.pairing"], session: "work",
+                launcher: launcher, findsNode: false)
+                == #"/bin/sh -c 'export HERDR_SOCKET_PATH="$2"; exec "$1" plugin uninstall herdr-mobile.pairing' herdr '/opt/herdr/launch' '/tmp/h/herdr.sock'"#)
+        #expect(
+            HeelerSSHTransport.heelerPluginCommand(
+                arguments: ["plugin", "install"], session: "", launcher: launcher, findsNode: true)
+                == #"/bin/sh -c 'export HERDR_SOCKET_PATH="$2"; "#
+                + NodeToolchainProbe.script
+                + #"exec "$1" plugin install' herdr '/opt/herdr/launch' '/tmp/h/herdr.sock'"#)
+    }
+
+    @Test func anInstallWithoutUsableNodeSaysWhatHeelerFound() throws {
+        func failure(_ stderr: String, status: Int32 = 3) -> HeelerPluginStepError {
+            HeelerPluginStepError(
+                step: .install, exitStatus: status, stderr: Data(stderr.utf8), stdout: Data())
+        }
+        let missing = failure("mise WARN noise\n\(NodeToolchainProbe.missingMarker)\n")
+        #expect(missing.nodeProblem == .missing)
+        #expect(HeelerPluginActionFailure(missing).message.hasPrefix(
+            "Heeler could not find Node.js 20 or newer on the Host"))
+        #expect(HeelerPluginActionFailure(missing).detail?.contains("nvm") == true)
+        let old = failure("\(NodeToolchainProbe.tooOldMarker)18.19.0\n")
+        #expect(old.nodeProblem == .tooOld(version: "18.19.0"))
+        #expect(HeelerPluginActionFailure(old).message.contains("is 18.19.0"))
+        let npmless = failure("\(NodeToolchainProbe.npmMissingMarker)20.19.2\n")
+        #expect(npmless.nodeProblem == .npmMissing(nodeVersion: "20.19.2"))
+        #expect(HeelerPluginActionFailure(npmless).message.contains("Node.js 20.19.2 but no npm"))
+        // Only the probe's own exit status counts.
+        #expect(failure(NodeToolchainProbe.missingMarker, status: 1).nodeProblem == nil)
+        #expect(failure("error: plugin build failed").nodeProblem == nil)
+    }
+
+    @Test func onlyAFinishedZeroExitCompletesAStep() throws {
+        func check(
+            _ status: Int32, reachedEOF: Bool = true, launcher: HerdrLauncher? = nil
+        ) throws {
+            try HeelerSSHTransport.checkHeelerPluginStep(
+                .install,
+                result: SSHExecResult(
+                    stdout: Data(), stderr: Data("error: x".utf8), exitStatus: status,
+                    reachedEOF: reachedEOF),
+                bareCommand: HostSetupGuide.pluginInstallCommand, launcher: launcher)
+        }
+        try check(0)
+        #expect(throws: HeelerPluginStepError(
+            step: .install, exitStatus: 1, stderr: Data("error: x".utf8), stdout: Data())
+        ) { try check(1) }
+        #expect(throws: HeelerPluginStepError.self) { try check(0, reachedEOF: false) }
+        #expect(throws: TransportError.herdrBinaryNotFound) { try check(127) }
+        let launcher = try #require(
+            HerdrLauncher(executablePath: "/opt/herdr/launch", socketPath: "/tmp/h/herdr.sock"))
+        #expect(throws: TransportError.herdrLauncherNotFound(path: "/opt/herdr/launch")) {
+            try check(126, launcher: launcher)
+        }
+    }
+
+    /// An install from a fork would quietly move to this repository, and a
+    /// GitHub install that does not name its repository may be one.
+    @Test func onlyThisRepositorysInstallIsReplaced() throws {
+        func action(
+            _ repository: String?, version: String = "0.5.0", isEnabled: Bool = true
+        ) -> HeelerPluginPresentation.Notice.Action? {
+            self.action(HeelerPluginInstallation(
+                version: version, isEnabled: isEnabled, repository: repository))
+        }
+        #expect(action("someone/Heeler") == nil)
+        #expect(action("zingerlittlebee/heeler")?.steps == [.install])
+        #expect(action(nil) == nil)
+        // Turning a fork's plugin on replaces nothing; updating it first would.
+        #expect(action("someone/Heeler", version: "0.6.0", isEnabled: false)?.steps
+            == [.enable(pluginID: "heeler")])
+        #expect(action("someone/Heeler", isEnabled: false) == nil)
+        let json = #"{"plugins":[{"plugin_id":"heeler","version":"0.5.0","enabled":true,"source":{"kind":"github","owner":"someone","repo":"Heeler","subdir":"plugin"}}]}"#
+        let decoded = try JSONDecoder().decode(PluginListResult.self, from: Data(json.utf8))
+        #expect(HeelerPluginInstallation(decoded)?.repository == "someone/Heeler")
+        let unnamed = #"{"plugins":[{"plugin_id":"heeler","version":"0.5.0","enabled":true,"source":{"kind":"github"}}]}"#
+        let decodedUnnamed = try JSONDecoder().decode(PluginListResult.self, from: Data(unnamed.utf8))
+        let installation = try #require(HeelerPluginInstallation(decodedUnnamed))
+        #expect(installation.repository == nil)
+        #expect(self.action(installation) == nil)
+    }
+
+    /// The plugin branch's version, as `scripts/publish-plugin.sh` reads it.
+    @Test func theBranchManifestNamesItsTopLevelVersion() {
+        let manifest = """
+            id = "heeler"
+            version = "0.6.2" # bumped by hand
+            min_herdr_version = "0.7.5"
+
+            [[build]]
+            version = "9.9.9"
+            """
+        #expect(HeelerSSHTransport.manifestVersion(manifest) == PluginVersion(0, 6, 2))
+        #expect(HeelerSSHTransport.manifestVersion("version=\"1.2.3\"\r\n") == PluginVersion(1, 2, 3))
+        #expect(HeelerSSHTransport.manifestVersion("[[build]]\nversion = \"9.9.9\"") == nil)
+        #expect(HeelerSSHTransport.manifestVersion("versions = \"1.0.0\"") == nil)
+        #expect(HeelerSSHTransport.manifestVersion("version = 1.0.0") == nil)
+        #expect(HeelerSSHTransport.manifestVersion("") == nil)
+    }
+
+    /// The read fetches the branch herdr installs, with git that cannot
+    /// prompt, and leaves no scratch repository behind.
+    @Test func theBranchReadFetchesThePluginBranch() {
+        let command = HeelerSSHTransport.pluginBranchManifestCommand
+        #expect(command.hasPrefix("/bin/sh -c '"))
+        #expect(command.contains("export GIT_TERMINAL_PROMPT=0"))
+        #expect(command.contains(
+            "fetch -q --depth 1 https://github.com/ZingerLittleBee/Heeler.git plugin"))
+        #expect(command.contains("-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30"))
+        #expect(command.contains("git show FETCH_HEAD:herdr-plugin.toml"))
+        #expect(command.contains("rm -rf \"$__h_d\""))
+        // One quoted word: no single quote inside the body.
+        #expect(command.dropFirst("/bin/sh -c '".count).dropLast().contains("'") == false)
+    }
+
+    /// herdr 0.9.5's stderr when the build cannot start `npm`, after a
+    /// warning the Host's shell setup printed.
+    private static let buildFailure = """
+        mise WARN /home/u/.config/mise/config.toml is not trusted
+        Plugin install preview:
+          id: heeler
+          version: 0.6.2
+          build commands: 1
+            build: npm ci
+          replaces: heeler from github:ZingerLittleBee/Heeler@plugin
+        error: plugin build failed
+          plugin: heeler
+          build: 1/1
+          command: npm ci
+          error: failed to start: No such file or directory (os error 2)
+
+
+        Plugin was not installed.
+        """
+
+    @Test func aStepFailureKeepsHerdrsWordsWithoutThePreview() {
+        let error = HeelerPluginStepError(
+            step: .install, exitStatus: 1, stderr: Data(Self.buildFailure.utf8), stdout: Data())
+        #expect(error.isBuildFailure)
+        #expect(!error.isDownloadFailure)
+        #expect(error.detail() == """
+            error: plugin build failed
+              plugin: heeler
+              build: 1/1
+              command: npm ci
+              error: failed to start: No such file or directory (os error 2)
+            Plugin was not installed.
+            """)
+        #expect(error.detail(lineLimit: 1) == "Plugin was not installed.")
+        #expect(error.detail(characterLimit: 9) == "…stalled.")
+        let failure = HeelerPluginActionFailure(error)
+        #expect(failure.message.contains("npm ci"))
+        #expect(failure.detail == error.detail())
+    }
+
+    @Test func stdoutStandsInForAnEmptyStderr() {
+        let error = HeelerPluginStepError(
+            step: .uninstall(pluginID: "herdr-mobile.pairing"), exitStatus: 1,
+            stderr: Data("\n".utf8), stdout: Data("note\nerror: plugin not found\n".utf8))
+        #expect(error.detail() == "error: plugin not found")
+        // Without an error line, the end of the output is all there is.
+        #expect(HeelerPluginStepError(
+            step: .install, exitStatus: 101, stderr: Data("a\nb\n".utf8), stdout: Data()
+        ).detail() == "a\nb")
+        #expect(HeelerPluginActionFailure(error).message
+            == "herdr could not remove the old copy of the plugin.")
+    }
+
+    @Test func failuresNameTheirCause() {
+        func message(_ stderr: String) -> String {
+            HeelerPluginActionFailure(
+                HeelerPluginStepError(
+                    step: .install, exitStatus: 1, stderr: Data(stderr.utf8), stdout: Data())
+            ).message
+        }
+        #expect(message("error: git failed with status exit status: 128: fatal: unable to access")
+            .contains("github.com"))
+        #expect(message(
+            "error: client protocol 22 is newer than server protocol 21; restart the Herdr server "
+                + "before using this command.").contains("Restart the herdr server"))
+        #expect(message("error: something else") == "herdr could not install the plugin.")
+        #expect(HeelerPluginActionFailure(TransportError.timedOut).message.contains("may still complete"))
+        #expect(HeelerPluginActionFailure(HerdrAPIError(code: "plugin_not_found", message: "x"))
+            == HeelerPluginActionFailure(
+                message: "herdr could not turn the plugin on.", detail: "plugin_not_found: x"))
     }
 }
 

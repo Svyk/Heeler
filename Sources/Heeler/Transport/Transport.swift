@@ -243,6 +243,18 @@ protocol Transport: Sendable {
     /// on Hosts the plugin does not support (native Windows).
     func readHeelerPlugin() async throws -> HeelerPluginInstallation?
 
+    /// Runs one change to the Host's Heeler plugin: the herdr CLI for install
+    /// and uninstall, the session's `plugin.enable` request for enable.
+    /// Throws `HeelerPluginStepError` when herdr refuses or fails the step,
+    /// and `TransportError.hostFeatureUnavailable` on native Windows Hosts.
+    func runHeelerPluginStep(_ step: HeelerPluginStep) async throws
+
+    /// The version the plugin branch holds now, read with the Host's own
+    /// git, which herdr's install also uses. Throws `PluginBranchVersionError`
+    /// when the Host cannot fetch or parse it, and
+    /// `TransportError.hostFeatureUnavailable` on native Windows Hosts.
+    func readPluginBranchVersion() async throws -> PluginVersion
+
     /// Lists the skills / custom slash commands installed for a kind on this
     /// Host: global sources under the remote home plus project sources under
     /// the query's project root, per `SkillSourceCatalog`. Kinds without a
@@ -480,6 +492,16 @@ extension Transport {
     func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
         throw TransportError.channelFailed(
             detail: "This transport cannot list herdr plugins.")
+    }
+
+    func runHeelerPluginStep(_ step: HeelerPluginStep) async throws {
+        throw TransportError.channelFailed(
+            detail: "This transport cannot change herdr plugins.")
+    }
+
+    func readPluginBranchVersion() async throws -> PluginVersion {
+        throw TransportError.channelFailed(
+            detail: "This transport cannot read the plugin branch.")
     }
 
     func listWorktrees(forWorkspaceID workspaceID: String) async throws -> WorktreeListResponse {
