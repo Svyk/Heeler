@@ -126,6 +126,7 @@ struct PluginNoticeSheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label {
                         Text(failure.message)
+                            .fixedSize(horizontal: false, vertical: true)
                     } icon: {
                         PluginWarningIcon()
                     }
@@ -133,6 +134,7 @@ struct PluginNoticeSheet: View {
                         Text(detail)
                             .font(.caption.monospaced())
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .accessibilityElement(children: .combine)
