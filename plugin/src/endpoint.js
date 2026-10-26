@@ -1,5 +1,5 @@
 // The Herdr Endpoint a Pairing Code v2 carries for a relocated herdr
-// (ADRs 0023 and 0027).
+// (ADRs 0023 and 0029).
 //
 // The app reaches only ~/.config/herdr unless the code names a socket and a
 // launcher. This herdr is relocated when its plugin config dir is not under
