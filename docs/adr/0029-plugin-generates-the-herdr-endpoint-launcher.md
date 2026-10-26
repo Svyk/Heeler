@@ -14,9 +14,10 @@ Host knows how to start herdr for that instance over SSH.
 ## Decision
 
 - The popup treats its herdr as relocated when `HERDR_PLUGIN_CONFIG_DIR` is
-  not under `~/.config/herdr`. That directory follows only
-  `XDG_CONFIG_HOME`, the separate config home ADR 0023 requires, and herdr
-  sets it in every plugin pane. The code's `sock` is `HERDR_SOCKET_PATH`.
+  not `~/.config/herdr/plugins/config/<id>`, compared as real paths, so a
+  profile nested inside `~/.config/herdr` counts too. That directory follows
+  only `XDG_CONFIG_HOME`, the separate config home ADR 0023 requires, and
+  herdr sets it in every plugin pane. The code's `sock` is `HERDR_SOCKET_PATH`.
 - Unless `pair.json` names a `launcher`, the popup writes one into its config
   dir each time it opens. It re-exports `PATH`, the XDG base directories, and
   the `HERDR_*` variables herdr does not set per process, then `exec`s
@@ -26,7 +27,8 @@ Host knows how to start herdr for that instance over SSH.
   through it, from a minimal environment, returns this plugin's config dir.
   A generated launcher is tested under a staging name before it replaces the
   previous one, in a config dir only the user can write.
-- A relocated herdr whose state stays in `~/.local/state/herdr`, or that gets
+- A relocated herdr whose `HERDR_PLUGIN_STATE_DIR` is the default
+  `~/.local/state/herdr/plugins/<id>`, or that gets
   no working endpoint, is not paired: the popup says why and offers no code.
   A v1 code would pair the phone with the user's default herdr, the mistake
   v2 exists to prevent.

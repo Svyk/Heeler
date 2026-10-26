@@ -2,8 +2,8 @@
 // (ADRs 0023 and 0029).
 //
 // The app reaches only ~/.config/herdr unless the code names a socket and a
-// launcher. This herdr is relocated when its plugin config dir is not under
-// ~/.config/herdr: that dir follows only XDG_CONFIG_HOME, which is what a
+// launcher. This herdr is relocated when its plugin config dir is not the
+// one under ~/.config/herdr: that dir follows only XDG_CONFIG_HOME, which a
 // separate instance must own so it does not share notifications.json with
 // the user's own herdr. The popup's environment is the server's, so a
 // launcher that re-exports it and execs HERDR_BIN_PATH reaches this herdr
@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { validateEndpoint } from "./envelope.js";
 import { sessionFromSocketPath } from "./session.js";
@@ -45,10 +45,9 @@ function canonical(path) {
   }
 }
 
-function isWithin(path, base) {
-  const rest = relative(canonical(base), canonical(path));
-  return rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
-}
+// Whether `dir` is the default herdr's own plugin dir `<base>/<plugin id>`,
+// so a profile nested below the default XDG homes still counts as its own.
+const isDefaultPluginDir = (dir, base) => canonical(dir) === canonical(join(base, basename(dir)));
 
 /** Whether the app finds this socket without an endpoint (unset counts). */
 export function isDefaultSocket(socketPath, home) {
@@ -60,9 +59,9 @@ export function isDefaultSocket(socketPath, home) {
   return canonical(socketPath) === canonical(expected);
 }
 
-/** Whether this herdr's plugin config dir lies outside ~/.config/herdr. */
+/** Whether this herdr's plugin config dir is not the one under ~/.config/herdr. */
 export function isRelocated(configDir, home) {
-  return Boolean(configDir) && !isWithin(configDir, homeConfig(home));
+  return Boolean(configDir) && !isDefaultPluginDir(configDir, join(homeConfig(home), "plugins", "config"));
 }
 
 function isCaptured(name) {
@@ -165,7 +164,7 @@ export function resolveEndpoint({ env, home, launcher = null, write = writeLaunc
     error: `This herdr runs outside ~/.config/herdr, but ${why}, so it cannot be paired.`,
   });
   const stateDir = env.HERDR_PLUGIN_STATE_DIR;
-  if (stateDir && isWithin(stateDir, homeState(home))) {
+  if (stateDir && isDefaultPluginDir(stateDir, join(homeState(home), "plugins"))) {
     return refuse("it shares your state home, ~/.local/state/herdr");
   }
   if (!socketPath) return refuse("HERDR_SOCKET_PATH is not set");

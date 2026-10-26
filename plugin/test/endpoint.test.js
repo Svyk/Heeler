@@ -73,9 +73,12 @@ suite("isRelocated", () => {
     assert.equal(isRelocated(undefined, HOME), false);
   });
 
-  test("is false for the home config itself and with a trailing slash on home", () => {
-    assert.equal(isRelocated("/Users/ada/.config/herdr", HOME), false);
+  test("is false with a trailing slash on home", () => {
     assert.equal(isRelocated(DEFAULT_CONFIG, `${HOME}/`), false);
+  });
+
+  test("is true for a config home nested below the default one", () => {
+    assert.equal(isRelocated("/Users/ada/.config/herdr/profiles/p/herdr/plugins/config/heeler", HOME), true);
   });
 
   test("is true for a sibling of the home config", () => {
@@ -298,6 +301,11 @@ suite("resolveEndpoint", () => {
       resolve(env, { write: () => assert.fail("generated a launcher for a shared state home") }),
       refused("it shares your state home, ~/.local/state/herdr"),
     );
+  });
+
+  test("accepts a state home nested below the default one", () => {
+    const env = { ...relocated, HERDR_PLUGIN_STATE_DIR: "/Users/ada/.local/state/herdr/profiles/p/herdr/plugins/heeler" };
+    assert.equal(resolve(env).error, null);
   });
 
   test("refuses when the socket is unset", () => {

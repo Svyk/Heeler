@@ -340,12 +340,13 @@ A failed wake keeps the original socket error.
 
 A herdr run with its own `XDG_CONFIG_HOME`, such as a per-project instance or
 a profile started by a wrapper script, keeps its socket and this plugin's
-config dir outside `~/.config/herdr`. The pairing popup detects that from
-`HERDR_PLUGIN_CONFIG_DIR` and emits a Pairing Code v2 whose `sock` is its
+config dir apart from `~/.config/herdr/plugins/config/<id>`. The pairing popup
+detects that from `HERDR_PLUGIN_CONFIG_DIR` and emits a Pairing Code v2 whose `sock` is its
 `HERDR_SOCKET_PATH` ([ADR 0029](../docs/adr/0029-plugin-generates-the-herdr-endpoint-launcher.md)):
 
-- The herdr must also keep its plugin state outside `~/.local/state/herdr`,
-  i.e. run with its own `XDG_STATE_HOME` (see the launcher contract above).
+- The herdr must also run with its own `XDG_STATE_HOME`, so its
+  `HERDR_PLUGIN_STATE_DIR` is not `~/.local/state/herdr/plugins/<id>` (see the
+  launcher contract above).
 - Unless `pair.json` names a `launcher`, the popup writes one to `launcher`
   in the plugin config dir (mode 0700) each time it opens. It refuses a
   config dir other users can write. It exports the
