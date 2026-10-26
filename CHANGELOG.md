@@ -81,6 +81,9 @@ Entries reference the pull request that made the change.
 
 ### Fixed
 
+- Leave Agent tabs available to automatic title plugins when the optional
+  tab name is blank, including launches in new Workspaces and Worktrees.
+  Explicit tab names are still applied. (#519)
 - On iPad, Show Chat and the More menu at the top of an Agent or Shell
   Terminal respond to taps again; they now sit in the bar beside Show
   Sidebar, and Chat's buttons sit in the same place. Show Chat uses a

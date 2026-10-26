@@ -190,8 +190,9 @@ final class StartAgentStore {
     /// becomes nil so herdr applies its default.
     var newWorkspaceLabel: String = ""
     /// Optional label for the tab the launch creates. Empty or whitespace
-    /// becomes nil and the tab takes the agent's name. Unlike the agent's
-    /// name it is free text: herdr's slug rule applies to agents, not tabs.
+    /// becomes nil so herdr or a title plugin names the tab. Unlike the
+    /// agent's name it is free text: herdr's slug rule applies to agents,
+    /// not tabs.
     var tabLabel: String = ""
     /// Whether the launch targets a fresh git worktree of the selected
     /// workspace's repository instead of the workspace itself (#97).
