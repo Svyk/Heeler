@@ -12,6 +12,12 @@ Entries reference the pull request that made the change.
 - See per-Host Usage Limits and Token Usage, including reset times, up to
   30 days of local token totals, daily charts, model and directory
   breakdowns, and estimated API cost. Requires plugin 0.7.0. (#506)
+- Update the Heeler plugin from a Host's page: when the plugin is missing,
+  outdated or turned off, the plugin sheet runs the fix on the Host over SSH
+  and says why when it cannot finish. The install finds Node.js from nvm,
+  fnm, Volta, asdf, mise and other version managers, system packages, or the
+  login shell's setup, and does not start over a plugin newer than the
+  published one. (#516)
 - Pairing Codes can advertise addresses the plugin cannot see on the
   machine's interfaces, such as a NAS address for herdr running in a Docker
   container behind a published port, via `addresses` in the plugin's
@@ -84,6 +90,9 @@ Entries reference the pull request that made the change.
 
 ### Fixed
 
+- Leave Agent tabs available to automatic title plugins when the optional
+  tab name is blank, including launches in new Workspaces and Worktrees.
+  Explicit tab names are still applied. (#519)
 - On iPad, Show Chat and the More menu at the top of an Agent or Shell
   Terminal respond to taps again; they now sit in the bar beside Show
   Sidebar, and Chat's buttons sit in the same place. Show Chat uses a

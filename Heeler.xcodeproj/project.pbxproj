@@ -152,6 +152,7 @@
 		32E639E1436C832A5DD25B01 /* ChatSendRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75D42118459DEA416288A33 /* ChatSendRulesTests.swift */; };
 		32FD10D6802D96EF929E544E /* ChatFixtures in Resources */ = {isa = PBXBuildFile; fileRef = 82758F9BDAA54EE7A79E8780 /* ChatFixtures */; };
 		33046B4CC05A07D26F088082 /* AgentLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A9489C21BDCFA7616782BF /* AgentLiveActivityWidget.swift */; };
+		3315C1146C1AFB993AC7D94C /* NodeToolchainProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE899695C640B1BE7C83265 /* NodeToolchainProbe.swift */; };
 		34B5DAE3C8482AF9B3D499A9 /* ChatBackgroundWorkPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8662F9C006A78F4020F3ADF /* ChatBackgroundWorkPresentation.swift */; };
 		35205050C9CB8E473D8A28C0 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32413805C1AA874DBEE37547 /* Base64URL.swift */; };
 		3541FB43C2803B681D7C619F /* AgentRowRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAAD80C58EF11BE6B6F1D7F6 /* AgentRowRenderer.swift */; };
@@ -1605,6 +1606,7 @@
 		EB430B706185A38891A5DAC2 /* SnippetsManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsManagementView.swift; sourceTree = "<group>"; };
 		EB6BD88F9C7CE1520C4D961C /* RemoteDirectoryBrowserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDirectoryBrowserTests.swift; sourceTree = "<group>"; };
 		EBA123A64B34EE3BD45EE650 /* CodexDialogParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexDialogParserTests.swift; sourceTree = "<group>"; };
+		EBE899695C640B1BE7C83265 /* NodeToolchainProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeToolchainProbe.swift; sourceTree = "<group>"; };
 		EBEE212006356E4EAA5D487E /* WorkflowJournalFollower.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowJournalFollower.swift; sourceTree = "<group>"; };
 		ECBBBD9807F151A2CE1A7EA9 /* InMemoryRecordSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryRecordSource.swift; sourceTree = "<group>"; };
 		EDDCAF5C8BE2B552065BA67E /* CodexLegacyReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexLegacyReducer.swift; sourceTree = "<group>"; };
@@ -2647,6 +2649,7 @@
 				03E19BDF2824DC34B28A765C /* HostKeyPolicy.swift */,
 				60A3266F97C243598703DB0A /* JSONValue.swift */,
 				89A4121CF3A5722FE9B3C1E8 /* KnownHostsStore.swift */,
+				EBE899695C640B1BE7C83265 /* NodeToolchainProbe.swift */,
 				BF505666C45AE37AC8551A78 /* OverlayRoute.swift */,
 				057D706C9227FA8D9F5FAD7F /* RemoteFiles.swift */,
 				C153200B3B3D2360D295D806 /* RemoteFiles+HeelerSSH.swift */,
@@ -3373,6 +3376,7 @@
 				DA5142568B326156F88E557D /* MessageJumpControl.swift in Sources */,
 				F43752764BAE282519A42DF0 /* NewTerminalStore.swift in Sources */,
 				30D6475F160DC39FA807C98A /* NewTerminalView.swift in Sources */,
+				3315C1146C1AFB993AC7D94C /* NodeToolchainProbe.swift in Sources */,
 				359A3FA92C332BEC1DA1982C /* NotificationConfigFile.swift in Sources */,
 				DF88C6F619C253A98F0EC3F6 /* NotificationDisclosureView.swift in Sources */,
 				A555F2DD86EC81E37D3A9323 /* NotificationEnvelope.swift in Sources */,

@@ -931,11 +931,11 @@ struct HeelerSSHTransportBehaviorE2ETests {
         #expect(agent.paneID == "pane:\(token)")
         let recorded = try await Self.recordedRequests(from: transport, token: token)
         #expect(recorded.filter { $0.hasPrefix("agent.start ") }.count == 3)
-        // The agent's name rides into tab.create as the label, so the tab
-        // bar never shows a positional default for a named agent.
+        // The Agent keeps its name on agent.start; the tab stays available
+        // to automatic title providers.
         #expect(
             recorded[0]
-                == #"tab.create {"cwd":"/fixture/\#(token)","focus":false,"label":"fixture","workspace_id":"workspace-1"}"#
+                == #"tab.create {"cwd":"/fixture/\#(token)","focus":false,"workspace_id":"workspace-1"}"#
         )
         #expect(!recorded.contains { $0.hasPrefix("pane.close ") })
     }
@@ -1083,15 +1083,13 @@ struct HeelerSSHTransportBehaviorE2ETests {
         #expect(agent.paneID == "pane:\(token)")
         #expect(agent.workspaceID == "workspace:\(token)")
         let recorded = try await Self.recordedRequests(from: transport, token: token)
-        // workspace.create, agent.start, then the cosmetic tab rename that
-        // gives the fresh tab the agent's name.
-        try #require(recorded.count == 3)
+        try #require(recorded.count == 2)
         #expect(
             recorded[0]
                 == #"workspace.create {"cwd":"/fixture/\#(token)","focus":false,"label":"App"}"#
         )
         #expect(recorded[1].hasPrefix("agent.start "))
-        #expect(recorded[2] == #"tab.rename {"label":"fixture","tab_id":"tab:\#(token)"}"#)
+        #expect(!recorded.contains { $0.hasPrefix("tab.rename ") })
         #expect(!recorded.contains { $0.hasPrefix("tab.create ") })
     }
 
@@ -1147,10 +1145,9 @@ struct HeelerSSHTransportBehaviorE2ETests {
         #expect(!recorded.contains { $0.hasPrefix("tab.create ") })
     }
 
-    /// The worktree's fresh tab carries the worktree label, not the agent's
-    /// name; the launch renames it once the agent is real.
-    @Test("a worktree agent start renames the fresh tab to the agent's name")
-    func worktreeAgentStartRenamesTheFreshTab() async throws {
+    /// Omitting a tab name must leave automatic titles available in worktrees too.
+    @Test("a worktree agent start leaves the fresh tab available for automatic titles")
+    func worktreeAgentStartPreservesAutomaticTabTitles() async throws {
         let environment = try #require(HeelerSSHTransportBehaviorEnvironment.current)
         let transport = try await HeelerSSHTransport.connect(
             settings: environment.directSettings())
@@ -1165,10 +1162,10 @@ struct HeelerSSHTransportBehaviorE2ETests {
             worktree: WorktreeSpec(branch: "task/\(token)", base: "main"))
 
         let recorded = try await Self.recordedRequests(from: transport, token: token)
-        try #require(recorded.count == 3)
+        try #require(recorded.count == 2)
         #expect(recorded[0].hasPrefix("worktree.create "))
         #expect(recorded[1].hasPrefix("agent.start "))
-        #expect(recorded[2] == #"tab.rename {"label":"fixture","tab_id":"tab:\#(token)"}"#)
+        #expect(!recorded.contains { $0.hasPrefix("tab.rename ") })
     }
 
     /// A refused `tab.rename` is cosmetic: the agent already exists, so the
@@ -1182,7 +1179,7 @@ struct HeelerSSHTransportBehaviorE2ETests {
 
         let token = Self.scriptToken("renamefail")
         let agent = try await transport.startAgentInNewWorkspace(
-            AgentLaunchRequest(kind: "codex", name: "fixture"),
+            AgentLaunchRequest(kind: "codex", name: "fixture", tabLabel: "Fix login bug"),
             workspace: NewWorkspaceSpec(directory: "/fixture/\(token)", label: "App"))
 
         #expect(agent.paneID == "pane:\(token)")
@@ -1283,7 +1280,7 @@ struct HeelerSSHTransportBehaviorE2ETests {
         let recorded = try await Self.recordedRequests(from: transport, token: token)
         #expect(
             recorded.first
-                == #"tab.create {"cwd":"/fixture/\#(token)","focus":false,"label":"fixture","workspace_id":"workspace-1"}"#
+                == #"tab.create {"cwd":"/fixture/\#(token)","focus":false,"workspace_id":"workspace-1"}"#
         )
     }
 
@@ -1334,6 +1331,27 @@ struct HeelerSSHTransportBehaviorE2ETests {
             recorded[0]
                 == #"workspace.create {"cwd":"/fixture/\#(token)","focus":false,"label":"App"}"#
         )
+        #expect(recorded[2] == #"tab.rename {"label":"Fix login bug","tab_id":"tab:\#(token)"}"#)
+    }
+
+    @Test("a custom tab label drives the post-start rename of a new worktree's tab")
+    func customTabLabelDrivesTheNewWorktreeTabRename() async throws {
+        let environment = try #require(HeelerSSHTransportBehaviorEnvironment.current)
+        let transport = try await HeelerSSHTransport.connect(
+            settings: environment.directSettings())
+        defer { Task { try? await transport.close() } }
+
+        let token = Self.scriptToken("ok")
+        _ = try await transport.startAgentInNewWorktree(
+            AgentLaunchRequest(
+                kind: "codex", name: "fixture", workspaceID: "workspace-1",
+                tabLabel: "Fix login bug"),
+            worktree: WorktreeSpec(branch: "task/\(token)", base: "main"))
+
+        let recorded = try await Self.recordedRequests(from: transport, token: token)
+        try #require(recorded.count == 3)
+        #expect(recorded[0].hasPrefix("worktree.create "))
+        #expect(recorded[1].hasPrefix("agent.start "))
         #expect(recorded[2] == #"tab.rename {"label":"Fix login bug","tab_id":"tab:\#(token)"}"#)
     }
 
@@ -1677,7 +1695,9 @@ struct HeelerSSHTransportBehaviorE2ETests {
         #expect(try await transport.sessionSnapshot().agents.isEmpty)
         #expect(
             try await transport.readHeelerPlugin()
-                == HeelerPluginInstallation(pluginRoot: "/plugins/heeler", version: "0.6.0", source: .github))
+                == HeelerPluginInstallation(
+                    pluginRoot: "/plugins/heeler", version: "0.6.0", source: .github,
+                    repository: "ZingerLittleBee/Heeler"))
         #expect(
             try await transport.readPane(PaneReadParams(paneID: "pane-1", source: .recent)).text
                 == "fixture output")
