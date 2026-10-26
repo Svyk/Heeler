@@ -13,16 +13,36 @@ enum AgentUsageMetric: String, CaseIterable, Identifiable, Sendable {
         case .tokens: "Tokens"
         }
     }
+}
 
-    func value(of summary: AgentUsageReport.Summary) -> Double {
+/// The Usage tab's ranges: the three totals the report carries.
+enum AgentUsageRange: String, CaseIterable, Identifiable, Sendable {
+    case today
+    case last7Days
+    case last30Days
+
+    var id: Self { self }
+
+    var title: String {
         switch self {
-        case .cost: summary.estimatedCostUSD ?? 0
-        case .tokens: Double(summary.tokens.total)
+        case .today: "Today"
+        case .last7Days: "7 Days"
+        case .last30Days: "30 Days"
+        }
+    }
+
+    /// How many of the newest days the range covers.
+    var dayCount: Int {
+        switch self {
+        case .today: 1
+        case .last7Days: 7
+        case .last30Days: 30
         }
     }
 }
 
-/// Colors and number formats every Usage surface shares.
+/// Colors and number formats every Usage surface shares, the widgets
+/// included.
 enum AgentUsageStyle {
     static func color(for program: String) -> Color {
         switch program {
@@ -36,14 +56,6 @@ enum AgentUsageStyle {
             Color(uiColor: .systemGray)
         }
     }
-
-    /// The token types a split bar shows, darkest last.
-    @MainActor static let tokenTypes: [(label: String, keyPath: KeyPath<AgentUsageReport.Tokens, Int64>, color: Color)] = [
-        ("Input", \.input, Color(light: UIColor(white: 0.42, alpha: 1), dark: UIColor(white: 0.63, alpha: 1))),
-        ("Cache read", \.cacheRead, Color(light: UIColor(white: 0.71, alpha: 1), dark: UIColor(white: 0.36, alpha: 1))),
-        ("Cache write", \.cacheWrite, Color(light: UIColor(white: 0.28, alpha: 1), dark: UIColor(white: 0.79, alpha: 1))),
-        ("Output", \.output, Color(light: UIColor(white: 0.12, alpha: 1), dark: UIColor(white: 0.95, alpha: 1))),
-    ]
 
     static func cost(_ value: Double?, locale: Locale) -> String {
         guard let value else { return "Unpriced" }
@@ -69,19 +81,18 @@ enum AgentUsageStyle {
         return (part / whole).formatted(.percent.precision(.fractionLength(0)).locale(locale))
     }
 
-    /// The figure for one summary in the chosen metric.
-    static func value(
-        _ summary: AgentUsageReport.Summary, metric: AgentUsageMetric, locale: Locale
-    ) -> String {
-        switch metric {
-        case .cost: cost(summary.estimatedCostUSD, locale: locale)
-        case .tokens: "\(tokens(summary.tokens.total, locale: locale)) tokens"
-        }
+    /// The time left before a reset, as "1h 48m" or "3d 16h".
+    static func countdown(to reset: Date, now: Date, locale: Locale) -> String {
+        var style = Duration.UnitsFormatStyle(
+            allowedUnits: [.days, .hours, .minutes], width: .narrow, maximumUnitCount: 2,
+            fractionalPart: .hide(rounded: .down))
+        style.locale = locale
+        return Duration.seconds(max(reset.timeIntervalSince(now), 60)).formatted(style)
     }
 }
 
 extension Color {
-    fileprivate init(light: UIColor, dark: UIColor) {
+    init(light: UIColor, dark: UIColor) {
         self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
     }
 }

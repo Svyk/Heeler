@@ -874,6 +874,23 @@ tests and decoded by the Swift tests.
   - Host detail keeps a short Usage section (30-day estimated cost, a
     30-day strip, the tightest limit and its time to reset) that opens the
     Usage tab scoped to that Host.
+  - Two widgets, in small, medium and large Home Screen sizes and the
+    circular, rectangular and inline Lock Screen sizes. **Usage** shows
+    estimated cost or tokens for today, 7 days or 30 days, on All Hosts or
+    one Host, with a 7-day bar strip (small), a split by program and a
+    30-day chart (medium), or a table with each Host (large). **Usage
+    Limits** shows one Host's windows: the tightest (small), each program
+    side by side (medium), or every window with its reset time and source
+    (large); the Lock Screen shows the soonest window and the tightest of
+    the rest. Neither widget reads a Host. The app writes a snapshot of
+    every Host's last report to the App Group whenever a read lands, and
+    reloads the widgets when it changes. A Host without a newer report
+    keeps its last one, so a launch or a dropped connection does not blank
+    the widgets; a Host that cannot report drops its figures. A reading
+    older than an hour shows its time in an "Updated" capsule. Usage
+    Limits countdowns step each minute while a reset is under a day away.
+    A tap opens the Usage tab on the widget's scope, and Usage Limits
+    opens that Host's limits.
 - **Refresh:** query when the section or tab appears (the tab polls every
   Host, whatever its scope), on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the

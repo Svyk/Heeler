@@ -242,7 +242,7 @@ struct AgentUsageLimitRow: View {
     private func subtitle(now: Date) -> String {
         let name = AgentUsageReport.Program.displayName(for: chip.program)
         guard let reset = chip.resetsAt, reset > now else { return name }
-        return "\(name) · resets in \(AgentUsageLimitsView.countdown(to: reset, now: now, locale: locale))"
+        return "\(name) · resets in \(AgentUsageStyle.countdown(to: reset, now: now, locale: locale))"
     }
 
     var body: some View {

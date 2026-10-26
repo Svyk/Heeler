@@ -203,40 +203,6 @@ struct AgentUsageScope: Equatable {
     }
 }
 
-/// The Usage tab's ranges: the three totals the report carries.
-enum AgentUsageRange: String, CaseIterable, Identifiable, Sendable {
-    case today
-    case last7Days
-    case last30Days
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .today: "Today"
-        case .last7Days: "7 Days"
-        case .last30Days: "30 Days"
-        }
-    }
-
-    /// How many of the newest days the range covers.
-    var dayCount: Int {
-        switch self {
-        case .today: 1
-        case .last7Days: 7
-        case .last30Days: 30
-        }
-    }
-
-    func summary(in totals: AgentUsageReport.Totals) -> AgentUsageReport.Summary {
-        switch self {
-        case .today: totals.today
-        case .last7Days: totals.last7Days
-        case .last30Days: totals.last30Days
-        }
-    }
-}
-
 extension AgentUsageReport.Tokens {
     static let zero = Self(input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0)
 

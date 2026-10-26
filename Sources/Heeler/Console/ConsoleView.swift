@@ -53,6 +53,8 @@ struct ConsoleView: View {
     @State private var usageScopeHostID: Host.ID?
     @State private var usageMetric = AgentUsageMetric.cost
     @State private var usageShowsLimits = false
+    /// A Usage Limits widget's tap, until the Usage page shows them.
+    @State private var usageLimitsRequested = false
     @State private var isShowingUsageListMenu = false
     @State private var usageListMenuTitleFrame: CGRect?
     /// Hosts and Settings where the sidebar navigates instead of a tab bar.
@@ -274,6 +276,12 @@ struct ConsoleView: View {
                 settingsView(onDone: { isShowingSettingsSheet = false })
                     .modifier(ConsoleSheetPresentationModifier(presentation: presentation))
             }
+        }
+        // A Usage widget's tap. ContentView routes `heeler://agent` links;
+        // these land on this window's Usage tab.
+        .onOpenURL { url in
+            guard let link = UsageWidgetLink.target(from: url) else { return }
+            openUsage(link)
         }
         // Retries answered, the Host no longer failing, drop what they saw.
         .onChange(of: hostIssuesSheetExplained) { _, explained in
@@ -497,7 +505,8 @@ struct ConsoleView: View {
                 NavigationStack {
                     AgentUsageDashboard(
                         entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric,
-                        showsLimits: $usageShowsLimits, allowsColumns: true)
+                        showsLimits: $usageShowsLimits, limitsRequested: $usageLimitsRequested,
+                        allowsColumns: true)
                         .navigationTitle(
                             usageScopeHostID.flatMap { id in hosts.hosts.first { $0.id == id }?.displayName }
                                 ?? "All Hosts")
@@ -509,7 +518,9 @@ struct ConsoleView: View {
             }
             .toolbarVisibility(.hidden, for: .tabBar)
         } else {
-            AgentUsageTabView(entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric)
+            AgentUsageTabView(
+                entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric,
+                limitsRequested: $usageLimitsRequested)
         }
     }
 
@@ -531,6 +542,17 @@ struct ConsoleView: View {
         usageScopeHostID = hostID
         isShowingHostsSheet = false
         selectedTab.wrappedValue = .usage
+    }
+
+    /// A Usage widget's tap: the tab on the widget's scope, and for Usage
+    /// Limits, that Host's limits. A Host since removed opens All Hosts.
+    private func openUsage(_ link: UsageWidgetLink.Target) {
+        let hostID = link.hostID.flatMap { id in hosts.hosts.contains { $0.id == id } ? id : nil }
+        usageScopeHostID = hostID
+        isShowingHostsSheet = false
+        isShowingSettingsSheet = false
+        selectedTab.wrappedValue = .usage
+        usageLimitsRequested = link.showsLimits && hostID != nil
     }
 
     private func switchList(to tab: ConsoleTab) {

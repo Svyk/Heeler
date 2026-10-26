@@ -130,6 +130,15 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
   `ConsoleStore.agentUsageStore(for:)` retains an
   [AgentUsageStore](../../Sources/Heeler/Usage/AgentUsageStore.swift) per Host;
   it owns refresh polling and the device's per-Host Claude limits preference.
+  The Home and Lock Screen widgets read the App Group snapshot that
+  [AgentUsageWidgetPublisher](../../Sources/Heeler/Usage/AgentUsageWidgetPublisher.swift)
+  writes from those stores, modeled in
+  [UsageWidgetSnapshot](../../Sources/HeelerUsageCore/UsageWidgetSnapshot.swift)
+  (shared with the extension, as are the formats in `AgentUsageStyle`).
+  [UsageWidgetViews](../../Sources/HeelerWidgets/Usage/UsageWidgetViews.swift)
+  draws every size and is compiled into the app for tests;
+  [UsageWidgets](../../Sources/HeelerWidgets/Usage/UsageWidgets.swift) holds
+  the timelines and configuration. Focused tests: `AgentUsageWidgetTests`.
   `Transport.readAgentUsage` uses [AgentUsageProbe](../../Sources/Heeler/Usage/AgentUsageProbe.swift)
   and the bounded SSH exec to decode [AgentUsageReport](../../Sources/Heeler/Usage/AgentUsageReport.swift).
   On the Host, [usage-runtime.js](../../plugin/src/usage-runtime.js) records

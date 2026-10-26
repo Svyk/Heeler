@@ -6,10 +6,12 @@ struct AgentUsageTabView: View {
     let entries: [AgentUsageHostEntry]
     @Binding var scopeHostID: Host.ID?
     @Binding var metric: AgentUsageMetric
+    @Binding var limitsRequested: Bool
 
     var body: some View {
         NavigationStack {
-            AgentUsageDashboard(entries: entries, scopeHostID: $scopeHostID, metric: $metric)
+            AgentUsageDashboard(
+                entries: entries, scopeHostID: $scopeHostID, metric: $metric, limitsRequested: $limitsRequested)
                 .navigationTitle("Usage")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {

@@ -48,6 +48,11 @@ final class AgentUsageStore {
     private(set) var isLoading = false
     /// Why the last refresh failed while the earlier report stays shown.
     private(set) var refreshFailure: String?
+    /// When the state was last read from the Host.
+    private(set) var readAt: Date?
+    /// Called after the state or the Claude Code limits choice changes, so
+    /// the widgets' snapshot can follow.
+    @ObservationIgnored var didChange: (@MainActor () -> Void)?
     /// Advanced when visible surfaces should start polling again.
     private(set) var refreshGeneration = 0
     var claudeLimitsEnabled: Bool {
@@ -55,6 +60,7 @@ final class AgentUsageStore {
             guard oldValue != claudeLimitsEnabled else { return }
             defaults.set(claudeLimitsEnabled, forKey: preferenceKey)
             endRefresh()
+            didChange?()
         }
     }
 
@@ -160,7 +166,9 @@ final class AgentUsageStore {
         snapshotState = .idle
         snapshotIncludesClaudeLimits = false
         refreshFailure = nil
+        readAt = nil
         consecutiveFailures = 0
+        didChange?()
     }
 
     nonisolated static func read(
@@ -266,9 +274,11 @@ final class AgentUsageStore {
             snapshotState = next
             snapshotIncludesClaudeLimits = claudeLimits
             refreshFailure = nil
+            readAt = .now
             consecutiveFailures = 0
         }
         resumeReadWaiters()
+        didChange?()
         return true
     }
 

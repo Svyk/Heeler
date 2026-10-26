@@ -24,18 +24,23 @@ struct AgentUsageDashboard: View {
     @Binding var metric: AgentUsageMetric
     /// An iPad's wide layout reads Usage Limits in place of Token Usage.
     @Binding var showsLimits: Bool
+    /// A widget asked for the scope's Usage Limits: the wide layout's page,
+    /// or the sheet.
+    @Binding var limitsRequested: Bool
     /// An iPad's detail column lays the page out in two columns when it
     /// has the width for them.
     var allowsColumns = false
 
     init(
         entries: [AgentUsageHostEntry], scopeHostID: Binding<Host.ID?>, metric: Binding<AgentUsageMetric>,
-        showsLimits: Binding<Bool> = .constant(false), allowsColumns: Bool = false
+        showsLimits: Binding<Bool> = .constant(false), limitsRequested: Binding<Bool> = .constant(false),
+        allowsColumns: Bool = false
     ) {
         self.entries = entries
         _scopeHostID = scopeHostID
         _metric = metric
         _showsLimits = showsLimits
+        _limitsRequested = limitsRequested
         self.allowsColumns = allowsColumns
     }
 
@@ -105,6 +110,13 @@ struct AgentUsageDashboard: View {
             AgentUsageLimitsSheet(entries: scopedEntries)
         }
         .onChange(of: scopeHostID) { selectedDay = nil }
+        // Waits for the first layout: until then the page cannot tell wide
+        // from compact.
+        .onChange(of: limitsRequested && width > 0, initial: true) { _, ready in
+            guard ready else { return }
+            limitsRequested = false
+            if isWide { showsLimits = true } else { isShowingLimits = true }
+        }
     }
 
     private var isWide: Bool { allowsColumns && width >= 860 }

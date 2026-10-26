@@ -117,7 +117,7 @@ struct AgentUsageLimitsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     if !expired {
                         Spacer(minLength: 8)
-                        Text("in \(Self.countdown(to: reset, now: now, locale: locale))")
+                        Text("in \(AgentUsageStyle.countdown(to: reset, now: now, locale: locale))")
                     }
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -170,7 +170,7 @@ struct AgentUsageLimitsView: View {
                     percentage(window, expired: false)
                         .font(.subheadline.weight(.semibold))
                     if let reset {
-                        Text(Self.countdown(to: reset, now: now, locale: locale))
+                        Text(AgentUsageStyle.countdown(to: reset, now: now, locale: locale))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -190,21 +190,12 @@ struct AgentUsageLimitsView: View {
     @ViewBuilder
     private func countdownLabel(reset: Date?, now: Date) -> some View {
         if let reset {
-            Label(Self.countdown(to: reset, now: now, locale: locale), systemImage: "clock")
+            Label(AgentUsageStyle.countdown(to: reset, now: now, locale: locale), systemImage: "clock")
                 .labelStyle(AgentUsageCountdownLabelStyle())
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .accessibilityLabel("Resets in \(Self.countdown(to: reset, now: now, locale: locale))")
+                .accessibilityLabel("Resets in \(AgentUsageStyle.countdown(to: reset, now: now, locale: locale))")
         }
-    }
-
-    /// The time left before a reset, as "1h 48m" or "3d 16h".
-    nonisolated static func countdown(to reset: Date, now: Date, locale: Locale) -> String {
-        var style = Duration.UnitsFormatStyle(
-            allowedUnits: [.days, .hours, .minutes], width: .narrow, maximumUnitCount: 2,
-            fractionalPart: .hide(rounded: .down))
-        style.locale = locale
-        return Duration.seconds(max(reset.timeIntervalSince(now), 60)).formatted(style)
     }
 
     @ViewBuilder
@@ -247,7 +238,13 @@ struct AgentUsageLimitsView: View {
 
     private var programName: String { AgentUsageReport.Program.displayName(for: program) }
 
-    private var unavailableMessage: String {
+    private var unavailableMessage: String { Self.unavailableMessage(limits, program: program) }
+
+    /// Why a program's Usage Limits have no windows to show.
+    nonisolated static func unavailableMessage(
+        _ limits: AgentUsageReport.Program.UsageLimits, program: String
+    ) -> String {
+        let programName = AgentUsageReport.Program.displayName(for: program)
         if limits.state == "disabled" { return "Usage Limits are off." }
         switch limits.reason {
         case "programMissing": return "\(programName) is not installed or cannot run on this Host."

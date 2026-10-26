@@ -52,13 +52,14 @@ final class HeelerAppModel {
     /// `AppModelActivityDriverTests` is what turns deleting the task that
     /// runs `ConsoleActivityDriver` red (#167). Defaults are the production
     /// values: `HostStore()` reads the real persisted catalog and the
-    /// `ConsoleStore` reaches the real `sshSessionFactory()` and keeps Chat's
-    /// cache on disk.
+    /// `ConsoleStore` reaches the real `sshSessionFactory()`, keeps Chat's
+    /// cache on disk, and writes the widgets' Usage snapshot.
     init(
         pushRegistration: PushRegistrationStore,
         sceneDirectory: AgentSceneDirectory,
         hostStore: HostStore = HostStore(),
-        console: ConsoleStore = ConsoleStore(chatCache: FileChatTranscriptCache()),
+        console: ConsoleStore = ConsoleStore(
+            chatCache: FileChatTranscriptCache(), usageWidgets: AgentUsageWidgetPublisher()),
         overlayNetworks: OverlayNetworkStore = OverlayNetworkStore(),
         activity: AppActivityCoordinator = AppActivityCoordinator()
     ) {

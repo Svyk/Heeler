@@ -104,6 +104,11 @@ final class ConsoleStore {
     /// Made on demand while a view reads them, so not observed: each store
     /// is observable itself.
     @ObservationIgnored private var agentUsageStores: [Host.ID: AgentUsageStore] = [:]
+    /// Writes the widgets' snapshot of those readings. Only the app passes
+    /// one: demo mode and tests must not replace the real widgets' figures.
+    @ObservationIgnored private let usageWidgets: AgentUsageWidgetPublisher?
+    /// The catalog in its order, which the widgets' snapshot keeps.
+    @ObservationIgnored private var catalog: [Host] = []
     let terminalConnections: TerminalConnectionPool
     let agentTerminals: AgentTerminalCache
     /// Chat's saved conversations. Volatile unless the app passes the file
@@ -134,6 +139,7 @@ final class ConsoleStore {
         pins: PinnedAgentsStore = PinnedAgentsStore(),
         rowLayouts: AgentRowLayoutStore = AgentRowLayoutStore(),
         chatCache: any ChatTranscriptCache = VolatileChatTranscriptCache(),
+        usageWidgets: AgentUsageWidgetPublisher? = nil,
         makeSession: @escaping @Sendable (Host, [EventSubscription]) -> EventsSession =
             ConsoleStore.sshSessionFactory(),
         chatAdapter: @escaping @Sendable (ChatProgram) -> ChatTranscriptAdapter? = {
@@ -142,6 +148,7 @@ final class ConsoleStore {
     ) {
         self.chatCache = chatCache
         cachedChats = ConsoleChatCache(cache: chatCache)
+        self.usageWidgets = usageWidgets
         self.chatAdapter = chatAdapter
         let terminalBudget = TerminalRetentionBudget()
         terminalConnections = TerminalConnectionPool(budget: terminalBudget)
@@ -164,6 +171,7 @@ final class ConsoleStore {
     /// projection because its connection coordinates may have changed.
     func setHosts(_ hosts: [Host]) {
         let incoming = Dictionary(hosts.map { ($0.id, $0) }) { _, last in last }
+        catalog = hosts
         cachedChats.setHosts(hosts)
         for id in projections.keys where incoming[id] != projections[id]?.host {
             chatPrefetchTasks[id]?.cancel()
@@ -209,6 +217,7 @@ final class ConsoleStore {
             startProjection(for: host)
         }
         rebuild()
+        publishUsageWidgets()
     }
 
     func resume() async {
@@ -1001,6 +1010,10 @@ final class ConsoleStore {
         where hostStatuses[id] == .connected && previousStatuses[id] != .connected {
             store.connectionBecameUsable()
         }
+        // A Host the widgets have no figures for names why: connected or not.
+        if hostStatuses.mapValues({ $0 == .connected }) != previousStatuses.mapValues({ $0 == .connected }) {
+            publishUsageWidgets()
+        }
         hostStandingFailures = Dictionary(
             uniqueKeysWithValues: current.compactMap { projection in
                 projection.standingFailure.map { (projection.host.id, $0) }
@@ -1167,8 +1180,20 @@ final class ConsoleStore {
                     over: transport, timeZone: timeZone, claudeLimits: claudeLimits)
             }
         }
+        store.didChange = { [weak self] in self?.publishUsageWidgets() }
         agentUsageStores[hostID] = store
         return store
+    }
+
+    /// Hands every catalog Host's current Usage reading to the widgets.
+    private func publishUsageWidgets() {
+        guard let usageWidgets else { return }
+        usageWidgets.publish(catalog.map { host in
+            let store = agentUsageStores[host.id]
+            return AgentUsageWidgetReading(
+                id: host.id, name: host.displayName, state: store?.state ?? .idle, readAt: store?.readAt,
+                isConnected: hostStatuses[host.id] == .connected)
+        })
     }
 
     /// Settings' plugin requirement notes: each Host's plugin, read on its
