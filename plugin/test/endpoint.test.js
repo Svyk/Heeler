@@ -98,6 +98,7 @@ suite("launcherScript", () => {
     HERDR_PROFILE: "p",
     HERDR_BIN_PATH: "/opt/herdr",
     HERDR_SOCKET_PATH: "/s",
+    HERDR_CLIENT_SOCKET_PATH: "/stale/herdr-client.sock",
     HERDR_ENV: "1",
     HERDR_SESSION: "work",
     HERDR_PLUGIN_ID: "heeler",
@@ -209,6 +210,14 @@ suite("probeLauncher", () => {
 
   test("gives up on a launcher that hangs", () => {
     assert.match(probe("sleep 10", { timeoutMs: 300 }), /^timed out after/);
+  });
+
+  test("gives up on a launcher that ignores SIGTERM", () => {
+    const started = Date.now();
+    const ignoresTerm = `exec '${process.execPath}' -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'`;
+    // Long enough for the child to install its handler before the deadline.
+    assert.match(probe(ignoresTerm, { timeoutMs: 1500 }), /^timed out after/);
+    assert.ok(Date.now() - started < 5000);
   });
 });
 

@@ -351,7 +351,8 @@ config dir outside `~/.config/herdr`. The pairing popup detects that from
   config dir other users can write. It exports the
   popup's `PATH`, its `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` and
   `XDG_CACHE_HOME` when set, and its `HERDR_*` variables except the ones herdr
-  sets per process (`HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`,
+  sets per process and an inherited client socket (`HERDR_SOCKET_PATH`,
+  `HERDR_CLIENT_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`,
   `HERDR_SESSION`, `HERDR_PLUGIN_*`, `HERDR_PANE*`), then `exec`s
   `HERDR_BIN_PATH`. The popup runs inside the server, so these are the
   server's own settings.

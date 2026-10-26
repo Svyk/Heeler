@@ -23,8 +23,9 @@ import { sessionFromSocketPath } from "./session.js";
 const LAUNCHER_FILE = "launcher";
 const PROBE_TIMEOUT_MS = 5000;
 const XDG_HOMES = ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"];
-// herdr sets these per process or pane; the app exports HERDR_SOCKET_PATH.
-const PER_PROCESS = /^HERDR_(SOCKET_PATH|BIN_PATH|ENV|SESSION|PLUGIN_\w*|PANE\w*)$/;
+// herdr sets these per process or pane; the app exports HERDR_SOCKET_PATH,
+// and an inherited client socket would steer attach to another server.
+const PER_PROCESS = /^HERDR_(SOCKET_PATH|CLIENT_SOCKET_PATH|BIN_PATH|ENV|SESSION|PLUGIN_\w*|PANE\w*)$/;
 
 const SHARED_HOME =
   "This herdr's socket is outside ~/.config/herdr but it shares your config home, so the phone would pair with your default herdr instead.";
@@ -130,6 +131,8 @@ export function probeLauncher({ launcher, socketPath, pluginId, configDir, timeo
     {
       encoding: "utf8",
       timeout: timeoutMs,
+      // A launcher that ignores SIGTERM would otherwise hold the popup.
+      killSignal: "SIGKILL",
       env: { HOME: homedir(), USER: username, LOGNAME: username, LC_ALL: "C", PATH: "/usr/bin:/bin" },
     },
   );
