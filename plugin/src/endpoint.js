@@ -8,11 +8,14 @@
 // the user's own herdr. The popup's environment is the server's, so a
 // launcher that re-exports it and execs HERDR_BIN_PATH reaches this herdr
 // over SSH; it is probed the way the app runs it before it goes in a code.
+// A relocated herdr that cannot get an endpoint is not paired at all: a v1
+// code would reach the user's default herdr instead.
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { validateEndpoint } from "./envelope.js";
 import { sessionFromSocketPath } from "./session.js";
@@ -27,7 +30,24 @@ const SHARED_HOME =
   "This herdr's socket is outside ~/.config/herdr but it shares your config home, so the phone would pair with your default herdr instead.";
 const UNUSED_LAUNCHER = "pair.json launcher is unused: this herdr uses ~/.config/herdr.";
 
-const homeConfig = (home) => `${home}/.config/herdr`;
+const homeConfig = (home) => join(home, ".config", "herdr");
+const homeState = (home) => join(home, ".local", "state", "herdr");
+
+// The real path, through the deepest ancestor that exists.
+function canonical(path) {
+  const absolute = resolve(path);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    const parent = dirname(absolute);
+    return parent === absolute ? absolute : join(canonical(parent), basename(absolute));
+  }
+}
+
+function isWithin(path, base) {
+  const rest = relative(canonical(base), canonical(path));
+  return rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
+}
 
 /** Whether the app finds this socket without an endpoint (unset counts). */
 export function isDefaultSocket(socketPath, home) {
@@ -35,12 +55,13 @@ export function isDefaultSocket(socketPath, home) {
   const session = sessionFromSocketPath(socketPath);
   if (session === null) return false;
   const base = homeConfig(home);
-  return socketPath === (session === "" ? `${base}/herdr.sock` : `${base}/sessions/${session}/herdr.sock`);
+  const expected = session === "" ? join(base, "herdr.sock") : join(base, "sessions", session, "herdr.sock");
+  return canonical(socketPath) === canonical(expected);
 }
 
 /** Whether this herdr's plugin config dir lies outside ~/.config/herdr. */
 export function isRelocated(configDir, home) {
-  return Boolean(configDir) && !configDir.startsWith(`${homeConfig(home)}/`);
+  return Boolean(configDir) && !isWithin(configDir, homeConfig(home));
 }
 
 function isCaptured(name) {
@@ -69,15 +90,29 @@ export function launcherScript(env) {
   return `${lines.join("\n")}\n`;
 }
 
-/** Write the launcher into the plugin config dir, replacing it atomically. */
-export function writeLauncher(configDir, env) {
+/**
+ * Write the launcher into the plugin config dir. It is staged under a fresh
+ * name and replaces the old one only once `check(stagedPath)` returns null,
+ * so a phone paired earlier keeps a working launcher. Returns the check's
+ * result.
+ */
+export function writeLauncher(configDir, env, check = () => null) {
   const script = launcherScript(env);
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const dir = statSync(configDir);
+  if (dir.uid !== process.getuid() || (dir.mode & 0o022) !== 0) {
+    throw new Error(`${configDir} is writable by other users`);
+  }
   const path = join(configDir, LAUNCHER_FILE);
-  const temporary = `${path}.${process.pid}.tmp`;
-  mkdirSync(configDir, { recursive: true });
-  writeFileSync(temporary, script, { mode: 0o700 });
-  renameSync(temporary, path);
-  return path;
+  const staged = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(staged, script, { mode: 0o700, flag: "wx" });
+    const failure = check(staged);
+    if (failure === null) renameSync(staged, path);
+    return failure;
+  } finally {
+    rmSync(staged, { force: true });
+  }
 }
 
 const firstLine = (text) => text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
@@ -107,44 +142,48 @@ export function probeLauncher({ launcher, socketPath, pluginId, configDir, timeo
 }
 
 /**
- * The endpoint the popup should put in its Pairing Code, or why it cannot
- * (`warning`, the code stays v1), or a `note` about an unused override.
+ * The endpoint the popup should put in its Pairing Code; or why this herdr
+ * cannot be paired (`error`); or, for a herdr the app finds without one, a
+ * `warning` or a `note` about an unused override.
  *
  * @returns {{endpoint: {socketPath: string, herdrPath: string, generated: boolean} | null,
- *   warning: string | null, note: string | null}}
+ *   error: string | null, warning: string | null, note: string | null}}
  */
-export function resolveEndpoint({ env, home, launcher, write = writeLauncher, probe = probeLauncher }) {
-  const none = { endpoint: null, warning: null, note: null };
+export function resolveEndpoint({ env, home, launcher = null, write = writeLauncher, probe = probeLauncher }) {
+  const none = { endpoint: null, error: null, warning: null, note: null };
   const configDir = env.HERDR_PLUGIN_CONFIG_DIR;
   const socketPath = env.HERDR_SOCKET_PATH;
   if (!isRelocated(configDir, home)) {
     if (!isDefaultSocket(socketPath, home)) return { ...none, warning: SHARED_HOME };
     return launcher === null ? none : { ...none, note: UNUSED_LAUNCHER };
   }
-  const fallback = (why) => ({
+  const refuse = (why) => ({
     ...none,
-    warning: `This herdr runs outside ~/.config/herdr, but ${why}. This code pairs with your default herdr instead.`,
+    error: `This herdr runs outside ~/.config/herdr, but ${why}, so it cannot be paired.`,
   });
-  if (!socketPath) return fallback("HERDR_SOCKET_PATH is not set");
-  const herdrPath = launcher ?? join(configDir, LAUNCHER_FILE);
-  try {
-    validateEndpoint({ socketPath, herdrPath: "/bin/true" });
-  } catch (error) {
-    return fallback(`its socket cannot go in a Pairing Code (${error.message})`);
+  const stateDir = env.HERDR_PLUGIN_STATE_DIR;
+  if (stateDir && isWithin(stateDir, homeState(home))) {
+    return refuse("it shares your state home, ~/.local/state/herdr");
   }
+  if (!socketPath) return refuse("HERDR_SOCKET_PATH is not set");
+  const herdrPath = launcher ?? join(configDir, LAUNCHER_FILE);
   try {
     validateEndpoint({ socketPath, herdrPath });
   } catch (error) {
-    return fallback(`the launcher path cannot go in a Pairing Code (${error.message})`);
+    return refuse(`its endpoint cannot go in a Pairing Code (${error.message})`);
   }
+  const test = (path) =>
+    probe({ launcher: path, socketPath, pluginId: env.HERDR_PLUGIN_ID ?? "heeler", configDir });
+  let failure;
   if (launcher === null) {
     try {
-      write(configDir, env);
+      failure = write(configDir, env, test);
     } catch (error) {
-      return fallback(`no launcher could be generated (${error.message})`);
+      return refuse(`no launcher could be generated (${error.message})`);
     }
+  } else {
+    failure = test(launcher);
   }
-  const failure = probe({ launcher: herdrPath, socketPath, pluginId: env.HERDR_PLUGIN_ID ?? "heeler", configDir });
-  if (failure !== null) return fallback(`its launcher failed a test run: ${failure}`);
+  if (failure !== null) return refuse(`its launcher failed a test run: ${failure}`);
   return { ...none, endpoint: { socketPath, herdrPath, generated: launcher === null } };
 }

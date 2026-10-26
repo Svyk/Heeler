@@ -344,8 +344,11 @@ config dir outside `~/.config/herdr`. The pairing popup detects that from
 `HERDR_PLUGIN_CONFIG_DIR` and emits a Pairing Code v2 whose `sock` is its
 `HERDR_SOCKET_PATH` ([ADR 0029](../docs/adr/0029-plugin-generates-the-herdr-endpoint-launcher.md)):
 
+- The herdr must also keep its plugin state outside `~/.local/state/herdr`,
+  i.e. run with its own `XDG_STATE_HOME` (see the launcher contract above).
 - Unless `pair.json` names a `launcher`, the popup writes one to `launcher`
-  in the plugin config dir (mode 0700) each time it opens. It exports the
+  in the plugin config dir (mode 0700) each time it opens. It refuses a
+  config dir other users can write. It exports the
   popup's `PATH`, its `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` and
   `XDG_CACHE_HOME` when set, and its `HERDR_*` variables except the ones herdr
   sets per process (`HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`,
@@ -355,10 +358,12 @@ config dir outside `~/.config/herdr`. The pairing popup detects that from
 - Before the launcher goes in the code, the popup runs
   `plugin config-dir <plugin id>` through it the way the app does, from a
   minimal environment, and requires this plugin's config dir back with nothing
-  on stderr within 5 seconds.
-- The checklist shows `Endpoint <sock> via <launcher>`. When the socket breaks
-  a v2 rule, no launcher can be written, or the test run fails, it says why
-  and the code stays v1, which pairs with the user's own herdr.
+  on stderr within 5 seconds. A generated launcher is tested under a staging
+  name and replaces the previous one only when it passes.
+- The checklist shows `Endpoint <sock> via <launcher>`. When the state home is
+  shared, the socket or launcher breaks a v2 rule, no launcher can be written,
+  or the test run fails, the popup says why and offers no code: a v1 code
+  would pair the phone with the user's own herdr instead.
 
 A herdr that shares the user's config home but listens on another socket gets
 a warning instead: an endpoint there would share `notifications.json` with the

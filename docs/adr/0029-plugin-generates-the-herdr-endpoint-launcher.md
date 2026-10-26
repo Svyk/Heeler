@@ -24,7 +24,12 @@ Host knows how to start herdr for that instance over SSH.
   settings the server was started with.
 - The launcher goes in a code only after a test run of `plugin config-dir`
   through it, from a minimal environment, returns this plugin's config dir.
-  Otherwise the popup says why and the code stays v1.
+  A generated launcher is tested under a staging name before it replaces the
+  previous one, in a config dir only the user can write.
+- A relocated herdr whose state stays in `~/.local/state/herdr`, or that gets
+  no working endpoint, is not paired: the popup says why and offers no code.
+  A v1 code would pair the phone with the user's default herdr, the mistake
+  v2 exists to prevent.
 
 ## Consequences
 
@@ -34,7 +39,8 @@ Host knows how to start herdr for that instance over SSH.
   from a directory only that user can write. It holds the environment the
   server started with, which is already readable by that user.
 - The launcher captures the environment at pairing time. Opening the popup
-  again rewrites it in place, so the phone's stored path stays valid.
+  again rewrites it in place, so the phone's stored path stays valid; a
+  rewrite that fails its test run leaves the old launcher in place.
 - A herdr that keeps the user's config home but listens on another socket
   still gets v1, with a warning: an endpoint there would share
   `notifications.json` with the user's own herdr.
@@ -43,6 +49,8 @@ Host knows how to start herdr for that instance over SSH.
 
 ## Alternatives
 
+- **Falling back to a v1 code with a warning:** keeps pairing possible, but
+  with the wrong herdr, and the warning is easy to miss.
 - **A required `pair.json` launcher:** works, but leaves every user to write
   the same wrapper by hand, and a wrong one surfaces only at attach.
 - **Deriving the instance from the socket path:** recovers `XDG_CONFIG_HOME`

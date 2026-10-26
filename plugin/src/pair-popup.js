@@ -258,7 +258,7 @@ async function main() {
   let checklistConfig = {
     ...readPairingConfig(configDir),
     tailscale: { enabled: false, addresses: [] },
-    endpoint: { endpoint: null, warning: null, note: null },
+    endpoint: { endpoint: null, error: null, warning: null, note: null },
   };
   function currentConfig() {
     checklistConfig = {
@@ -501,6 +501,10 @@ async function main() {
     home,
     launcher: readPairingConfig(configDir).launcher,
   });
+  if (checklistConfig.endpoint.error) {
+    await holdFatal(checklistConfig.endpoint.error);
+    return;
+  }
   if (Object.values(checklistConfig.endpoint).some((value) => value !== null)) {
     renderChecklist(state, currentConfig());
   }

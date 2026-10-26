@@ -1,7 +1,17 @@
 import { afterEach, suite, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +28,7 @@ const HOME = "/Users/ada";
 const DEFAULT_CONFIG = "/Users/ada/.config/herdr/plugins/config/heeler";
 const PROFILE_CONFIG = "/Users/ada/.config/herdr-profiles/p/herdr/plugins/config/heeler";
 const PROFILE_SOCKET = "/Users/ada/.config/herdr-profiles/p/herdr/herdr.sock";
+const PROFILE_STATE = "/Users/ada/.local/state/herdr-profiles/p/herdr/plugins/heeler";
 const GENERATED = `${PROFILE_CONFIG}/launcher`;
 
 let dir;
@@ -46,6 +57,10 @@ suite("isDefaultSocket", () => {
     assert.equal(isDefaultSocket("/Users/ada/.config/herdr/sessions/work/herdr.sock", HOME), true);
   });
 
+  test("ignores a trailing slash on the home directory", () => {
+    assert.equal(isDefaultSocket("/Users/ada/.config/herdr/herdr.sock", `${HOME}/`), true);
+  });
+
   test("rejects other sockets", () => {
     assert.equal(isDefaultSocket("/Users/ada/.config/herdr/sessions/bad name/herdr.sock", HOME), false);
     assert.equal(isDefaultSocket(PROFILE_SOCKET, HOME), false);
@@ -58,8 +73,21 @@ suite("isRelocated", () => {
     assert.equal(isRelocated(undefined, HOME), false);
   });
 
+  test("is false for the home config itself and with a trailing slash on home", () => {
+    assert.equal(isRelocated("/Users/ada/.config/herdr", HOME), false);
+    assert.equal(isRelocated(DEFAULT_CONFIG, `${HOME}/`), false);
+  });
+
   test("is true for a sibling of the home config", () => {
     assert.equal(isRelocated(PROFILE_CONFIG, HOME), true);
+  });
+
+  test("compares real paths, so a symlinked config home is not relocated", () => {
+    const home = makeDir();
+    mkdirSync(join(home, "dotfiles/herdr/plugins/config/heeler"), { recursive: true });
+    symlinkSync(join(home, "dotfiles"), join(home, ".config"));
+    assert.equal(isRelocated(join(home, "dotfiles/herdr/plugins/config/heeler"), home), false);
+    assert.equal(isRelocated(join(home, "dotfiles/herdr/plugins/config/new"), home), false);
   });
 });
 
@@ -102,12 +130,13 @@ suite("launcherScript", () => {
 });
 
 suite("writeLauncher", () => {
+  const env = { PATH: "/usr/bin:/bin", HERDR_BIN_PATH: "/bin/echo" };
+
   test("writes an owner-only executable and replaces it atomically", () => {
     const configDir = makeDir();
-    const env = { PATH: "/usr/bin:/bin", HERDR_BIN_PATH: "/bin/echo" };
 
-    const path = writeLauncher(configDir, env);
-    assert.equal(path, join(configDir, "launcher"));
+    assert.equal(writeLauncher(configDir, env), null);
+    const path = join(configDir, "launcher");
     assert.equal(statSync(path).mode & 0o777, 0o700);
 
     writeLauncher(configDir, { ...env, PATH: "/bin" });
@@ -115,16 +144,39 @@ suite("writeLauncher", () => {
     assert.deepEqual(readdirSync(configDir), ["launcher"]);
   });
 
+  test("keeps the working launcher when the new one fails its check", () => {
+    const configDir = makeDir();
+    writeLauncher(configDir, env);
+    const checked = [];
+
+    const failure = writeLauncher(configDir, { ...env, PATH: "/bin" }, (path) => {
+      checked.push(readFileSync(path, "utf8"));
+      return "exited 1: boom";
+    });
+
+    assert.equal(failure, "exited 1: boom");
+    assert.match(checked[0], /^export PATH='\/bin'$/m);
+    assert.match(readFileSync(join(configDir, "launcher"), "utf8"), /^export PATH='\/usr\/bin:\/bin'$/m);
+    assert.deepEqual(readdirSync(configDir), ["launcher"]);
+  });
+
+  test("refuses a config dir other users can write", () => {
+    const configDir = makeDir();
+    chmodSync(configDir, 0o777);
+    assert.throws(() => writeLauncher(configDir, env), /writable by other users/);
+    assert.deepEqual(readdirSync(configDir), []);
+  });
+
   test("passes arguments and quoted values through unchanged", () => {
     const configDir = makeDir();
     const bin = fakeExecutable("herdr", 'printf "%s|%s|%s|%s" "$#" "$1" "$2" "$XDG_CONFIG_HOME"');
-    const path = writeLauncher(configDir, {
+    writeLauncher(configDir, {
       PATH: "/usr/bin:/bin",
       XDG_CONFIG_HOME: "/Users/ada/it's $HOME",
       HERDR_BIN_PATH: bin,
     });
 
-    const run = spawnSync("/bin/sh", [path, "a", "b c"], { encoding: "utf8" });
+    const run = spawnSync("/bin/sh", [join(configDir, "launcher"), "a", "b c"], { encoding: "utf8" });
     assert.equal(run.stdout, "2|a|b c|/Users/ada/it's $HOME");
   });
 });
@@ -161,11 +213,19 @@ suite("probeLauncher", () => {
 });
 
 suite("resolveEndpoint", () => {
-  const relocated = { HERDR_PLUGIN_CONFIG_DIR: PROFILE_CONFIG, HERDR_SOCKET_PATH: PROFILE_SOCKET };
-  const prefix = "This herdr runs outside ~/.config/herdr, but ";
-  const suffix = ". This code pairs with your default herdr instead.";
+  const relocated = {
+    HERDR_PLUGIN_CONFIG_DIR: PROFILE_CONFIG,
+    HERDR_PLUGIN_STATE_DIR: PROFILE_STATE,
+    HERDR_SOCKET_PATH: PROFILE_SOCKET,
+  };
+  const none = { endpoint: null, error: null, warning: null, note: null };
+  const refused = (why) => ({
+    ...none,
+    error: `This herdr runs outside ~/.config/herdr, but ${why}, so it cannot be paired.`,
+  });
   const passes = () => null;
-  const writes = () => GENERATED;
+  // Stands in for writeLauncher: the new launcher is checked at a staging path.
+  const writes = (_configDir, _env, check) => check(`${GENERATED}.tmp`);
 
   function resolve(env, { launcher = null, write = writes, probe = passes } = {}) {
     return resolveEndpoint({ env, home: HOME, launcher, write, probe });
@@ -176,10 +236,10 @@ suite("resolveEndpoint", () => {
       HERDR_PLUGIN_CONFIG_DIR: DEFAULT_CONFIG,
       HERDR_SOCKET_PATH: "/Users/ada/.config/herdr/herdr.sock",
     };
-    assert.deepEqual(resolve(env), { endpoint: null, warning: null, note: null });
+    assert.deepEqual(resolve(env), none);
+    assert.deepEqual(resolveEndpoint({ env, home: HOME }), none);
     assert.deepEqual(resolve(env, { launcher: "/opt/herdr" }), {
-      endpoint: null,
-      warning: null,
+      ...none,
       note: "pair.json launcher is unused: this herdr uses ~/.config/herdr.",
     });
   });
@@ -187,10 +247,9 @@ suite("resolveEndpoint", () => {
   test("warns when a socket override shares the home config", () => {
     const env = { HERDR_PLUGIN_CONFIG_DIR: DEFAULT_CONFIG, HERDR_SOCKET_PATH: PROFILE_SOCKET };
     assert.deepEqual(resolve(env), {
-      endpoint: null,
+      ...none,
       warning:
         "This herdr's socket is outside ~/.config/herdr but it shares your config home, so the phone would pair with your default herdr instead.",
-      note: null,
     });
   });
 
@@ -201,58 +260,66 @@ suite("resolveEndpoint", () => {
       { probe: (args) => (calls.push(args), null) },
     );
     assert.deepEqual(result, {
+      ...none,
       endpoint: { socketPath: PROFILE_SOCKET, herdrPath: GENERATED, generated: true },
-      warning: null,
-      note: null,
     });
     assert.deepEqual(calls, [
-      { launcher: GENERATED, socketPath: PROFILE_SOCKET, pluginId: "heeler", configDir: PROFILE_CONFIG },
+      { launcher: `${GENERATED}.tmp`, socketPath: PROFILE_SOCKET, pluginId: "heeler", configDir: PROFILE_CONFIG },
     ]);
   });
 
   test("uses a launcher override without generating one", () => {
+    const calls = [];
     const result = resolve(relocated, {
       launcher: "/opt/Example App/bin/herdr",
       write: () => assert.fail("generated a launcher despite the override"),
+      probe: (args) => (calls.push(args.launcher), null),
     });
     assert.deepEqual(result.endpoint, {
       socketPath: PROFILE_SOCKET,
       herdrPath: "/opt/Example App/bin/herdr",
       generated: false,
     });
+    assert.deepEqual(calls, ["/opt/Example App/bin/herdr"]);
   });
 
-  test("falls back to v1 when the socket is unset", () => {
+  test("refuses a relocated config home that shares the default state home", () => {
+    const env = { ...relocated, HERDR_PLUGIN_STATE_DIR: "/Users/ada/.local/state/herdr/plugins/heeler" };
+    assert.deepEqual(
+      resolve(env, { write: () => assert.fail("generated a launcher for a shared state home") }),
+      refused("it shares your state home, ~/.local/state/herdr"),
+    );
+  });
+
+  test("refuses when the socket is unset", () => {
     const { HERDR_SOCKET_PATH, ...env } = relocated;
-    assert.deepEqual(resolve(env), {
-      endpoint: null,
-      warning: `${prefix}HERDR_SOCKET_PATH is not set${suffix}`,
-      note: null,
-    });
+    assert.deepEqual(resolve(env), refused("HERDR_SOCKET_PATH is not set"));
   });
 
-  test("falls back to v1 when the socket is too long for a Pairing Code", () => {
+  test("refuses a socket too long for a Pairing Code", () => {
     const env = { ...relocated, HERDR_SOCKET_PATH: `/Users/ada/${"x".repeat(90)}/herdr/herdr.sock` };
-    const result = resolve(env);
-    assert.equal(result.endpoint, null);
-    assert.ok(result.warning.startsWith(`${prefix}its socket cannot go in a Pairing Code (`));
+    assert.deepEqual(
+      resolve(env),
+      refused("its endpoint cannot go in a Pairing Code (sock must be at most 96 bytes)"),
+    );
   });
 
-  test("falls back to v1 when no launcher can be generated", () => {
+  test("refuses a launcher path the app cannot run", () => {
+    const result = resolve(relocated, { launcher: "/opt/it's/herdr" });
+    assert.match(result.error, /its endpoint cannot go in a Pairing Code \(sock and herdr must be absolute/);
+  });
+
+  test("refuses when no launcher can be generated", () => {
     const result = resolve(relocated, {
       write: () => {
         throw new Error("HERDR_BIN_PATH is not set");
       },
     });
-    assert.equal(result.warning, `${prefix}no launcher could be generated (HERDR_BIN_PATH is not set)${suffix}`);
+    assert.deepEqual(result, refused("no launcher could be generated (HERDR_BIN_PATH is not set)"));
   });
 
-  test("falls back to v1 when the launcher fails its test run", () => {
+  test("refuses when the launcher fails its test run", () => {
     const result = resolve(relocated, { probe: () => "exited 3: boom" });
-    assert.deepEqual(result, {
-      endpoint: null,
-      warning: `${prefix}its launcher failed a test run: exited 3: boom${suffix}`,
-      note: null,
-    });
+    assert.deepEqual(result, refused("its launcher failed a test run: exited 3: boom"));
   });
 });
