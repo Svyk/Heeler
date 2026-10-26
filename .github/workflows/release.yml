@@ -101,7 +101,8 @@ jobs:
               index($0, heading) == 1 { inside = 1; next }
               inside && /^## / { exit }
               inside { print }
-            ' CHANGELOG.md | awk 'NF == 0 && !seen { next } { seen = 1; print }' > "$RUNNER_TEMP/notes/notes.md"
+            ' CHANGELOG.md | awk 'NF == 0 && !seen { next } { seen = 1; print }' \
+              | python3 scripts/format-release-notes.py > "$RUNNER_TEMP/notes/notes.md"
             [[ -n "$(tr -d '[:space:]' < "$RUNNER_TEMP/notes/notes.md")" ]] \
               || fail "CHANGELOG.md has no notes under [$version]"
             mode=release

@@ -40,7 +40,7 @@ node --version
 herdr plugin install ZingerLittleBee/Heeler --ref plugin --yes
 ```
 
-herdr 会下载并构建插件。以后再次运行同一条命令即可更新插件；当插件版本低于当前 Heeler 所需的版本时，Heeler 中该 Host 的页面会给出提示。
+herdr 会下载并构建插件。当插件版本低于当前 Heeler 所需的版本时，Heeler 中该 Host 的页面会给出提示，并可以直接帮你更新；在 Host 上再次运行同一条命令也能更新。
 
 ## 3. 显示配对码
 

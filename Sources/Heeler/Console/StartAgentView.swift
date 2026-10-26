@@ -215,7 +215,7 @@ struct StartAgentView: View {
                 } header: {
                     Text("Tab Name")
                 } footer: {
-                    Text("Empty labels the tab with the agent's name.")
+                    Text("Empty lets herdr or a title plugin name the tab.")
                 }
 
                 Section {

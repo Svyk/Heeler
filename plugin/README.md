@@ -89,7 +89,11 @@ command again. Plugin 0.6.0 scopes notifications to the herdr session they
 come from; update it on every Host along with the app (see
 [Updating to 0.6.0](#updating-to-060)). The app's Host details show the
 installed version and offer this command when it is older than the plugin
-the app was built alongside.
+the app was built alongside, and can run it on the Host over SSH (ADR 0027).
+The app first looks for Node.js 20 or newer for the `npm ci` build where
+version managers (nvm, fnm, Volta, asdf, mise and others), Homebrew, Nix and
+system packages keep their default, then on the login shell's `PATH`, and
+reports the Host's Node.js as missing or too old instead of installing.
 
 On herdr 0.9.4, reinstalling a disabled plugin keeps it disabled, where
 herdr 0.9.3 turned it back on. Turn it on afterwards:
@@ -799,8 +803,9 @@ server start. The snapshot reflects the file on disk, not any live TUI
 `agent.view.set` sort override. It is this Host's own herdr configuration: a
 herdr client elsewhere that has this Host as a saved machine renders its
 sidebar from that client's own settings, as herdr's configuration docs
-describe. Heeler never installs or updates this plugin; older installations
-have no `sidebar.json`, which the app treats as nil without a version gate.
+describe. Heeler updates this plugin only when the user asks on the Host's
+page; older installations have no `sidebar.json`, which the app treats as nil
+without a version gate.
 
 Swift readers ignore unknown fields and drop individual unknown token names,
 such as `machine`. The app resolves whole layouts in this order: the Host's
