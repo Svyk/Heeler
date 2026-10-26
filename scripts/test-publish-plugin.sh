@@ -17,6 +17,8 @@ case "$1" in
         mkdir -p node_modules ;;
     test)
         [ -e test ] || { echo "npm test ran without test/" >&2; exit 1; }
+        [ -e ../scripts/generate-usage-pricing.mjs ] \
+            || { echo "npm test ran without the price generator" >&2; exit 1; }
         exit "${FAKE_NPM_TEST_STATUS:-0}" ;;
 esac
 EOF
@@ -32,6 +34,7 @@ git config user.email test@invalid
 git config commit.gpgsign false
 mkdir -p plugin/src plugin/test plugin/test-vectors scripts Sources
 cp "$scripts/publish-plugin.sh" "$scripts/check-plugin-published.sh" scripts/
+echo '// generator' > scripts/generate-usage-pricing.mjs
 echo 'Apache License' > LICENSE
 echo 'let a = 1' > Sources/App.swift
 printf 'id = "heeler"\nversion = "0.1.0"\n\n[[build]]\ncommand = ["npm", "ci"]\n' > plugin/herdr-plugin.toml
