@@ -48,6 +48,15 @@ struct ConsoleView: View {
     @State private var listTab: ConsoleTab?
     @State private var isHostsTabSelected = false
     @State private var isSettingsTabSelected = false
+    @State private var isUsageTabSelected = false
+    /// The Host the Usage tab reads; nil reads every Host.
+    @State private var usageScopeHostID: Host.ID?
+    @State private var usageMetric = AgentUsageMetric.cost
+    @State private var usageShowsLimits = false
+    /// A Usage Limits widget's tap, until the Usage page shows them.
+    @State private var usageLimitsRequested = false
+    @State private var isShowingUsageListMenu = false
+    @State private var usageListMenuTitleFrame: CGRect?
     /// Hosts and Settings where the sidebar navigates instead of a tab bar.
     @State private var isShowingHostsSheet = false
     @State private var isShowingSettingsSheet = false
@@ -162,6 +171,9 @@ struct ConsoleView: View {
                 Label(ConsoleTab.terminals.title, systemImage: "terminal")
                     .environment(\.symbolVariants, .none)
             }
+            Tab(ConsoleTab.usage.title, systemImage: "chart.bar.xaxis", value: ConsoleTab.usage) {
+                usageTab()
+            }
             Tab(ConsoleTab.hosts.title, systemImage: "server.rack", value: ConsoleTab.hosts) {
                 hostList(
                     origin: hostsTabRequest?.origin.map { origin in
@@ -265,6 +277,12 @@ struct ConsoleView: View {
                     .modifier(ConsoleSheetPresentationModifier(presentation: presentation))
             }
         }
+        // A Usage widget's tap. ContentView routes `heeler://agent` links;
+        // these land on this window's Usage tab.
+        .onOpenURL { url in
+            guard let link = UsageWidgetLink.target(from: url) else { return }
+            openUsage(link)
+        }
         // Retries answered, the Host no longer failing, drop what they saw.
         .onChange(of: hostIssuesSheetExplained) { _, explained in
             hostIssuesLastFailures = hostIssuesLastFailures.filter { explained.contains($0.key) }
@@ -344,6 +362,7 @@ struct ConsoleView: View {
             get: {
                 if isHostsTabSelected { return .hosts }
                 if isSettingsTabSelected { return .settings }
+                if isUsageTabSelected { return .usage }
                 return shownListTab
             },
             set: { tab in
@@ -353,6 +372,7 @@ struct ConsoleView: View {
                 if tab != currentTab { focusedSearch = nil }
                 isHostsTabSelected = tab == .hosts
                 isSettingsTabSelected = tab == .settings
+                isUsageTabSelected = tab == .usage
                 guard tab.isList else { return }
                 if tab != leavingList, horizontalSizeClass == .regular {
                     swapListSelection(from: leavingList, to: tab)
@@ -394,6 +414,7 @@ struct ConsoleView: View {
             store: hosts,
             initialHostID: hostsTabRequest?.hostID,
             usageStore: { console.agentUsageStore(for: $0) },
+            openUsage: { openUsage(for: $0) },
             showsSetupGuide: hostsTabRequest?.showsSetupGuide ?? false,
             connectionStatuses: console.hostStatuses,
             standingFailures: console.hostStandingFailures,
@@ -429,6 +450,109 @@ struct ConsoleView: View {
                 }
             },
             onDone: onDone)
+    }
+
+    /// The lists an iPad sidebar's title menu switches between.
+    private static let sidebarLists: [ConsoleTab] = [.agents, .terminals, .usage]
+
+    /// Every Host the Usage tab can read, in catalog order.
+    private var usageEntries: [AgentUsageHostEntry] {
+        hosts.hosts.map { host in
+            AgentUsageHostEntry(
+                id: host.id, name: host.displayName, store: console.agentUsageStore(for: host.id),
+                isConnected: console.hostStatuses[host.id] == .connected)
+        }
+    }
+
+    /// Usage, as a tab; beside an iPad's sidebar, its own split view whose
+    /// sidebar lists the Hosts and whose title switches back to the lists.
+    @ViewBuilder
+    private func usageTab() -> some View {
+        if usesSidebarNavigation {
+            NavigationSplitView {
+                AgentUsageSidebar(entries: usageEntries, scopeHostID: $usageScopeHostID, metric: usageMetric)
+                    .navigationTitle(ConsoleTab.usage.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            SidebarListMenu(
+                                shown: .usage, lists: Self.sidebarLists,
+                                isPresented: $isShowingUsageListMenu, frame: $usageListMenuTitleFrame)
+                        }
+                        .toolbarItemBackground(.hidden)
+                    }
+                    .toolbar(removing: .title)
+                    .toolbar(removing: .sidebarToggle)
+                    .bottomBar { usageSidebarFooter }
+                    .overlay {
+                        GeometryReader { proxy in
+                            let anchor = SidebarListMenu.anchor(
+                                under: usageListMenuTitleFrame, in: proxy.frame(in: .global))
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .popover(isPresented: $isShowingUsageListMenu, arrowEdge: .top) {
+                                    SidebarListChoices(
+                                        shown: .usage, lists: Self.sidebarLists,
+                                        isPresented: $isShowingUsageListMenu,
+                                        select: { selectedTab.wrappedValue = $0 })
+                                }
+                                .position(anchor)
+                        }
+                        .ignoresSafeArea(.container, edges: .top)
+                        .allowsHitTesting(false)
+                    }
+            } detail: {
+                NavigationStack {
+                    AgentUsageDashboard(
+                        entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric,
+                        showsLimits: $usageShowsLimits, limitsRequested: $usageLimitsRequested,
+                        allowsColumns: true)
+                        .navigationTitle(
+                            usageScopeHostID.flatMap { id in hosts.hosts.first { $0.id == id }?.displayName }
+                                ?? "All Hosts")
+                        .toolbarTitleDisplayMode(.inlineLarge)
+                }
+            }
+            .background {
+                ConsoleTabBarBridge(chromeScheme: nil, hidesBar: true, request: tabBarRequest)
+            }
+            .toolbarVisibility(.hidden, for: .tabBar)
+        } else {
+            AgentUsageTabView(
+                entries: usageEntries, scopeHostID: $usageScopeHostID, metric: $usageMetric,
+                limitsRequested: $usageLimitsRequested)
+        }
+    }
+
+    /// The Usage sidebar's foot: Hosts and Settings, as the lists' foot has.
+    private var usageSidebarFooter: some View {
+        HStack(spacing: 4) {
+            Button(ConsoleTab.hosts.title, systemImage: "server.rack") { showHosts() }
+            Button(ConsoleTab.settings.title, systemImage: "gearshape") { showSettings() }
+            Spacer(minLength: 0)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(SidebarIconButtonStyle())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    /// The Host detail's way into Usage: the tab, on that Host.
+    private func openUsage(for hostID: Host.ID) {
+        usageScopeHostID = hostID
+        isShowingHostsSheet = false
+        selectedTab.wrappedValue = .usage
+    }
+
+    /// A Usage widget's tap: the tab on the widget's scope, and for Usage
+    /// Limits, that Host's limits. A Host since removed opens All Hosts.
+    private func openUsage(_ link: UsageWidgetLink.Target) {
+        let hostID = link.hostID.flatMap { id in hosts.hosts.contains { $0.id == id } ? id : nil }
+        usageScopeHostID = hostID
+        isShowingHostsSheet = false
+        isShowingSettingsSheet = false
+        selectedTab.wrappedValue = .usage
+        usageLimitsRequested = link.showsLimits && hostID != nil
     }
 
     private func switchList(to tab: ConsoleTab) {
@@ -497,6 +621,7 @@ struct ConsoleView: View {
         // list tab.
         isHostsTabSelected = false
         isSettingsTabSelected = false
+        isUsageTabSelected = false
         isStartingAgent = false
         isStartingTerminal = false
         connectionDetailRequest = nil
@@ -755,7 +880,7 @@ struct ConsoleView: View {
                         .frame(width: 1, height: 1)
                         .popover(isPresented: $isShowingListMenu, arrowEdge: .top) {
                             SidebarListChoices(
-                                shown: tab, lists: [.agents, .terminals],
+                                shown: tab, lists: Self.sidebarLists,
                                 isPresented: $isShowingListMenu, select: switchList(to:))
                         }
                         .position(anchor)
@@ -798,7 +923,7 @@ struct ConsoleView: View {
                     focus: $focusedSearch, tab: .terminals,
                     prompt: "Search Terminals", showsField: !usesSidebarNavigation))
             }
-        case .hosts, .settings:
+        case .usage, .hosts, .settings:
             // These tabs show their own screens, not a split view.
             EmptyView()
         }
@@ -880,7 +1005,7 @@ struct ConsoleView: View {
         if usesSidebarNavigation {
             ToolbarItem(placement: .topBarLeading) {
                 SidebarListMenu(
-                    shown: tab, lists: [.agents, .terminals],
+                    shown: tab, lists: Self.sidebarLists,
                     isPresented: $isShowingListMenu, frame: $listMenuTitleFrame)
             }
             .toolbarItemBackground(.hidden)
@@ -2004,7 +2129,7 @@ private struct SidebarListMenu: View {
                 // gives way to one over the bar item's whole frame.
                 .contentShape(.hoverEffect, Capsule().inset(by: 4))
                 .hoverEffect(.highlight)
-                .accessibilityHint("Switches between Agents and Terminals")
+                .accessibilityHint("Switches between Agents, Terminals and Usage")
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
                     frame = $0
                 }
@@ -2055,7 +2180,11 @@ private struct SidebarListChoices: View {
     }
 
     private static func symbol(for list: ConsoleTab) -> String {
-        list == .terminals ? "terminal" : "sparkles"
+        switch list {
+        case .terminals: "terminal"
+        case .usage: "chart.bar.xaxis"
+        default: "sparkles"
+        }
     }
 }
 

@@ -9,9 +9,15 @@ Entries reference the pull request that made the change.
 
 ### Added
 
-- See per-Host Usage Limits and Token Usage, including reset times, up to
-  30 days of local token totals, daily charts, model and directory
-  breakdowns, and estimated API cost. Requires plugin 0.7.0. (#506)
+- See Usage Limits and Token Usage on a new Usage tab, across all Hosts or
+  one at a time: reset times, up to 30 days of local token totals, a daily
+  chart and calendar, model and directory breakdowns, and estimated API
+  cost. Usage Limits stay per Host. On iPad, Usage is also a sidebar list.
+  Requires plugin 0.7.0. (#506, #517)
+- Add Usage and Usage Limits widgets to the Home Screen and Lock Screen:
+  estimated cost or tokens on All Hosts or one Host, and a Host's Usage
+  Limits with their time to reset. They update when Heeler returns to the
+  foreground and, with Background App Refresh on, while it is closed. (#517)
 - Update the Heeler plugin from a Host's page: when the plugin is missing,
   outdated or turned off, the plugin sheet runs the fix on the Host over SSH
   and says why when it cannot finish. The install finds Node.js from nvm,

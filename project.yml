@@ -47,11 +47,15 @@ targets:
       - Sources/HeelerNotificationCore
       # Live Activity attributes + details envelope (shared with HeelerWidgets).
       - Sources/HeelerActivityCore
+      # Usage formats and the widgets' snapshot (shared with HeelerWidgets).
+      - Sources/HeelerUsageCore
       # Widget views double-included so Xcode can host their #Preview gallery
       # in the app target (plain previews are unsupported inside app-extension
-      # targets); the @main WidgetBundle stays extension-only.
+      # targets), and app tests can render the Usage widgets; the @main
+      # WidgetBundle, intents and timelines stay extension-only.
       - Sources/HeelerWidgets/AgentLiveActivityWidget.swift
       - Sources/HeelerWidgets/AgentActivityDecryptor.swift
+      - Sources/HeelerWidgets/Usage/UsageWidgetViews.swift
       # Audited third-party notices + inventory.json (#161). Folder reference
       # preserves the Notices/ subdirectory the catalogue resolves against.
       - path: Sources/Heeler/Resources/Notices
@@ -73,6 +77,11 @@ targets:
         # manifest already declares multiple-scene support.
         NSUserActivityTypes:
           - dev.bybee.heeler.agent
+        # The Usage widgets' app refresh task (AgentUsageBackgroundRefresh).
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - dev.bybee.heeler.usage-refresh
         # `heeler://agent` links (AgentActivityLink). A Live Activity tap
         # opens its own app without this; other apps' links need it.
         CFBundleURLTypes:
@@ -194,6 +203,8 @@ targets:
       - Sources/HeelerWidgets
       - Sources/HeelerActivityCore
       - Sources/HeelerNotificationCore
+      # Usage formats and the snapshot the app writes for the Usage widgets.
+      - Sources/HeelerUsageCore
       - Sources/Heeler/Support/Base64URL.swift
       - Sources/Heeler/Transport/SecretStore.swift
       # For AgentStatus; Foundation-only by construction (JSONValue is the

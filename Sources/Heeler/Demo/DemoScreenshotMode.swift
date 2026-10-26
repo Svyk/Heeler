@@ -1222,20 +1222,55 @@
 
     /// Invented Usage for screenshot Hosts: both programs over 30 days that
     /// end today in the requested time zone, with Usage Limits that reset
-    /// in the future so no demo window reads as expired.
+    /// in the future so no demo window reads as expired. The build Host
+    /// reports its own figures, so All Hosts visibly adds two Hosts up.
     enum DemoUsageSample {
-        private static let claudeDays = [
-            41, 0, 0, 63, 72, 58, 80, 35, 0, 66, 91, 77, 84, 52, 12, 0, 70, 88, 95, 61,
-            74, 30, 0, 82, 99, 76, 90, 68, 85, 47,
-        ]
-        private static let codexDays = [
-            12, 0, 0, 18, 25, 9, 31, 14, 0, 22, 27, 35, 19, 16, 4, 0, 26, 30, 21, 33,
-            24, 8, 0, 29, 38, 27, 34, 22, 31, 17,
-        ]
+        private struct Profile {
+            let claudeDays: [Int]
+            let codexDays: [Int]
+            let claudeModels: [String]
+            let codexModels: [String]
+            let claudeDirectories: [String]
+            let codexDirectories: [String]
+            let claudePercents: (Double, Double)
+            let codexPercents: (Double, Double)
+        }
+
+        private static let studio = Profile(
+            claudeDays: [
+                41, 0, 0, 63, 72, 58, 80, 35, 0, 66, 91, 77, 84, 52, 12, 0, 70, 88, 95, 61,
+                74, 30, 0, 82, 99, 76, 90, 68, 85, 47,
+            ],
+            codexDays: [
+                12, 0, 0, 18, 25, 9, 31, 14, 0, 22, 27, 35, 19, 16, 4, 0, 26, 30, 21, 33,
+                24, 8, 0, 29, 38, 27, 34, 22, 31, 17,
+            ],
+            claudeModels: ["claude-opus-4-5", "claude-sonnet-4-5"],
+            codexModels: ["gpt-5.3-codex"],
+            claudeDirectories: ["/Users/demo/src/storefront", "/Users/demo/src/payments-api"],
+            codexDirectories: ["/Users/demo/src/payments-api", "/Users/demo/src/product-docs"],
+            claudePercents: (34, 61), codexPercents: (22, 47))
+
+        private static let build = Profile(
+            claudeDays: [
+                18, 22, 9, 25, 30, 14, 11, 20, 27, 52, 64, 38, 17, 9, 21, 26, 19, 23, 12, 8,
+                24, 31, 46, 58, 33, 20, 15, 28, 22, 26,
+            ],
+            codexDays: [
+                30, 41, 58, 47, 26, 19, 22, 35, 29, 24, 31, 27, 18, 33, 61, 72, 49, 30, 21, 25,
+                28, 34, 26, 19, 23, 38, 55, 63, 42, 36,
+            ],
+            claudeModels: ["claude-sonnet-4-5", "claude-haiku-4-5"],
+            codexModels: ["gpt-5.3-codex", "gpt-5.2"],
+            claudeDirectories: ["/home/builder/ci/infra", "/srv/builds/mobile"],
+            codexDirectories: ["/home/builder/ci/api-gateway", "/srv/builds/mobile"],
+            claudePercents: (48, 39), codexPercents: (26, 48))
 
         static func report(
-            timeZone identifier: String, claudeLimits: Bool, now: Date = Date()
+            timeZone identifier: String, claudeLimits: Bool, hostID: Host.ID? = nil,
+            now: Date = Date()
         ) throws -> AgentUsageReport {
+            let profile = hostID == DemoScreenshotFixture.buildHostID ? build : studio
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = TimeZone(identifier: identifier) ?? .gmt
             let timestamp = ISO8601DateFormatter()
@@ -1261,22 +1296,20 @@
                 ]
             }
             let claude = program(
-                "claude", days: claudeDays, unit: 9_500, costPerToken: 0.000_001_1, day: day,
-                models: ["claude-opus-4-5", "claude-sonnet-4-5"],
-                directories: ["/Users/demo/src/storefront", "/Users/demo/src/payments-api"],
+                "claude", days: profile.claudeDays, unit: 9_500, costPerToken: 0.000_001_1,
+                day: day, models: profile.claudeModels, directories: profile.claudeDirectories,
                 limits: claudeLimits
                     ? limits("service", [
-                        window("fiveHour", 300, 34, 2 * 3_600),
-                        window("sevenDay", 10_080, 61, 3 * 86_400),
+                        window("fiveHour", 300, profile.claudePercents.0, 2 * 3_600),
+                        window("sevenDay", 10_080, profile.claudePercents.1, 3 * 86_400),
                     ])
                     : ["state": "disabled"])
             let codex = program(
-                "codex", days: codexDays, unit: 7_000, costPerToken: 0.000_000_9, day: day,
-                models: ["gpt-5.3-codex"],
-                directories: ["/Users/demo/src/payments-api", "/Users/demo/src/product-docs"],
+                "codex", days: profile.codexDays, unit: 7_000, costPerToken: 0.000_000_9,
+                day: day, models: profile.codexModels, directories: profile.codexDirectories,
                 limits: limits("service", [
-                    window("primary", 300, 22, 3 * 3_600),
-                    window("secondary", 10_080, 47, 4 * 86_400),
+                    window("primary", 300, profile.codexPercents.0, 3 * 3_600),
+                    window("secondary", 10_080, profile.codexPercents.1, 4 * 86_400),
                 ]))
             let object: [String: Any] = [
                 "version": 1, "runtime": "recorded",
@@ -1389,7 +1422,8 @@
         func readAgentUsage(
             timeZone: String, claudeLimits: Bool, pluginRoot: String
         ) async throws -> AgentUsageReport {
-            try DemoUsageSample.report(timeZone: timeZone, claudeLimits: claudeLimits)
+            try DemoUsageSample.report(
+                timeZone: timeZone, claudeLimits: claudeLimits, hostID: hostID)
         }
 
         /// Plugin config files exist only where an enabled plugin would

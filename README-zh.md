@@ -40,6 +40,10 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 | --- | --- | --- |
 | <img src="docs/images/skills-iphone.png" width="240" alt="iPhone 上 Composer 的 Skills 建议" /> | <img src="docs/images/hosts-iphone.png" width="240" alt="iPhone 上按连接状态分组并显示延迟的 Hosts 列表" /> | <img src="docs/images/live-activity-iphone.png" width="240" alt="iPhone 锁屏上实时跟踪 Agent 的实时活动" /> |
 
+| Usage | 小组件 | 锁屏小组件 |
+| --- | --- | --- |
+| <img src="docs/images/usage-iphone.png" width="240" alt="iPhone 上显示 30 天估算 API 费用、Usage Limits 和每日图表的 Usage 标签页" /> | <img src="docs/images/widgets-iphone.png" width="240" alt="iPhone 主屏上小号和中号的 Usage 与 Usage Limits 小组件" /> | <img src="docs/images/widgets-lock-iphone.png" width="240" alt="iPhone 锁屏上的 Usage 与 Usage Limits 小组件" /> |
+
 <a href="docs/ipad-screenshots.md"><img src="docs/images/windowed-ipad.png" width="760" alt="iPad 浮动窗口中的 Heeler" /></a>
 
 [查看 iPad 截图](docs/ipad-screenshots.md)
@@ -66,6 +70,9 @@ Heeler 是一个 **agent 控制台**：把所有机器上正在运行的 coding 
 - **通知 + 实时活动** —— Agent 进入 Blocked 或 Done 时的端到端加密推送，
   以及锁屏 / 灵动岛上实时跟踪 Agent 的横幅；中继永远读不到内容
   （[PRIVACY.md](PRIVACY.md)）。
+- **Usage** —— Claude Code 与 Codex 的 Usage Limits 及重置时间，以及最多
+  30 天的 Token Usage 和估算 API 费用，可汇总所有 Host 或只看一台；主屏和
+  锁屏小组件随时可见（[了解更多](https://docs.heeler.bybee.dev/zh/usage)）。
 - **Worktrees** —— 让 Agent 从工作区仓库的干净检出上启动。
 - **外观** —— 跟随系统 / 浅色 / 深色；30 个终端主题，浅色深色各有独立
   槽位；内置 JetBrains Mono 与 IBM Plex Mono；双指缩放字号。

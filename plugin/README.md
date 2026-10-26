@@ -615,16 +615,19 @@ page. Enabling it asks the Host's Claude Code for its plan limits through
 the undocumented `get_usage` control request. This automated use of the
 subscription is not officially supported; using Claude Code's own sign-in
 does not establish that the use is permitted. Turning it off hides Claude
-Code limits and leaves Token Usage and Codex limits available. Real-Mac
-SSH/keychain availability and current terms remain pre-release checks in
-the [design's open questions](../docs/design/agent-usage.md#open-questions).
+Code limits and leaves Token Usage and Codex limits available. On macOS,
+Claude Code's sign-in is in the login keychain, which SSH sessions cannot
+use, so the plugin's `usage-claude-limits` action reads the limits in
+herdr's session. Start herdr from a terminal on the Mac, not over SSH.
+Current terms remain a pre-release check in the
+[design's open questions](../docs/design/agent-usage.md#open-questions).
 
 Token Usage covers at most 30 days and only the Transcripts still on the
 Host. The page reports coverage, skipped compressed archives and Transcripts
 it could not read. **Estimated API cost** uses a bundled price table, not
 subscription billing; the page shows its date and any unpriced tokens. Models or service tiers without a
 known price stay unpriced. See the [design](../docs/design/agent-usage.md)
-and [ADR 0027](../docs/adr/0027-plugin-collects-agent-usage-on-the-host.md)
+and [ADR 0028](../docs/adr/0028-plugin-collects-agent-usage-on-the-host.md)
 for collection, cache and privacy boundaries.
 
 ### Maintaining the price table

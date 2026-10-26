@@ -1,7 +1,7 @@
 # Agent Usage
 
 Status: Implemented (#494; PR #506; tickets #495–#503). Decisions are
-recorded in [ADR 0027](../adr/0027-plugin-collects-agent-usage-on-the-host.md);
+recorded in [ADR 0028](../adr/0028-plugin-collects-agent-usage-on-the-host.md);
 terms are defined in [CONTEXT.md](../../CONTEXT.md) (**Usage Limits**,
 **Token Usage**, **Transcript**).
 
@@ -636,8 +636,29 @@ plugin asks Claude Code itself, as it asks Codex.
   and `rate_limits`. `rate_limits_available: false` means plan limits do not
   apply (in its schema's words: API key, Bedrock, Vertex, or missing profile
   scope) and maps to `unavailable` with `noPlanLimits`. Claude Code 2.1.310
-  also answers this way when it cannot read its keychain item, so a keychain
-  failure shows as `noPlanLimits`, not as a failed request.
+  also answers this way when it cannot read its keychain item.
+- On macOS, Claude Code keeps its sign-in in the login keychain, which an SSH
+  session cannot use: `security` exits 36 there, and Claude Code answers
+  `subscription_type: null` with `rate_limits_available: false` (observed
+  with 2.1.310 on 2026-10-26). A Usage query arrives over SSH, so on macOS
+  the worker does not start Claude Code itself. It writes a request with a
+  random token to `claude-request.json` in the cache directory and runs
+  `herdr plugin action invoke usage-claude-limits --plugin heeler`, passing
+  the query's `HERDR_SOCKET_PATH`. herdr's server starts the action in its
+  own session, where the keychain is usable; the action consumes the
+  request, runs the same `get_usage` exchange and writes the reading with
+  the token to `claude-reading.json`. The worker waits up to 25 seconds
+  (a `timeout` error after that). The hooks record herdr's path
+  (`HERDR_BIN_PATH`) in `runtime.json`; without it, or when herdr cannot
+  invoke the action, the worker reads in place.
+- A `noPlanLimits` answer on macOS is checked with `security
+  show-keychain-info`, which reads no item. When the session cannot use the
+  default keychain (herdr's server was itself started over SSH, or the read
+  ran in place), the reading is `unavailable` with `keychainUnavailable`.
+- `get_usage` throttles its own endpoint: reading every 13 seconds, answers
+  after about 3 minutes carried `rate_limits_available: true` without
+  `rate_limits` (an `invalidResponse` error, so the last good reading is
+  kept). The 60-second cadence below stays under that.
 - A Claude Code without `get_usage` answers with an error whose text starts
   `Unsupported control request subtype` (2.1.309 answers unknown subtypes
   this way). That error maps to `unavailable` with `programTooOld`, not to
@@ -653,9 +674,12 @@ plugin asks Claude Code itself, as it asks Codex.
   at every allowed request: the recorded `claude` may be a shim or wrapper
   (mise, asdf, `~/.claude/local/claude`) that an update leaves unchanged.
 - Windows read: `five_hour`, `seven_day`, `seven_day_opus`,
-  `seven_day_sonnet`, any other non-null object with a `utilization` and a
-  `resets_at` as `claude:<key>`, and each `model_scoped[]` entry as
-  `claude:model:<display_name>` with its `display_name` as label.
+  `seven_day_sonnet`, any other non-null object with a `utilization`, a
+  `resets_at` and a non-empty `label` as `claude:<key>` with that label, and
+  each `model_scoped[]` entry as `claude:model:<display_name>` with its
+  `display_name` as label. Other keys are code names with nothing to call
+  them by; Claude Code's own `/usage` does not show them either, so they are
+  left out.
   `utilization` is a percentage and `resets_at` is ISO 8601 in this answer;
   the reader also accepts epoch seconds. Both are nullable in the schema: a
   window whose `utilization` is null is left out, and a null `resets_at`
@@ -672,7 +696,7 @@ plugin asks Claude Code itself, as it asks Codex.
   that may belong to a previous sign-in.
 
 The plugin does not call `api.anthropic.com` itself. Reading the stored
-OAuth token and calling `/api/oauth/usage` directly was rejected (ADR 0027).
+OAuth token and calling `/api/oauth/usage` directly was rejected (ADR 0028).
 
 > [!WARNING]
 > `get_usage` is an undocumented part of Claude Code's stream-json control
@@ -782,8 +806,9 @@ tests and decoded by the Swift tests.
   never shown then), `unavailable` with `reason` (`notReadYet` before the
   first reading of a program whose limits will be read, while a run is in
   progress, such as during the first scan or right after the Claude toggle
-  turns on; `programMissing`, `programTooOld`, `noPlanLimits`, or
-  `notSignedIn` for Codex), `throttled` with `retryAt` and the last good
+  turns on; `programMissing`, `programTooOld`, `noPlanLimits`,
+  `keychainUnavailable` for Claude Code on macOS, or `notSignedIn` for
+  Codex), `throttled` with `retryAt` and the last good
   reading (Claude Code), `error` with `reason`. A program without a
   reading while no run is in progress (failures paused the refresh, or
   none could start) is `error` with `requestFailed`.
@@ -797,7 +822,8 @@ tests and decoded by the Swift tests.
   `sevenDaySonnet`, others as `claude:<key>` and
   `claude:model:<display_name>`; Codex `primary`, `secondary` of the default
   limit group only, either of which may be absent. A window may carry a
-  `label` from the program (a Claude model bucket's display name) and has a
+  `label` from the program (a Claude model bucket's display name, or the
+  service's name for another Claude meter) and has a
   nullable `durationMinutes`. The app labels Claude's known ids by name, a
   window with a `label` by that label, and every other window, Codex's
   included, by `durationMinutes` ("5-hour", "Weekly"), never by id.
@@ -818,19 +844,71 @@ tests and decoded by the Swift tests.
   returns a decoded `AgentUsageReport`; POSIX only via `requirePOSIXHost`.
 - **State:** an `AgentUsageStore` per Host owns the report, its freshness, and
   the refreshing re-query loop.
-- **Toggle:** "Claude Code limits" per Host, stored on the device, default
-  off, with an explanation that the plugin asks Claude Code on the computer
+- **Toggle:** "Claude Code limits" per Host, in the Usage Limits sheet and
+  an iPad's Limits view, stored on the device, default off, with an explanation that the plugin asks Claude Code on the computer
   for its plan limits, that neither the plugin nor Heeler ever handles the
   sign-in, and that this use is not officially supported.
 - **Surfaces:**
-  - Host detail gains a Usage section: per program, a bar for each Usage
-    Limits window with its reset time and source age; below, today and 30-day
-    Token Usage with estimated cost.
-  - Tapping it opens the Usage page: today / 7 days / 30 days totals, a 30-day
-    daily chart, per-model split, top 10 directories, the coverage note
-    (`coveredFrom`, skipped archives, unreadable files), the price table
-    date, and a note that Codex shows its default limit group only.
-- **Refresh:** query when the section or page appears, on pull to refresh, and
+  - A Usage tab, between Terminals and Hosts, reads All Hosts by default
+    and can switch to one Host from its scope menu. Token Usage adds up
+    across Hosts by the day each Host reported; Usage Limits are never
+    merged and stay listed per Host. Hosts that cannot report (not
+    connected, native Windows, an old plugin, a failed first read) are left
+    out of the totals and listed with the reason. When Hosts report in
+    different time zones, a note says days follow each Host's zone.
+  - The tab shows, for today, 7 days or 30 days and in estimated cost or
+    tokens: the total, a chip per Host and program for its tightest Usage
+    Limits window, a 30-day daily chart that can be scrubbed, a calendar of
+    the last five weeks, the Hosts and programs that make up the total, and
+    a Models / Directories / Days breakdown. A day opens a sheet with its
+    split by Host, program and token type. The limits sheet lists every
+    window per Host, each with its percentage and time to reset, with the
+    Claude Code limits toggle and the note that Codex shows its default
+    limit group only. The footer carries the estimated cost note, one
+    coverage line for the scope (the earliest `coveredFrom`, each Host's
+    skipped archives and unreadable files), and the price table date.
+  - On an iPad with a sidebar, Usage is a third list beside Agents and
+    Terminals in the sidebar's list menu: All Hosts and each Host with its
+    30-day figure and share in the chosen metric, then the Hosts that are
+    not included. When wide enough, the detail column uses two columns and
+    adds Limits to the Est. Cost / Tokens control: a Limits view with every
+    window per Host in full. The chart and calendar share a selected day in
+    place of the day sheet, the breakdown is a table with a Host column,
+    and each Host's Usage Limits sit in a strip of cards.
+  - Host detail keeps a short Usage section (30-day estimated cost, a
+    30-day strip, the tightest limit and its time to reset) that opens the
+    Usage tab scoped to that Host.
+  - Two widgets, in small, medium and large Home Screen sizes and the
+    circular, rectangular and inline Lock Screen sizes. **Usage** shows
+    estimated cost or tokens for today, 7 days or 30 days, on All Hosts or
+    one Host, with a 7-day bar strip (small), a split by program and a
+    30-day chart (medium), or a table with each Host (large). **Usage
+    Limits** shows one Host's windows: the tightest of the chosen program,
+    or by default of the program closest to its limit (small), each program
+    side by side (medium), or every window with its reset time and source
+    (large); the Lock Screen shows the soonest window and the tightest of
+    the rest. Neither widget reads a Host. The app writes a snapshot of
+    every Host's last report to the App Group whenever a read lands, and
+    reloads the widgets when it changes. A Host without a newer report
+    keeps its last one, so a launch or a dropped connection does not blank
+    the widgets, and of two reports the newer one wins; a Host that cannot
+    report drops its figures. A reading older than an hour shows its time
+    in an "Updated" capsule.
+  - While a Usage widget is installed, the app also reads for the widgets
+    alone. A Host whose last reading is 15 minutes old or more is read
+    again over the Console's connection when it connects or the app
+    returns to the foreground. An app refresh task, which iOS runs at its
+    discretion (at most every 30 minutes), reads the stale Hosts while the
+    app is closed: one short-lived SSH connection per Host with the same
+    credentials and trusted host keys, up to three re-reads 3 seconds
+    apart while `refreshing`, then close. It skips Overlay Network routes
+    and leaves the Console suspended. Background App Refresh off, Low Power
+    Mode, or a force-quit app leaves the widgets to the foreground reads. Usage
+    Limits countdowns step each minute while a reset is under a day away.
+    A tap opens the Usage tab on the widget's scope, and Usage Limits
+    opens that Host's limits.
+- **Refresh:** query when the section or tab appears (the tab polls every
+  Host, whatever its scope), on pull to refresh, and
   every 3 seconds while `refreshing` is true, which covers the scan and the
   Usage Limits requests; polling stops when it turns false. One "Refreshing"
   indicator covers the whole run; pull to refresh ends after its own read.
@@ -886,6 +964,7 @@ tests and decoded by the Swift tests.
 | Reset time of a reading has passed | Window shown expired, usage unknown |
 | Claude Code too old for `get_usage` | `unavailable`, `programTooOld` |
 | Claude sign-in without plan limits | `unavailable`, `noPlanLimits` |
+| Claude Code on macOS cannot use the login keychain (herdr's server started over SSH, or the action unavailable) | `unavailable`, `keychainUnavailable` |
 | `get_usage` fails otherwise or times out | `throttled` with last good reading, retry after 5 minutes |
 | Unknown model | Tokens shown, cost marked unpriced |
 | Query exceeds 10 s | Bounded-script timeout; shown as a failed request |
@@ -995,9 +1074,6 @@ Tracked under #494 as vertical slices:
 
 ## Open questions
 
-- Whether Claude Code started from an SSH session on an unlocked Mac can read
-  its keychain item: verify on a real Host. On 2.1.310 a failure surfaces
-  as `noPlanLimits`, indistinguishable from a sign-in without plan limits.
 - The first Claude Code version with `get_usage` and `skip_behaviors`:
   feature-detect.
 - Whether Claude's parent `usage` includes advisor iterations: decide from a

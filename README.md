@@ -40,6 +40,10 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
 | --- | --- | --- |
 | <img src="docs/images/skills-iphone.png" width="240" alt="Composer Skills suggestions on iPhone" /> | <img src="docs/images/hosts-iphone.png" width="240" alt="Hosts tab grouping Hosts by connection status with their latency on iPhone" /> | <img src="docs/images/live-activity-iphone.png" width="240" alt="Lock-screen Live Activity tracking Agents on iPhone" /> |
 
+| Usage | Widgets | Lock Screen widgets |
+| --- | --- | --- |
+| <img src="docs/images/usage-iphone.png" width="240" alt="Usage tab with 30 days of estimated API cost, Usage Limits, and a daily chart on iPhone" /> | <img src="docs/images/widgets-iphone.png" width="240" alt="Home Screen with Usage and Usage Limits widgets in small and medium sizes on iPhone" /> | <img src="docs/images/widgets-lock-iphone.png" width="240" alt="Lock Screen with Usage and Usage Limits accessory widgets on iPhone" /> |
+
 <a href="docs/ipad-screenshots.md"><img src="docs/images/windowed-ipad.png" width="760" alt="Heeler in a floating iPad window" /></a>
 
 [View iPad screenshots](docs/ipad-screenshots.md)
@@ -70,6 +74,10 @@ Heeler is an **agent console**: a native dashboard of every coding agent running
   Agent goes Blocked or Done, and a lock-screen / Dynamic Island banner
   tracking Agents in real time; the relay can never read the content
   ([PRIVACY.md](PRIVACY.md)).
+- **Usage** — Claude Code and Codex Usage Limits with their reset times, and
+  up to 30 days of Token Usage with its estimated API cost, across all Hosts
+  or one; Home Screen and Lock Screen widgets keep them in view
+  ([Read more](https://docs.heeler.bybee.dev/usage)).
 - **Worktrees** — start an Agent on a clean checkout of the workspace's repo.
 - **Appearance** — System, Light, or Dark; 30 terminal themes with separate
   Light and Dark slots; bundled JetBrains Mono and IBM Plex Mono; pinch to
