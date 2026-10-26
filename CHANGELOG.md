@@ -7,6 +7,8 @@ Entries reference the pull request that made the change.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-10-27
+
 ### Added
 
 - See Usage Limits and Token Usage on a new Usage tab, across all Hosts or
