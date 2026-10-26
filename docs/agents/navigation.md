@@ -138,7 +138,11 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
   [UsageWidgetViews](../../Sources/HeelerWidgets/Usage/UsageWidgetViews.swift)
   draws every size and is compiled into the app for tests;
   [UsageWidgets](../../Sources/HeelerWidgets/Usage/UsageWidgets.swift) holds
-  the timelines and configuration. Focused tests: `AgentUsageWidgetTests`.
+  the timelines and configuration. Stale Hosts are re-read for the widgets
+  by `ConsoleStore.refreshStaleWidgetUsage()` in the foreground and by
+  [AgentUsageBackgroundRefresh](../../Sources/Heeler/Usage/AgentUsageBackgroundRefresh.swift)
+  (the app refresh task `HeelerApp` registers) in the background. Focused
+  tests: `AgentUsageWidgetTests`, `AgentUsageWidgetRefreshTests`.
   `Transport.readAgentUsage` uses [AgentUsageProbe](../../Sources/Heeler/Usage/AgentUsageProbe.swift)
   and the bounded SSH exec to decode [AgentUsageReport](../../Sources/Heeler/Usage/AgentUsageReport.swift).
   On the Host, [usage-runtime.js](../../plugin/src/usage-runtime.js) records

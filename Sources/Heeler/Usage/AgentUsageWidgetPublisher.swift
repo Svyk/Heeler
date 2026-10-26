@@ -14,8 +14,13 @@ struct AgentUsageWidgetReading: Equatable {
 /// asks WidgetKit to redraw when it changes.
 @MainActor
 final class AgentUsageWidgetPublisher {
+    /// How old a Host's last reading may grow before the app reads it again
+    /// for the widgets, without anyone opening Usage.
+    nonisolated static let staleInterval: TimeInterval = 15 * 60
+
     private let store: UsageWidgetSnapshotStore
     private let reloadTimelines: @MainActor () -> Void
+    private let installedKinds: @MainActor () async -> Set<String>
     private lazy var published: UsageWidgetSnapshot? = store.read()
 
     init(
@@ -23,14 +28,54 @@ final class AgentUsageWidgetPublisher {
         reloadTimelines: @escaping @MainActor () -> Void = {
             WidgetCenter.shared.reloadTimelines(ofKind: UsageWidgetSnapshotStore.usageKind)
             WidgetCenter.shared.reloadTimelines(ofKind: UsageWidgetSnapshotStore.limitsKind)
+        },
+        installedKinds: @escaping @MainActor () async -> Set<String> = {
+            Set((try? await WidgetCenter.shared.currentConfigurations())?.map(\.kind) ?? [])
         }
     ) {
         self.store = store
         self.reloadTimelines = reloadTimelines
+        self.installedKinds = installedKinds
     }
 
+    /// Whether a Usage or Usage Limits widget is on the Home Screen or Lock
+    /// Screen. Reading Usage only for the widgets waits on one.
+    func widgetsInstalled() async -> Bool {
+        let kinds = await installedKinds()
+        return kinds.contains(UsageWidgetSnapshotStore.usageKind)
+            || kinds.contains(UsageWidgetSnapshotStore.limitsKind)
+    }
+
+    /// Whether the widgets' figures for a Host are old enough to read again.
+    /// `readAt` is the app's own last reading, which the snapshot may be newer than.
+    func isStale(_ id: Host.ID, readAt: Date?, now: Date = .now) -> Bool {
+        let last = [readAt, published?.host(id)?.readAt].compactMap(\.self).max()
+        guard let last else { return true }
+        return now.timeIntervalSince(last) >= Self.staleInterval
+    }
+
+    /// Every catalog Host's reading, in catalog order.
     func publish(_ readings: [AgentUsageWidgetReading], now: Date = .now) {
-        let next = UsageWidgetSnapshot(readings: readings, previous: published, now: now)
+        commit(UsageWidgetSnapshot(readings: readings, previous: published, now: now))
+    }
+
+    /// Readings for some of `hosts`; every other Host keeps what the snapshot holds.
+    func publish(_ readings: [AgentUsageWidgetReading], updating hosts: [Host], now: Date = .now) {
+        let read = Dictionary(readings.map { ($0.id, $0) }) { _, last in last }
+        let previous = published
+        commit(UsageWidgetSnapshot(hosts: hosts.map { host in
+            if let reading = read[host.id] {
+                return UsageWidgetSnapshot.Host(reading: reading, previous: previous, now: now)
+            }
+            if var kept = previous?.host(host.id) {
+                kept.name = host.displayName
+                return kept
+            }
+            return UsageWidgetSnapshot.Host(id: host.id, name: host.displayName, excludedReason: "Not read yet")
+        }))
+    }
+
+    private func commit(_ next: UsageWidgetSnapshot) {
         guard next != published else { return }
         published = next
         store.write(next)
@@ -44,31 +89,43 @@ extension UsageWidgetSnapshot {
     /// dropped connection does not empty the widgets; a Host that answered
     /// it cannot report loses its figures.
     init(readings: [AgentUsageWidgetReading], previous: UsageWidgetSnapshot?, now: Date) {
-        self.init(hosts: readings.map { reading in
-            switch reading.state {
-            case .available(let report):
-                return Host(id: reading.id, name: reading.name, report: report, readAt: reading.readAt ?? now)
-            case .requirement, .unsupportedPlatform, .runtimeMissing, .updateRequired:
-                return Host(id: reading.id, name: reading.name, excludedReason: AgentUsageScope.reason(for: reading.state))
-            case .idle, .loading, .failed:
-                if var kept = previous?.host(reading.id), kept.reports {
-                    kept.name = reading.name
-                    return kept
-                }
-                let reason = if !reading.isConnected {
-                    "Not connected"
-                } else if case .failed = reading.state {
-                    AgentUsageScope.reason(for: reading.state)
-                } else {
-                    "Not read yet"
-                }
-                return Host(id: reading.id, name: reading.name, excludedReason: reason)
-            }
-        })
+        self.init(hosts: readings.map { Host(reading: $0, previous: previous, now: now) })
     }
 }
 
 extension UsageWidgetSnapshot.Host {
+    init(reading: AgentUsageWidgetReading, previous: UsageWidgetSnapshot?, now: Date) {
+        let kept = previous?.host(reading.id).flatMap { $0.reports ? $0 : nil }
+        switch reading.state {
+        case .available(let report):
+            let readAt = reading.readAt ?? now
+            // A reading made while the app was away is newer than the
+            // report the app still holds from before.
+            if var kept, let keptAt = kept.readAt, keptAt > readAt {
+                kept.name = reading.name
+                self = kept
+            } else {
+                self.init(id: reading.id, name: reading.name, report: report, readAt: readAt)
+            }
+        case .requirement, .unsupportedPlatform, .runtimeMissing, .updateRequired:
+            self.init(id: reading.id, name: reading.name, excludedReason: AgentUsageScope.reason(for: reading.state))
+        case .idle, .loading, .failed:
+            if var kept {
+                kept.name = reading.name
+                self = kept
+                return
+            }
+            let reason = if !reading.isConnected {
+                "Not connected"
+            } else if case .failed = reading.state {
+                AgentUsageScope.reason(for: reading.state)
+            } else {
+                "Not read yet"
+            }
+            self.init(id: reading.id, name: reading.name, excludedReason: reason)
+        }
+    }
+
     init(id: UUID, name: String, excludedReason: String) {
         self.init(id: id, name: name, readAt: nil, excludedReason: excludedReason, timeZone: nil,
             programs: [], limits: [])

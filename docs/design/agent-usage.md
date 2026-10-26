@@ -887,8 +887,19 @@ tests and decoded by the Swift tests.
     every Host's last report to the App Group whenever a read lands, and
     reloads the widgets when it changes. A Host without a newer report
     keeps its last one, so a launch or a dropped connection does not blank
-    the widgets; a Host that cannot report drops its figures. A reading
-    older than an hour shows its time in an "Updated" capsule. Usage
+    the widgets, and of two reports the newer one wins; a Host that cannot
+    report drops its figures. A reading older than an hour shows its time
+    in an "Updated" capsule.
+  - While a Usage widget is installed, the app also reads for the widgets
+    alone. A Host whose last reading is 15 minutes old or more is read
+    again over the Console's connection when it connects or the app
+    returns to the foreground. An app refresh task, which iOS runs at its
+    discretion (at most every 30 minutes), reads the stale Hosts while the
+    app is closed: one short-lived SSH connection per Host with the same
+    credentials and trusted host keys, up to three re-reads 3 seconds
+    apart while `refreshing`, then close. It skips Overlay Network routes
+    and leaves the Console suspended. Background App Refresh off, Low Power
+    Mode, or a force-quit app leaves the widgets to the foreground reads. Usage
     Limits countdowns step each minute while a reset is under a day away.
     A tap opens the Usage tab on the widget's scope, and Usage Limits
     opens that Host's limits.

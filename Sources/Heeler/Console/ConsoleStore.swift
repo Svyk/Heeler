@@ -106,7 +106,9 @@ final class ConsoleStore {
     @ObservationIgnored private var agentUsageStores: [Host.ID: AgentUsageStore] = [:]
     /// Writes the widgets' snapshot of those readings. Only the app passes
     /// one: demo mode and tests must not replace the real widgets' figures.
-    @ObservationIgnored private let usageWidgets: AgentUsageWidgetPublisher?
+    @ObservationIgnored let usageWidgets: AgentUsageWidgetPublisher?
+    /// Reads made only because a widget's figures went stale, per Host.
+    @ObservationIgnored private var widgetUsageRefreshes: [Host.ID: (id: UUID, task: Task<Void, Never>)] = [:]
     /// The catalog in its order, which the widgets' snapshot keeps.
     @ObservationIgnored private var catalog: [Host] = []
     let terminalConnections: TerminalConnectionPool
@@ -202,6 +204,7 @@ final class ConsoleStore {
             sidebarSnapshots.invalidate(id)
             pluginStatuses.invalidate(id)
             agentUsageStores.removeValue(forKey: id)?.invalidate()
+            widgetUsageRefreshes.removeValue(forKey: id)?.task.cancel()
             terminalSnapshotRevisions[id] = nil
             terminalTransportGenerations[id] = nil
             hostPlatforms[id] = nil
@@ -266,12 +269,17 @@ final class ConsoleStore {
                     group.addTask { await projection.revalidate() }
                 }
             }
+            // A connection held through the absence never reports coming
+            // up, so the widgets' figures are checked here as well.
+            refreshStaleWidgetUsage()
         }
     }
 
     func suspend() async {
         await enqueueLifecycleTransition { [self] in
             isActive = false
+            for refresh in widgetUsageRefreshes.values { refresh.task.cancel() }
+            widgetUsageRefreshes.removeAll()
             for store in chatStores.values { store.suspend() }
             // Before the terminals go: an upload ends interrupted, with
             // Retry, rather than cancelled by the teardown.
@@ -1013,6 +1021,7 @@ final class ConsoleStore {
         // A Host the widgets have no figures for names why: connected or not.
         if hostStatuses.mapValues({ $0 == .connected }) != previousStatuses.mapValues({ $0 == .connected }) {
             publishUsageWidgets()
+            refreshStaleWidgetUsage()
         }
         hostStandingFailures = Dictionary(
             uniqueKeysWithValues: current.compactMap { projection in
@@ -1194,6 +1203,31 @@ final class ConsoleStore {
                 id: host.id, name: host.displayName, state: store?.state ?? .idle, readAt: store?.readAt,
                 isConnected: hostStatuses[host.id] == .connected)
         })
+    }
+
+    /// Reads Usage again for each connected Host whose widget figures went
+    /// stale, so returning to the app updates the widgets without opening
+    /// Usage. Nothing is read while no Usage widget is installed.
+    private func refreshStaleWidgetUsage() {
+        guard let usageWidgets, isActive else { return }
+        let hostIDs = catalog.map(\.id).filter { id in
+            hostStatuses[id] == .connected && widgetUsageRefreshes[id] == nil
+                && agentUsageStores[id]?.isLoading != true
+                && usageWidgets.isStale(id, readAt: agentUsageStores[id]?.readAt)
+        }
+        for id in hostIDs {
+            let refresh = UUID()
+            let task = Task { [weak self] in
+                defer {
+                    if self?.widgetUsageRefreshes[id]?.id == refresh { self?.widgetUsageRefreshes[id] = nil }
+                }
+                guard await usageWidgets.widgetsInstalled(), !Task.isCancelled, let self,
+                    hostStatuses[id] == .connected
+                else { return }
+                await agentUsageStore(for: id).refresh()
+            }
+            widgetUsageRefreshes[id] = (refresh, task)
+        }
     }
 
     /// Settings' plugin requirement notes: each Host's plugin, read on its

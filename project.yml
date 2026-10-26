@@ -77,6 +77,11 @@ targets:
         # manifest already declares multiple-scene support.
         NSUserActivityTypes:
           - dev.bybee.heeler.agent
+        # The Usage widgets' app refresh task (AgentUsageBackgroundRefresh).
+        UIBackgroundModes:
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - dev.bybee.heeler.usage-refresh
         # `heeler://agent` links (AgentActivityLink). A Live Activity tap
         # opens its own app without this; other apps' links need it.
         CFBundleURLTypes:

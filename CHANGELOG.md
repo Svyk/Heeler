@@ -16,7 +16,8 @@ Entries reference the pull request that made the change.
   Requires plugin 0.7.0. (#506, #517)
 - Add Usage and Usage Limits widgets to the Home Screen and Lock Screen:
   estimated cost or tokens on All Hosts or one Host, and a Host's Usage
-  Limits with their time to reset. (#517)
+  Limits with their time to reset. They update when Heeler returns to the
+  foreground and, with Background App Refresh on, while it is closed. (#517)
 - Pairing Codes can advertise addresses the plugin cannot see on the
   machine's interfaces, such as a NAS address for herdr running in a Docker
   container behind a published port, via `addresses` in the plugin's
