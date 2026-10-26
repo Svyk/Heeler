@@ -11,8 +11,10 @@ enum HostSetupGuide {
         string: "https://github.com/ZingerLittleBee/Heeler/blob/main/docs/guides/windows-setup.md")
     /// The GitHub repository the plugin installs from.
     static let pluginRepository = "ZingerLittleBee/Heeler"
+    /// The generated branch the plugin ships from (ADR 0026).
+    static let pluginBranch = "plugin"
     static let pluginInstallArguments = [
-        "plugin", "install", pluginRepository, "--ref", "plugin", "--yes",
+        "plugin", "install", pluginRepository, "--ref", pluginBranch, "--yes",
     ]
     static let pluginInstallCommand = (["herdr"] + pluginInstallArguments).joined(separator: " ")
     static let pairCommand = "herdr plugin action invoke heeler.pair"

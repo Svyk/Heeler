@@ -1763,6 +1763,57 @@ actor HeelerSSHTransport: Transport {
             launcher: herdrLauncher)
     }
 
+    func readPluginBranchVersion() async throws -> PluginVersion {
+        try await requirePOSIXHost(feature: "The Heeler plugin")
+        let result = try await runExec(
+            Self.cLocaleCommand(Self.pluginBranchManifestCommand), timeout: pluginInstallTimeout)
+        guard result.exitStatus == 0, result.reachedEOF,
+            let version = Self.manifestVersion(String(decoding: result.stdout, as: UTF8.self))
+        else {
+            throw PluginBranchVersionError(
+                exitStatus: result.exitStatus,
+                output: String(decoding: result.stderr, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return version
+    }
+
+    /// Prints the plugin branch's `herdr-plugin.toml`, fetched the way
+    /// herdr's install fetches it (a shallow git fetch from GitHub) into a
+    /// scratch repository it removes afterwards. `PATH` also covers Nix
+    /// profiles, where ``NodeToolchainProbe`` can find the git herdr then
+    /// uses. git never prompts, since without a terminal a prompt could only
+    /// hang, and gives up on a transfer stalled below 1 KB/s for 30 s rather
+    /// than spending the install's budget.
+    static var pluginBranchManifestCommand: String {
+        let url = "https://github.com/\(HostSetupGuide.pluginRepository).git"
+        return "/bin/sh -c 'export PATH=\"\(HerdrHostPath.extraPATH):$PATH:$HOME/.nix-profile/bin:"
+            + "/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin\"; "
+            + "export GIT_TERMINAL_PROMPT=0; "
+            + "__h_d=$(mktemp -d) || exit 1; cd \"$__h_d\" || { rm -rf \"$__h_d\"; exit 1; }; "
+            + "git init -q && git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "
+            + "fetch -q --depth 1 \(url) \(HostSetupGuide.pluginBranch) "
+            + "&& git show FETCH_HEAD:herdr-plugin.toml; __h_s=$?; "
+            + "cd / && rm -rf \"$__h_d\"; exit $__h_s'"
+    }
+
+    /// The top-level `version = "X.Y.Z"` of a plugin manifest, the line
+    /// `scripts/publish-plugin.sh` reads too: tables after the first `[`
+    /// header do not count.
+    static func manifestVersion(_ manifest: String) -> PluginVersion? {
+        for line in manifest.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") { return nil }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "version"
+            else { continue }
+            let quoted = parts[1].split(separator: "\"", omittingEmptySubsequences: false)
+            guard quoted.count >= 3, quoted[0].allSatisfy(\.isWhitespace) else { return nil }
+            return PluginVersion(String(quoted[1]))
+        }
+        return nil
+    }
+
     /// `herdr <arguments>` as a plugin step runs it: through an endpoint's
     /// launcher, else the bare `herdr` with the app's PATH prefixes. It names
     /// the Host's session, so herdr's protocol check before an install asks

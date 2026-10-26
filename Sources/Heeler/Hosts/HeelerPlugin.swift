@@ -287,15 +287,24 @@ struct HeelerPluginPresentation: Equatable {
         var action: Action? = nil
     }
 
-    static func installCommand(endpoint: HerdrEndpoint?) -> String {
-        guard let endpoint else { return HostSetupGuide.pluginInstallCommand }
+    /// Names the Host's session like the step the action runs, whose
+    /// protocol check asks that session's server.
+    static func installCommand(session: String, endpoint: HerdrEndpoint?) -> String {
+        guard let endpoint else {
+            // As the Setup Guide shows it: the repository's `/` reads alike
+            // in every shell, though `render` would quote it.
+            return ([HerdrCommandLine.render(session: session, arguments: [])]
+                + HostSetupGuide.pluginInstallArguments).joined(separator: " ")
+        }
         return HerdrCommandLine.render(
-            session: "", endpoint: endpoint, arguments: HostSetupGuide.pluginInstallArguments)
+            session: session, endpoint: endpoint, arguments: HostSetupGuide.pluginInstallArguments)
     }
 
-    static func uninstallCommand(_ pluginID: String, endpoint: HerdrEndpoint?) -> String {
+    static func uninstallCommand(
+        _ pluginID: String, session: String, endpoint: HerdrEndpoint?
+    ) -> String {
         HerdrCommandLine.render(
-            session: "", endpoint: endpoint, arguments: ["plugin", "uninstall", pluginID])
+            session: session, endpoint: endpoint, arguments: ["plugin", "uninstall", pluginID])
     }
 
     /// `herdr plugin enable` asks a herdr server, so the command names the
@@ -335,7 +344,7 @@ struct HeelerPluginPresentation: Equatable {
                 tone: .info,
                 message: "Install the Heeler plugin for notifications, Live Activity updates, "
                     + "and herdr's sidebar fields.",
-                commands: [Self.installCommand(endpoint: endpoint)],
+                commands: [Self.installCommand(session: session, endpoint: endpoint)],
                 notes: [],
                 action: Notice.Action(title: "Install Plugin", steps: [.install]))
         case .installed(let installation):
@@ -350,7 +359,7 @@ struct HeelerPluginPresentation: Equatable {
         _ installation: HeelerPluginInstallation, session: String,
         endpoint: HerdrEndpoint?, bundled: PluginVersion
     ) -> (value: String, notice: Notice?) {
-        let installCommand = Self.installCommand(endpoint: endpoint)
+        let installCommand = Self.installCommand(session: session, endpoint: endpoint)
         let version = installation.version.isEmpty ? "Unknown version" : installation.version
         let parsed = installation.parsedVersion
         let isOutdated = parsed.map { $0 < bundled } ?? false
@@ -378,7 +387,8 @@ struct HeelerPluginPresentation: Equatable {
                             + (reinstalls
                                 ? "install the current plugin and turn it on."
                                 : "turn the current plugin on."),
-                        commands: [uninstallCommand(installation.pluginID, endpoint: endpoint)]
+                        commands: [uninstallCommand(
+                            installation.pluginID, session: session, endpoint: endpoint)]
                             + (reinstalls ? [installCommand, enable] : [enable]),
                         notes: missing + [reenableNotificationsNote]))
             }
@@ -388,12 +398,15 @@ struct HeelerPluginPresentation: Equatable {
                     tone: .warning,
                     message: "This Host runs an old Heeler plugin under its former name. "
                         + "Remove it, then install the current plugin.",
-                    commands: [uninstallCommand(installation.pluginID, endpoint: endpoint), installCommand],
+                    commands: [
+                        uninstallCommand(installation.pluginID, session: session, endpoint: endpoint),
+                        installCommand,
+                    ],
                     notes: missing + [reenableNotificationsNote]))
         }
         if !installation.leftoverLegacyIDs.isEmpty {
             let removals = installation.leftoverLegacyIDs.map {
-                uninstallCommand($0, endpoint: endpoint)
+                uninstallCommand($0, session: session, endpoint: endpoint)
             }
             let updates = isOutdated && !isLocal
             // The action updates first, so a failed update leaves the Host
@@ -450,9 +463,11 @@ struct HeelerPluginPresentation: Equatable {
                     tone: .warning,
                     message: "herdr could not read the plugin's manifest, so its version may be "
                         + (isLocal ? "out of date. Check the linked checkout." : "out of date. Reinstall it."),
+                    // No action: the version herdr reports from its
+                    // registry may be stale, so a reinstall could be a
+                    // downgrade the app cannot see.
                     commands: isLocal ? [] : [installCommand],
-                    notes: [],
-                    action: action("Reinstall Plugin", for: installation, steps: [.install])))
+                    notes: []))
         }
         guard isOutdated, let parsed else { return (shownValue, nil) }
         if isLocal {
@@ -476,19 +491,12 @@ struct HeelerPluginPresentation: Equatable {
                 action: action("Update Plugin", for: installation, steps: [.install])))
     }
 
-    /// `steps` as a notice action, unless an install would replace a plugin
-    /// that is not a GitHub install of this repository: herdr refuses a
-    /// linked checkout and may refuse an unknown source, and a fork's
-    /// install would quietly move to this repository.
+    /// `steps` as a notice action, unless they install over a plugin that is
+    /// not ``HeelerPluginInstallation/isReplaceableByInstall``.
     private static func action(
         _ title: String, for installation: HeelerPluginInstallation, steps: [HeelerPluginStep]
     ) -> Notice.Action? {
-        let replacesOwnInstall =
-            installation.source == .github
-            && installation.repository.map {
-                $0.caseInsensitiveCompare(HostSetupGuide.pluginRepository) == .orderedSame
-            } ?? true
-        guard replacesOwnInstall || !steps.contains(.install) else { return nil }
+        guard installation.isReplaceableByInstall || !steps.contains(.install) else { return nil }
         return Notice.Action(title: title, steps: steps)
     }
 }

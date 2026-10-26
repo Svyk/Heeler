@@ -110,6 +110,14 @@ struct HeelerPluginStepError: Error, Equatable, Sendable {
     }
 }
 
+/// The Host could not fetch the plugin branch's manifest, or it named no
+/// `X.Y.Z` version.
+struct PluginBranchVersionError: Error, Equatable, Sendable {
+    let exitStatus: Int32
+    /// What git printed, when it said why.
+    let output: String
+}
+
 /// The Heeler plugin as herdr reports it on one Host.
 struct HeelerPluginInstallation: Equatable, Sendable {
     enum Source: Equatable, Sendable {
@@ -151,6 +159,25 @@ struct HeelerPluginInstallation: Equatable, Sendable {
 
     var parsedVersion: PluginVersion? { PluginVersion(version) }
 
+    /// A GitHub install of this repository, the only plugin an install may
+    /// replace: herdr refuses a linked checkout and may refuse an unknown
+    /// source, a fork's install would quietly move to this repository, and
+    /// a GitHub install that does not name its repository may be a fork.
+    var isOwnGitHubInstall: Bool {
+        source == .github
+            && repository.map {
+                $0.caseInsensitiveCompare(HostSetupGuide.pluginRepository) == .orderedSame
+            } ?? false
+    }
+
+    /// Whether an install may replace this plugin: one of this repository's
+    /// GitHub installs, with a version herdr read from the manifest itself.
+    /// After a manifest warning, herdr reports its registry's version, which
+    /// may be stale, so the app could not rule out a downgrade.
+    var isReplaceableByInstall: Bool {
+        isOwnGitHubInstall && !hasManifestWarning && parsedVersion != nil
+    }
+
     /// Picks the entry with `PluginListResult.heelerEntry(enabledOnly: false)`,
     /// the same rule Notification Registration uses, plus disabled fallback.
     init?(_ result: PluginListResult) {
@@ -190,7 +217,7 @@ struct HeelerPluginInstallation: Equatable, Sendable {
         hasManifestWarning: Bool = false,
         leftoverLegacyIDs: [String] = [],
         disabledCurrentIDSource: Source? = nil,
-        repository: String? = nil
+        repository: String? = HostSetupGuide.pluginRepository
     ) {
         self.pluginID = pluginID
         self.version = version

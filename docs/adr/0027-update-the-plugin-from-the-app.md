@@ -28,7 +28,36 @@ itself, typed as `HeelerPluginStep`s rather than shell text:
   `--session` and works for endpoint Hosts too.
 
 The tap is the confirmation: the sheet shows the exact commands above the
-action, and `--yes` answers herdr's own prompt, which needs a terminal anyway.
+action, session included, and `--yes` answers herdr's own prompt, which needs
+a terminal anyway.
+
+An install does not start over a newer plugin. herdr installs whatever the `plugin`
+branch holds and compares no versions, while an app built ahead of the branch,
+or a Host installed from `main` or a commit, can have a newer plugin than the
+branch. So before an install, the action rereads the Host's plugin over its
+own connection (another device may have changed it since the checks). It
+stops, with nothing changed, unless that plugin is absent or is still one the
+notice would replace (current id, a GitHub install of this repository) with a
+version herdr read from its manifest. It then reads the branch's
+`herdr-plugin.toml` with the Host's own git, the way herdr's install fetches
+it, and stops when the branch cannot be read. When the branch is older, it
+skips only the install and still runs the action's other steps, such as
+turning the plugin on. The branch only moves forward (ADR 0026: append-only,
+and changed content needs a newer version), so the version read is the least
+herdr then installs. A refusal keeps the status the sheet was showing, so
+its action stays in place to explain why nothing changed.
+
+No install of any kind is offered over an unreadable manifest: herdr then
+reports the version from its registry, which may be stale, so the app cannot
+rule out a downgrade. The sheet still shows the commands.
+
+The check and herdr's replacement are not atomic, and herdr compares no
+versions. It fetches the target before taking its installation lock, so
+until this install takes that lock another one can still put a newer plugin
+on the Host and then be replaced: a plugin installed by hand from `main` or
+a commit, or another device's install of a newer branch version published
+while this install's older download was under way. Both need a second
+install within the same seconds.
 
 Steps run in order on a connection the Host page opens for them, as the
 preflight does. The Console's connection redials after a timeout and retries
@@ -85,6 +114,7 @@ npm upgraded into `/usr/local/bin` ran with `/usr/bin/node`.
 No install is offered over a plugin that is not a GitHub install of this
 repository: herdr refuses to replace a linked checkout and may refuse an
 unknown source, and a fork's install would quietly move to this repository.
+A GitHub install whose repository herdr does not report may be a fork too.
 Turning such a plugin on, or removing a leftover legacy id, still is. No
 action at all is offered on native Windows Hosts (no plugin) or for a plugin
 installed under a legacy id. Moving to the current id changes which config
@@ -104,7 +134,10 @@ that directory until it reconnects.
   failures.
 - The installed version can only be as new as the `plugin` branch. An app
   built before its plugin was published still sees an outdated plugin after
-  a successful install, and the sheet says the Host still reports it.
+  a successful install, and the sheet names the published version herdr
+  installed.
+- An install that replaces a plugin fetches the branch twice, once for the
+  version check and once in herdr, a few seconds on a typical link.
 
 ## Alternatives
 
@@ -118,6 +151,12 @@ that directory until it reconnects.
   budget runs out, and the `herdr` it finds may differ from the one Heeler
   uses elsewhere. The probe asks the login shell only for `PATH`, last and
   bounded.
+- **Read the branch's version from the phone** (GitHub's raw file host): no
+  second fetch on the Host, but the phone may not reach GitHub where the Host
+  does, and the Host's git is what herdr uses.
+- **Install the checked commit** (`--ref <sha>`): the version check would be
+  exact, but herdr records the ref, so `herdr plugin update` would stay on
+  that commit afterwards.
 - **A detached install polled through a log file**: survives the app being
   suspended, at the cost of log locations, orphan cleanup and polling. A
   plain exec leaves the Host on one version or the other when interrupted,

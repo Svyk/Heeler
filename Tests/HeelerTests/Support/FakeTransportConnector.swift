@@ -15,6 +15,7 @@ final actor FakeTransport: Transport {
     private(set) var pluginReadsWhileOpen: [Bool] = []
     /// The plugin steps run, in order.
     private(set) var ranPluginSteps: [HeelerPluginStep] = []
+    private(set) var pluginBranchReads = 0
 
     init(
         pingResult: Result<ServerInfo, TransportError>, sessions: [HerdrSession] = [],
@@ -35,6 +36,11 @@ final actor FakeTransport: Transport {
         if let failure = pluginSteps.failures[ranPluginSteps.count - 1] {
             throw failure
         }
+    }
+
+    func readPluginBranchVersion() async throws -> PluginVersion {
+        pluginBranchReads += 1
+        return try pluginSteps.branchVersion.get()
     }
 
     func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
@@ -253,10 +259,11 @@ final actor FakeTransportConnector: TransportConnector {
 
 /// How a `FakeTransport` answers plugin steps, by the step's index on
 /// that connection: the plugin a step leaves on the Host, and the error it
-/// throws after.
+/// throws after. `branchVersion` answers the plugin branch read.
 struct FakePluginSteps: Sendable {
     var pluginAfterStep: [Int: Result<HeelerPluginInstallation?, TransportError>] = [:]
     var failures: [Int: any Error] = [:]
+    var branchVersion: Result<PluginVersion, any Error> = .success(HeelerPluginCompatibility.bundled)
 }
 
 extension KnownHostsStore {

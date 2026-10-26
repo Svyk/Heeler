@@ -264,8 +264,27 @@ final class HostOnboardingStore {
                 message: "Heeler could not connect to the Host, so nothing changed.",
                 detail: (error as? TransportError)?.presentation.message ?? "\(error)")
         }
+        var steps = action.steps
+        var skippedInstall: HeelerPluginActionFailure?
+        if steps.contains(.install) {
+            switch await installClearance(over: transport) {
+            case .clear:
+                break
+            case .nothingNewer(let reason):
+                // The action's other steps still apply.
+                steps.removeAll { $0 == .install }
+                skippedInstall = reason
+            case .refused(let reason):
+                try? await transport.close()
+                return reason
+            }
+            if steps.isEmpty {
+                try? await transport.close()
+                return skippedInstall
+            }
+        }
         var stepError: (any Error)?
-        for step in action.steps {
+        for step in steps {
             do {
                 try await transport.runHeelerPluginStep(step)
             } catch {
@@ -298,15 +317,72 @@ final class HostOnboardingStore {
         }
         guard pluginPresentation.notice != nil else { return nil }
         if let stepError { return HeelerPluginActionFailure(stepError) }
+        if let skippedInstall { return skippedInstall }
         let bundled = HeelerPluginCompatibility.bundled
         if let version = pluginStatus.confirmedVersion, version < bundled {
             return HeelerPluginActionFailure(
-                message: "herdr installed plugin \(version), the newest it found, but this "
+                message: "herdr installed plugin \(version), the newest published, but this "
                     + "app expects \(bundled).")
         }
         return HeelerPluginActionFailure(
             message: "The change finished, but the plugin still needs the attention "
                 + "described above.")
+    }
+
+    /// Whether an action's install may run. herdr installs whatever the
+    /// plugin branch holds, and an app built ahead of the branch, or a Host
+    /// installed from elsewhere, can have a newer plugin than that. The
+    /// branch only moves forward (ADR 0026), so the version read here is the
+    /// least herdr installs. The Host's plugin is reread rather than taken
+    /// from the checks, since another device may have changed it; a refusal
+    /// leaves the status alone, so the sheet keeps the action it explains.
+    private enum InstallClearance {
+        case clear
+        /// The Host's plugin is newer than the branch.
+        case nothingNewer(HeelerPluginActionFailure)
+        case refused(HeelerPluginActionFailure)
+    }
+
+    private func installClearance(over transport: any Transport) async -> InstallClearance {
+        let installed: PluginVersion
+        switch await HeelerPluginStatus.read(over: transport) {
+        case .notInstalled:
+            return .clear
+        case .installed(let installation):
+            guard !installation.isLegacyID, installation.isReplaceableByInstall,
+                let version = installation.parsedVersion
+            else {
+                return .refused(HeelerPluginActionFailure(
+                    message: "The plugin on the Host changed since the checks, so nothing "
+                        + "changed. Run the checks again."))
+            }
+            installed = version
+        case .checking, .unsupportedPlatform, .unavailable:
+            return .refused(HeelerPluginActionFailure(
+                message: "Heeler could not read the Host's plugin before changing it, so "
+                    + "nothing changed. Run the checks again."))
+        }
+        let published: PluginVersion
+        do {
+            published = try await transport.readPluginBranchVersion()
+        } catch {
+            let detail =
+                switch error {
+                case let error as PluginBranchVersionError: error.output.isEmpty ? nil : error.output
+                case let error as TransportError: error.presentation.message
+                default: "\(error)"
+                }
+            return .refused(HeelerPluginActionFailure(
+                message: "Heeler could not check which plugin version the Host would install, "
+                    + "so nothing changed. Check that the Host can reach github.com.",
+                detail: detail))
+        }
+        guard published >= installed else {
+            return .nothingNewer(HeelerPluginActionFailure(
+                message: "The Host has plugin \(installed), newer than the published "
+                    + "\(published), so Heeler did not update it."))
+        }
+        return .clear
     }
 
     /// The user's verdict on the pending fingerprint.
