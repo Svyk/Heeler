@@ -21,9 +21,9 @@ struct UsageLimitsWidgetEntry: TimelineEntry {
     let snapshot: UsageWidgetSnapshot?
     /// nil picks the first Host that reported Usage Limits.
     let hostID: UUID?
-    /// The program small and Lock Screen sizes show; medium and large show
-    /// every program.
-    let program: String
+    /// The program small and Lock Screen sizes show, nil for the one
+    /// closest to its limit; medium and large show every program.
+    let program: String?
 }
 
 // MARK: Usage
@@ -296,7 +296,7 @@ struct UsageLimitsWidgetView: View {
     }
 
     private func limits(_ host: UsageWidgetSnapshot.Host) -> UsageWidgetSnapshot.Limits? {
-        host.limits.first { $0.program == entry.program } ?? host.limits.first
+        UsageLimitsPick.program(host.limits, preferring: entry.program, now: now)
     }
 
     private var now: Date { entry.date }
@@ -307,7 +307,7 @@ struct UsageLimitsWidgetView: View {
     private func small(_ host: UsageWidgetSnapshot.Host) -> some View {
         let limits = limits(host)
         VStack(alignment: .leading, spacing: 0) {
-            UsageProgramTitle(program: limits?.program ?? entry.program, name: limits?.name ?? programName)
+            UsageProgramTitle(program: limits?.program ?? entry.program ?? "", name: limits?.name ?? programName)
             Text(host.name)
                 .font(.caption).foregroundStyle(.secondary)
                 .padding(.top, 1)
@@ -422,8 +422,17 @@ struct UsageLimitsWidgetView: View {
             Gauge(value: min(max((window.usedPercent ?? 0) / 100, 0), 1)) {
                 Text(window.name)
             } currentValueLabel: {
-                Text(UsageWidgetText.percent(window.usedPercent))
-                    .monospacedDigit()
+                // Named, since the ring alone does not say which window it is.
+                VStack(spacing: 0) {
+                    Text(window.name)
+                        .font(.system(size: 9, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(UsageWidgetText.percent(window.usedPercent))
+                        .font(.system(size: 17, weight: .semibold))
+                        .monospacedDigit()
+                }
+                .padding(.horizontal, 4)
             }
             .gaugeStyle(.accessoryCircularCapacity)
         } else {
@@ -439,7 +448,9 @@ struct UsageLimitsWidgetView: View {
     private func rectangular(_ host: UsageWidgetSnapshot.Host) -> some View {
         let limits = limits(host)
         VStack(alignment: .leading, spacing: 2) {
-            Text(host.name).font(.system(size: 13, weight: .semibold))
+            // The program first: Automatic can change it between readings.
+            Text("\(Text(limits?.name ?? programName).fontWeight(.semibold)) \(Text("· \(host.name)").foregroundStyle(.secondary))")
+                .font(.system(size: 13))
             if let limits, !limits.windows.isEmpty {
                 ForEach(UsageLimitsPick.lockScreen(limits.windows, now: now)) { window in
                     UsageWindowRow(window: window, program: limits.program, now: now, showsCountdown: true, size: 13)
@@ -467,13 +478,27 @@ struct UsageLimitsWidgetView: View {
         switch entry.program {
         case "claude": "Claude Code"
         case "codex": "Codex"
-        default: entry.program
+        case let program?: program
+        case nil: "Usage Limits"
         }
     }
 }
 
 /// Which windows a size with room for one or two shows.
 enum UsageLimitsPick {
+    /// The chosen program, or with none chosen the one whose running window
+    /// is closest to its limit, so a program with its limits off is not the
+    /// default.
+    static func program(
+        _ limits: [UsageWidgetSnapshot.Limits], preferring program: String?, now: Date
+    ) -> UsageWidgetSnapshot.Limits? {
+        if let program { return limits.first { $0.program == program } ?? limits.first }
+        let reporting = limits.filter { tightest($0.windows, now: now) != nil }
+        return reporting.max {
+            (tightest($0.windows, now: now)?.usedPercent ?? 0) < (tightest($1.windows, now: now)?.usedPercent ?? 0)
+        } ?? limits.first
+    }
+
     /// The most used window still running; an ended window only when no
     /// other is left.
     static func tightest(_ windows: [UsageWidgetSnapshot.Window], now: Date) -> UsageWidgetSnapshot.Window? {
@@ -685,12 +710,13 @@ struct UsageWindowRow: View {
     var body: some View {
         let expired = window.isExpired(at: now)
         VStack(alignment: .leading, spacing: 4) {
-            // A long name shrinks a little before it truncates.
+            // A long name first takes a smaller size, then the countdown's
+            // room; the bar and the percentage stay.
             ViewThatFits(in: .horizontal) {
-                heading(expired: expired, scales: false)
-                heading(expired: expired, scales: true)
+                heading(expired: expired, size: size, countdown: showsCountdown)
+                heading(expired: expired, size: size - 1.5, countdown: showsCountdown)
+                heading(expired: expired, size: size, countdown: false)
             }
-            .font(.system(size: size).monospacedDigit())
             if expired {
                 Text(UsageWidgetText.windowReset)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -702,20 +728,19 @@ struct UsageWindowRow: View {
         .lineLimit(1)
     }
 
-    private func heading(expired: Bool, scales: Bool) -> some View {
+    private func heading(expired: Bool, size: CGFloat, countdown: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(window.name).fontWeight(.medium)
-                .minimumScaleFactor(scales ? 0.85 : 1)
+                .font(.system(size: size))
             Spacer(minLength: 0)
             if !expired {
-                if showsCountdown, let reset = window.resetsAt {
+                if countdown, let reset = window.resetsAt {
                     Text(UsageWidgetText.countdown(to: reset, now: now))
-                        .font(.system(size: size - 1))
+                        .font(.system(size: size - 1).monospacedDigit())
                         .foregroundStyle(.secondary)
-                        .fixedSize()
                 }
-                Text(UsageWidgetText.percent(window.usedPercent)).fontWeight(.semibold)
-                    .fixedSize()
+                Text(UsageWidgetText.percent(window.usedPercent))
+                    .font(.system(size: self.size, weight: .semibold).monospacedDigit())
             }
         }
     }
@@ -951,8 +976,10 @@ enum UsageWidgetText {
 
     static func axis(_ value: Double, metric: AgentUsageMetric, locale: Locale) -> String {
         switch metric {
+        // Compact, so thousands do not squeeze the plot: "$2K".
         case .cost:
-            value.formatted(.currency(code: "USD").precision(.fractionLength(0)).locale(locale))
+            value.formatted(
+                .currency(code: "USD").notation(.compactName).precision(.significantDigits(1...2)).locale(locale))
         case .tokens:
             AgentUsageStyle.tokens(Int64(value), locale: locale)
         }

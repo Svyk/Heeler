@@ -879,7 +879,8 @@ tests and decoded by the Swift tests.
     estimated cost or tokens for today, 7 days or 30 days, on All Hosts or
     one Host, with a 7-day bar strip (small), a split by program and a
     30-day chart (medium), or a table with each Host (large). **Usage
-    Limits** shows one Host's windows: the tightest (small), each program
+    Limits** shows one Host's windows: the tightest of the chosen program,
+    or by default of the program closest to its limit (small), each program
     side by side (medium), or every window with its reset time and source
     (large); the Lock Screen shows the soonest window and the tightest of
     the rest. Neither widget reads a Host. The app writes a snapshot of

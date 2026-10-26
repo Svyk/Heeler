@@ -104,7 +104,7 @@ struct UsageWidgetProvider: AppIntentTimelineProvider {
 
 struct UsageLimitsWidgetProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> UsageLimitsWidgetEntry {
-        UsageLimitsWidgetEntry(date: .now, snapshot: nil, hostID: nil, program: "claude")
+        UsageLimitsWidgetEntry(date: .now, snapshot: nil, hostID: nil, program: nil)
     }
 
     func snapshot(for configuration: UsageLimitsWidgetIntent, in context: Context) async -> UsageLimitsWidgetEntry {
@@ -142,7 +142,7 @@ struct UsageLimitsWidgetProvider: AppIntentTimelineProvider {
     ) -> UsageLimitsWidgetEntry {
         UsageLimitsWidgetEntry(
             date: date, snapshot: snapshot, hostID: configuration.host?.id,
-            program: configuration.program.rawValue)
+            program: configuration.program == .automatic ? nil : configuration.program.rawValue)
     }
 }
 
@@ -170,7 +170,7 @@ struct UsageLimitsWidgetIntent: WidgetConfigurationIntent {
     var host: UsageLimitsHostEntity?
 
     /// Small and Lock Screen sizes show one program; larger ones show both.
-    @Parameter(title: "Program", default: .claude)
+    @Parameter(title: "Program", default: .automatic)
     var program: UsageLimitsProgram
 
     static var parameterSummary: some ParameterSummary {
@@ -252,11 +252,14 @@ struct UsageLimitsHostQuery: EntityQuery {
 }
 
 enum UsageLimitsProgram: String, AppEnum {
+    /// The program closest to its limit.
+    case automatic
     case claude
     case codex
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Program"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .automatic: "Automatic",
         .claude: "Claude Code",
         .codex: "Codex",
     ]

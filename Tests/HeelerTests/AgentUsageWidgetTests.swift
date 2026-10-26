@@ -181,6 +181,26 @@ struct AgentUsageWidgetTests {
         #expect(UsageLimitsPick.shortest(windows, now: Self.now.addingTimeInterval(3 * 3_600))?.id == "weekly")
     }
 
+    @Test func automaticShowsTheProgramClosestToItsLimit() {
+        func limits(_ program: String, _ percent: Double?) -> UsageWidgetSnapshot.Limits {
+            .init(
+                program: program, name: program, message: percent == nil ? "Usage Limits are off." : nil,
+                isLastReading: false, source: nil, observedAt: nil,
+                windows: percent.map {
+                    [.init(id: "weekly", name: "Weekly", usedPercent: $0,
+                        resetsAt: Self.now.addingTimeInterval(3_600), expired: false)]
+                } ?? [])
+        }
+        let off = [limits("claude", nil), limits("codex", 7)]
+        let both = [limits("claude", 12), limits("codex", 40)]
+
+        // Claude Code's limits are off by default; Automatic skips them.
+        #expect(UsageLimitsPick.program(off, preferring: nil, now: Self.now)?.program == "codex")
+        #expect(UsageLimitsPick.program(both, preferring: nil, now: Self.now)?.program == "codex")
+        #expect(UsageLimitsPick.program(off, preferring: "claude", now: Self.now)?.program == "claude")
+        #expect(UsageLimitsPick.program([limits("claude", nil)], preferring: nil, now: Self.now)?.program == "claude")
+    }
+
     private func reading(
         _ id: UUID, _ name: String, _ state: AgentUsageStore.State, readAt: Date? = nil, isConnected: Bool = true
     ) -> AgentUsageWidgetReading {
