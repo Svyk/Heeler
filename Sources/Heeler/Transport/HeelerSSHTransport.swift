@@ -1147,7 +1147,7 @@ actor HeelerSSHTransport: Transport {
             params: TabCreateParams(
                 cwd: launch.cwd,
                 focus: false,
-                label: launch.resolvedTabLabel,
+                label: launch.tabLabel,
                 workspaceID: launch.workspaceID),
             decoding: TabCreatedResponse.self)
         do {
@@ -1178,12 +1178,11 @@ actor HeelerSSHTransport: Transport {
             let response = try await startAgentAwaitingShell(
                 launch,
                 paneID: created.rootPane.paneID)
-            // The launch succeeded, so the name is now real: rename the
-            // worktree's fresh tab, which only carries the worktree label.
-            // Best-effort — a cosmetic rename failure must not fail a start
-            // that already succeeded.
-            try? await renameTab(
-                TabRenameParams(label: launch.resolvedTabLabel, tabID: created.tab.tabID))
+            if let tabLabel = launch.tabLabel {
+                // A cosmetic rename must not fail an Agent that already started.
+                try? await renameTab(
+                    TabRenameParams(label: tabLabel, tabID: created.tab.tabID))
+            }
             return Agent(response.agent)
         } catch let error as HerdrAPIError {
             try? await removeCreatedWorktree(workspaceID: created.workspace.workspaceID)
@@ -1206,13 +1205,11 @@ actor HeelerSSHTransport: Transport {
             let response = try await startAgentAwaitingShell(
                 launch,
                 paneID: created.rootPane.paneID)
-            // The launch succeeded, so the name is now real: rename the
-            // fresh tab, which only carries the Workspace label (herdr
-            // labels the Workspace, not its first tab). Best-effort — a
-            // cosmetic rename failure must not fail a start that already
-            // succeeded.
-            try? await renameTab(
-                TabRenameParams(label: launch.resolvedTabLabel, tabID: created.tab.tabID))
+            if let tabLabel = launch.tabLabel {
+                // A cosmetic rename must not fail an Agent that already started.
+                try? await renameTab(
+                    TabRenameParams(label: tabLabel, tabID: created.tab.tabID))
+            }
             return Agent(response.agent)
         } catch let error as HerdrAPIError {
             try? await closeCreatedWorkspace(workspaceID: created.workspace.workspaceID)
