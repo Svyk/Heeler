@@ -292,6 +292,9 @@ struct AgentUsageDaySheet: View {
         .presentationDetents(isFormSheet ? [.large] : [.fraction(0.65), .large])
         .presentationBackgroundInteraction(
             isFormSheet ? .disabled : .enabled(upThrough: .fraction(0.65)))
+        // A partial-height sheet is glass on iOS 26, and the dashboard
+        // behind it showed through the figures.
+        .presentationBackground(Color(uiColor: .systemBackground))
     }
 
     private var header: some View {
