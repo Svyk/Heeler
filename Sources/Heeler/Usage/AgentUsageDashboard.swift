@@ -637,11 +637,26 @@ struct AgentUsageDashboard: View {
 
     @ViewBuilder
     private func emptyState(_ scope: AgentUsageScope) -> some View {
+        if !entries.isEmpty && !scope.loading.isEmpty {
+            VStack(spacing: 10) {
+                ProgressView()
+                Text("Loading Usage…")
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 160)
+            .accessibilityElement(children: .combine)
+            .background(cardBackground)
+            .padding(.top, 18)
+        } else {
+            message(scope)
+        }
+    }
+
+    private func message(_ scope: AgentUsageScope) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if entries.isEmpty {
                 Text("Add a Host to read its Usage.")
-            } else if !scope.loading.isEmpty {
-                ProgressView("Loading Usage…")
             } else if let entry = scopedEntries.first, scopedEntries.count == 1, entry.isConnected {
                 AgentUsageContent(state: entry.store.state)
             } else {

@@ -9,7 +9,12 @@ struct AgentUsageContent: View {
     var body: some View {
         switch state {
         case .idle, .loading:
-            ProgressView("Loading Usage…")
+            HStack(spacing: 8) {
+                // A List cell built off screen keeps a stopped, hidden
+                // spinner once it scrolls in; a fresh one animates.
+                ProgressView().id(UUID())
+                Text("Loading Usage…").foregroundStyle(.secondary)
+            }
         case .requirement(let message):
             Text(message).foregroundStyle(.secondary)
         case .unsupportedPlatform:
@@ -24,7 +29,10 @@ struct AgentUsageContent: View {
             Text(message).foregroundStyle(.secondary)
         case .available(let report):
             if report.refreshing == true {
-                ProgressView("Refreshing")
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Refreshing").foregroundStyle(.secondary)
+                }
             }
             if let refreshFailure {
                 AgentUsageRefreshFailureNote(message: refreshFailure, isRetrying: isRetryingRefresh)
