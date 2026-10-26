@@ -137,8 +137,10 @@ struct UsageWidgetView: View {
                 ? "\(metricName) · \(UsageWidgetText.tokens(total.tokens, locale: locale))"
                 : "\(metricName) · \(UsageWidgetText.cost(total.cost, locale: locale)) est.")
                 .font(.footnote).foregroundStyle(.secondary)
+            // The chart takes whatever the rows leave, so one Host's two
+            // rows do not leave the bottom empty.
             UsageAreaChart(scope: scope, metric: entry.metric, dates: dates, weekdays: dates.count <= 7)
-                .frame(height: 104)
+                .frame(minHeight: 104, maxHeight: .infinity)
                 .padding(.top, 12)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(scope.programs) { program in
@@ -170,7 +172,6 @@ struct UsageWidgetView: View {
                 }
             }
             .padding(.top, 12)
-            Spacer(minLength: 0)
         }
         .lineLimit(1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -224,10 +225,13 @@ struct UsageWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Shares its line with the date, which leaves no room for "All Hosts";
+    /// only a chosen Host is named, after the figure, so the tail is cut.
     private func inline(_ scope: UsageWidgetScope) -> some View {
         let total = scope.total(entry.range)
+        let reading = "\(UsageWidgetText.short(total, metric: entry.metric, locale: locale)) \(UsageWidgetText.rangeInline(entry.range))"
         return Label(
-            "\(UsageWidgetText.short(total, metric: entry.metric, locale: locale)) \(UsageWidgetText.rangeInline(entry.range)) · \(scope.title)",
+            scope.hostID == nil ? reading : "\(reading) · \(scope.title)",
             systemImage: "chart.bar.fill")
     }
 
@@ -465,13 +469,11 @@ struct UsageLimitsWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
+    /// The reading first: a long Host name is what the date's line cuts.
     private func inline(_ host: UsageWidgetSnapshot.Host) -> some View {
         let window = limits(host).flatMap { UsageLimitsPick.shortest($0.windows, now: now) }
-        Label(
-            window.map { "\(host.name) · \($0.name) \(UsageWidgetText.percent($0.usedPercent))" }
-                ?? "\(host.name) · Usage Limits",
-            systemImage: "gauge.with.dots.needle.50percent")
+        let reading = window.map { "\($0.name) \(UsageWidgetText.percent($0.usedPercent))" } ?? "Usage Limits"
+        return Label("\(reading) · \(host.name)", systemImage: "gauge.with.dots.needle.50percent")
     }
 
     private var programName: String {
