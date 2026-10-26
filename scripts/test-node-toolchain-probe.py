@@ -33,6 +33,20 @@ MAIN = """
 print(NodeToolchainProbe.wrappingBareHerdr(CommandLine.arguments[1]), terminator: "")
 """
 
+# The probe's fixed system locations. Tests move them under the fake root, so
+# what this machine has installed (the CI image ships Node.js in
+# /usr/local/bin) cannot answer for a layout.
+SYSTEM_PREFIXES = (
+    "/opt/homebrew/",
+    "/usr/local/",
+    "/home/linuxbrew/",
+    "/etc/profiles/",
+    "/run/current-system/",
+    "/nix/var/",
+    "/snap/bin",
+    "/opt/local/bin",
+)
+
 HERDR = """#!/bin/sh
 echo "herdr=$0"
 echo "npm=$(command -v npm)"
@@ -104,6 +118,9 @@ class ProbeTests(unittest.TestCase):
             [str(self.binary), command], check=True, capture_output=True, text=True
         ).stdout
         self.assertTrue(wrapped.startswith("/bin/sh -c "))
+        for prefix in SYSTEM_PREFIXES:
+            self.assertIn(prefix, wrapped)
+            wrapped = wrapped.replace(prefix, f"{self.root}/abs{prefix}")
         if shell != "/bin/sh":
             wrapped = shell + wrapped[len("/bin/sh"):]
         return subprocess.run(
@@ -153,6 +170,9 @@ class ProbeTests(unittest.TestCase):
                 self.assert_found(directory)
                 shutil.rmtree(self.home)
                 self.home.mkdir()
+
+    def test_homebrew_keeps_versioned_formulae_off_the_path(self) -> None:
+        self.assert_found(self.node(self.root / "abs/opt/homebrew/opt/node@22/bin"))
 
     def test_environment_overrides_move_the_managers(self) -> None:
         directory = self.node(self.root / "custom-volta/bin")
