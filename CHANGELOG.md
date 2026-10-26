@@ -14,7 +14,7 @@ Entries reference the pull request that made the change.
   shows a Pairing Code v2 that names its socket and a launcher the plugin
   writes and tests itself, so the phone lists, attaches to and wakes that
   herdr instead of the one in `~/.config/herdr`. `launcher` in the plugin's
-  `pair.json` overrides the generated one.
+  `pair.json` overrides the generated one. (#521)
 
 ## [0.1.16] - 2026-10-27
 
