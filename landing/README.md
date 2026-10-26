@@ -25,7 +25,7 @@ npm run deploy       # wrangler deploy (needs Cloudflare credentials)
 
 | Path | What it holds |
 | --- | --- |
-| `src/pages/index.astro` | The homepage: hero, six chapters beside a sticky contents list, Security, numbers, FAQ, close and source. Holds the page's inline script and the chapter steps. |
+| `src/pages/index.astro` | The homepage: hero, seven chapters beside a sticky contents list, Security, numbers, FAQ, close and source. Holds the page's inline script and the chapter steps. |
 | `src/pages/404.astro` | Not-found page, served by Workers for unmatched paths. |
 | `src/pages/ipad.astro` | Full iPad screenshot gallery, linked from the FAQ. |
 | `src/layouts/Layout.astro` | `<head>` metadata, header, footer, global CSS imports. |
@@ -33,9 +33,9 @@ npm run deploy       # wrangler deploy (needs Cloudflare credentials)
 | `src/components/*.astro` | Header, footer, and the pieces the other pages use. |
 | `src/styles/substrate/` | Vendored design system (see below). |
 | `src/styles/landing.css` | Page skeleton: gutters, section rhythm, shared text roles. |
-| `src/assets/` | Logo, nine iPhone screenshots, and seven iPad screenshots, optimised at build time. |
+| `src/assets/` | Logo, thirteen iPhone screenshots, and seven iPad screenshots, optimised at build time. |
 | `src/data/ipad-screens.ts` | Shared iPad screenshot order and captions. |
-| `public/figures/*.html` | One interactive figure per chapter, embedded with lazy iframes (see below). |
+| `public/figures/*.html` | One interactive figure per chapter except Usage, which shows screenshots; embedded with lazy iframes (see below). |
 
 Breakpoints live with the component that needs them. Below 960px the contents
 list becomes a strip of chips under the header and each chapter's figure pins
@@ -70,7 +70,8 @@ The Geist and Geist Mono variable fonts in
 `src/styles/substrate/assets/fonts/` come from the `geist` npm package (SIL
 Open Font License 1.1, `LICENSE.txt` alongside them).
 
-The iPhone screenshots are copies of `docs/images/*-iphone.png` at the repo root.
+The iPhone screenshots are copies of `docs/images/*-iphone.png` at the repo root,
+except `widgets-limits-iphone.png`, which only the Usage chapter shows.
 The iPad screenshots are copies of `docs/images/*-ipad.png`.
 They are not symlinks — refresh them here when the app screenshots change.
 The homepage hero shows the iPhone screenshots as a decorative wall; the FAQ's

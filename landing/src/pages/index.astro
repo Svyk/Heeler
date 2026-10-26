@@ -16,11 +16,16 @@ import { connect, consoleCopy, hero, pairLines, steerCopy } from '../components/
 import FaqList from '../components/home/FaqList.astro';
 import { figures } from '../components/home/figures';
 import HopPath from '../components/home/HopPath.astro';
+import PhoneScreens from '../components/home/PhoneScreens.astro';
 import SecurityList from '../components/home/SecurityList.astro';
 import SourceBlock from '../components/home/SourceBlock.astro';
 import StoreActions from '../components/home/StoreActions.astro';
 import '../components/home/home.css';
 import Layout from '../layouts/Layout.astro';
+import usageShot from '../assets/screens/usage-iphone.png';
+import widgetsLimitsShot from '../assets/screens/widgets-limits-iphone.png';
+import widgetsLockShot from '../assets/screens/widgets-lock-iphone.png';
+import widgetsShot from '../assets/screens/widgets-iphone.png';
 
 const description =
   'Heeler is a native iOS companion for herdr: every coding agent on your machines in one status-sorted console, steered over plain SSH.';
@@ -32,6 +37,30 @@ const chapters = [
   { id: 'steer', label: 'Steer' },
   { id: 'review', label: 'Review' },
   { id: 'away', label: 'While you’re away' },
+  { id: 'usage', label: 'Usage' },
+];
+
+const usageScreens = [
+  {
+    image: usageShot,
+    alt: 'Usage tab with 30 days of estimated API cost, Usage Limits, and a daily chart',
+    caption: 'Usage, across every Host',
+  },
+  {
+    image: widgetsShot,
+    alt: 'Home Screen with Usage and Usage Limits widgets in small and medium sizes',
+    caption: 'Home Screen widgets',
+  },
+  {
+    image: widgetsLimitsShot,
+    alt: 'Large Usage Limits widget with each window’s share and reset time',
+    caption: 'Every window and its reset',
+  },
+  {
+    image: widgetsLockShot,
+    alt: 'Lock Screen with Usage and Usage Limits widgets',
+    caption: 'Lock Screen widgets',
+  },
 ];
 
 // Each beat names a pose the figure's window.heelerFigure.go() plays to.
@@ -255,6 +284,18 @@ const awaySteps: FigureStep[] = [
           body="Heeler keeps SSH open for a short grace after you leave, then closes it. From then on, Blocked and Done alerts and Live Activity updates reach you as sealed pushes."
         />
         <StepFigure figure={figures.away} steps={awaySteps} />
+      </section>
+
+      <section class="chapter" id="usage" data-chapter-section>
+        <ChapterHead
+          index={6}
+          label="Usage"
+          lead="Know your limits"
+          rest="before an Agent runs into them."
+          bar="Usage Limits per Host"
+          body="Claude Code and Codex Usage Limits with their reset times, and up to 30 days of Token Usage with its estimated API cost, on every Host or one. Widgets keep them on the Home Screen and Lock Screen."
+        />
+        <div data-rv><PhoneScreens screens={usageScreens} /></div>
       </section>
     </div>
   </div>

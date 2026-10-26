@@ -12,18 +12,24 @@ import liveActivityShot from '../../assets/screens/live-activity-iphone.png';
 import liveTerminalShot from '../../assets/screens/live-terminal-iphone.png';
 import skillsShot from '../../assets/screens/skills-iphone.png';
 import terminalShot from '../../assets/screens/terminal-iphone.png';
+import usageShot from '../../assets/screens/usage-iphone.png';
+import widgetsLockShot from '../../assets/screens/widgets-lock-iphone.png';
+import widgetsShot from '../../assets/screens/widgets-iphone.png';
 
-// Three rows of three, in this order.
+// Three rows of four, in this order.
 const screens = [
   consoleShot,
   liveTerminalShot,
   chatShot,
+  widgetsShot,
   agentShot,
   changesShot,
   terminalShot,
+  usageShot,
   skillsShot,
   hostsShot,
   liveActivityShot,
+  widgetsLockShot,
 ];
 
 const WIDTH = 220;
@@ -36,7 +42,7 @@ const images = await Promise.all(
     return { src: one.src, srcset: `${one.src} 1x, ${two.src} 2x`, height: Math.round((WIDTH * image.height) / image.width) };
   }),
 );
-const rows = [images.slice(0, 3), images.slice(3, 6), images.slice(6, 9)].map((row, index) =>
+const rows = [images.slice(0, 4), images.slice(4, 8), images.slice(8, 12)].map((row, index) =>
   // Offset each row so no two rows line up the same screen.
   [...row.slice(index), ...row.slice(0, index)],
 );
