@@ -1,7 +1,7 @@
 # Agent Usage
 
 Status: Implemented (#494; PR #506; tickets #495–#503). Decisions are
-recorded in [ADR 0027](../adr/0027-plugin-collects-agent-usage-on-the-host.md);
+recorded in [ADR 0028](../adr/0028-plugin-collects-agent-usage-on-the-host.md);
 terms are defined in [CONTEXT.md](../../CONTEXT.md) (**Usage Limits**,
 **Token Usage**, **Transcript**).
 
@@ -696,7 +696,7 @@ plugin asks Claude Code itself, as it asks Codex.
   that may belong to a previous sign-in.
 
 The plugin does not call `api.anthropic.com` itself. Reading the stored
-OAuth token and calling `/api/oauth/usage` directly was rejected (ADR 0027).
+OAuth token and calling `/api/oauth/usage` directly was rejected (ADR 0028).
 
 > [!WARNING]
 > `get_usage` is an undocumented part of Claude Code's stream-json control

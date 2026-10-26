@@ -150,7 +150,7 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
   reads snapshots, and [usage-worker.js](../../plugin/src/usage-worker.js)
   coordinates [scanners, limit readers, buckets and pricing](../../plugin/src/usage).
   Read the [design](../design/agent-usage.md) and
-  [ADR 0027](../adr/0027-plugin-collects-agent-usage-on-the-host.md).
+  [ADR 0028](../adr/0028-plugin-collects-agent-usage-on-the-host.md).
   Focused app coverage: `AgentUsageStoreTests` and `ClaudeUsagePreferenceTests`
   in [AgentUsageTests](../../Tests/HeelerTests/AgentUsageTests.swift),
   [probe](../../Tests/HeelerTests/AgentUsageProbeTests.swift),
