@@ -30,6 +30,8 @@ PLUGIN_DIR="plugin"
 # decision rather than a silent omission or an accidental upload.
 SHIPPED="herdr-plugin.toml package.json package-lock.json README.md src"
 DEV_ONLY="test test-vectors"
+# Repository tools the plugin tests run, placed where they sit on main.
+TEST_TOOLS="scripts/generate-usage-pricing.mjs"
 
 SOURCE="${SOURCE:-}"
 DRY_RUN="${DRY_RUN:-}"
@@ -162,6 +164,8 @@ for file in "$check"/src/*.js; do
 done
 # shellcheck disable=SC2086 # DEV_ONLY is a word list
 git archive "$source:$PLUGIN_DIR" $DEV_ONLY | tar -x -C "$check"
+# shellcheck disable=SC2086 # TEST_TOOLS is a word list
+git archive "$source" $TEST_TOOLS | tar -x -C "$work"
 quietly npm test || die "plugin tests failed against the published tree"
 
 # --- Plan --------------------------------------------------------------------
