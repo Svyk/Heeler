@@ -674,9 +674,12 @@ plugin asks Claude Code itself, as it asks Codex.
   at every allowed request: the recorded `claude` may be a shim or wrapper
   (mise, asdf, `~/.claude/local/claude`) that an update leaves unchanged.
 - Windows read: `five_hour`, `seven_day`, `seven_day_opus`,
-  `seven_day_sonnet`, any other non-null object with a `utilization` and a
-  `resets_at` as `claude:<key>`, and each `model_scoped[]` entry as
-  `claude:model:<display_name>` with its `display_name` as label.
+  `seven_day_sonnet`, any other non-null object with a `utilization`, a
+  `resets_at` and a non-empty `label` as `claude:<key>` with that label, and
+  each `model_scoped[]` entry as `claude:model:<display_name>` with its
+  `display_name` as label. Other keys are code names with nothing to call
+  them by; Claude Code's own `/usage` does not show them either, so they are
+  left out.
   `utilization` is a percentage and `resets_at` is ISO 8601 in this answer;
   the reader also accepts epoch seconds. Both are nullable in the schema: a
   window whose `utilization` is null is left out, and a null `resets_at`
@@ -819,7 +822,8 @@ tests and decoded by the Swift tests.
   `sevenDaySonnet`, others as `claude:<key>` and
   `claude:model:<display_name>`; Codex `primary`, `secondary` of the default
   limit group only, either of which may be absent. A window may carry a
-  `label` from the program (a Claude model bucket's display name) and has a
+  `label` from the program (a Claude model bucket's display name, or the
+  service's name for another Claude meter) and has a
   nullable `durationMinutes`. The app labels Claude's known ids by name, a
   window with a `label` by that label, and every other window, Codex's
   included, by `durationMinutes` ("5-hour", "Weekly"), never by id.

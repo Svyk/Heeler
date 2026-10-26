@@ -64,7 +64,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
  const response={subscription_type:'max',rate_limits_available:mode!=='no-plan',rate_limits:{
  five_hour:{utilization:12,resets_at:reset}, seven_day:{utilization:23,resets_at:null},
  seven_day_opus:{utilization:null,resets_at:reset},seven_day_sonnet:{utilization:34,resets_at:Math.floor(Date.parse(reset)/1000)},
- future_window:{utilization:45,resets_at:null},model_scoped:[{display_name:'model-x',utilization:56,resets_at:reset}],
+ future_window:{utilization:45,resets_at:null,label:'Future window'},code_named:{utilization:60,resets_at:reset,limit_dollars:250},model_scoped:[{display_name:'model-x',utilization:56,resets_at:reset}],
  extra_usage:{utilization:99,resets_at:reset,used_credits:123},spend:123}};
  if(mode==='malformed')delete response.rate_limits;
  send({request_id:request.request_id,subtype:'success',response});
@@ -111,6 +111,7 @@ test("Claude limits use the recorded process with only initialize and get_usage"
     ["fiveHour",12,300],["sevenDay",23,10080],["sevenDaySonnet",34,10080],["claude:future_window",45,null],["claude:model:model-x",56,null],
   ]);
   assert.equal(result.windows[1].resetsAt, null);
+  assert.equal(result.windows[3].label, "Future window");
   assert.equal(result.windows[4].label, "model-x");
   assert.equal(existsSync(join(f.root, "credential-access")), false);
   assert.deepEqual(f.requests().map(request => request.request.subtype), ["initialize", "get_usage"]);

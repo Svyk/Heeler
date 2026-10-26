@@ -32,8 +32,12 @@ function readingFrom(body) {
     for (const [key, window] of Object.entries(body.rate_limits)) {
       if (key === "model_scoped" || key === "extra_usage" || key === "spend") continue;
       if (!object(window) || !Object.hasOwn(window, "utilization") || !Object.hasOwn(window, "resets_at")) continue;
-      const [id, duration] = knownWindows[key] || [`claude:${key}`, null];
-      add(id, duration, window);
+      // Claude Code shows a meter it has no name for only by the label the
+      // service sends; an unlabelled code-named one stays hidden there too.
+      const known = knownWindows[key];
+      const label = typeof window.label === "string" && window.label ? window.label : null;
+      if (known) add(known[0], known[1], window);
+      else if (label) add(`claude:${key}`, null, window, label);
     }
     if (Array.isArray(body.rate_limits.model_scoped)) for (const window of body.rate_limits.model_scoped) {
       if (typeof window?.display_name === "string" && window.display_name) add(`claude:model:${window.display_name}`, null, window, window.display_name);
