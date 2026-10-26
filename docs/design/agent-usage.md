@@ -636,8 +636,29 @@ plugin asks Claude Code itself, as it asks Codex.
   and `rate_limits`. `rate_limits_available: false` means plan limits do not
   apply (in its schema's words: API key, Bedrock, Vertex, or missing profile
   scope) and maps to `unavailable` with `noPlanLimits`. Claude Code 2.1.310
-  also answers this way when it cannot read its keychain item, so a keychain
-  failure shows as `noPlanLimits`, not as a failed request.
+  also answers this way when it cannot read its keychain item.
+- On macOS, Claude Code keeps its sign-in in the login keychain, which an SSH
+  session cannot use: `security` exits 36 there, and Claude Code answers
+  `subscription_type: null` with `rate_limits_available: false` (observed
+  with 2.1.310 on 2026-10-26). A Usage query arrives over SSH, so on macOS
+  the worker does not start Claude Code itself. It writes a request with a
+  random token to `claude-request.json` in the cache directory and runs
+  `herdr plugin action invoke usage-claude-limits --plugin heeler`, passing
+  the query's `HERDR_SOCKET_PATH`. herdr's server starts the action in its
+  own session, where the keychain is usable; the action consumes the
+  request, runs the same `get_usage` exchange and writes the reading with
+  the token to `claude-reading.json`. The worker waits up to 25 seconds
+  (a `timeout` error after that). The hooks record herdr's path
+  (`HERDR_BIN_PATH`) in `runtime.json`; without it, or when herdr cannot
+  invoke the action, the worker reads in place.
+- A `noPlanLimits` answer on macOS is checked with `security
+  show-keychain-info`, which reads no item. When the session cannot use the
+  default keychain (herdr's server was itself started over SSH, or the read
+  ran in place), the reading is `unavailable` with `keychainUnavailable`.
+- `get_usage` throttles its own endpoint: reading every 13 seconds, answers
+  after about 3 minutes carried `rate_limits_available: true` without
+  `rate_limits` (an `invalidResponse` error, so the last good reading is
+  kept). The 60-second cadence below stays under that.
 - A Claude Code without `get_usage` answers with an error whose text starts
   `Unsupported control request subtype` (2.1.309 answers unknown subtypes
   this way). That error maps to `unavailable` with `programTooOld`, not to
@@ -782,8 +803,9 @@ tests and decoded by the Swift tests.
   never shown then), `unavailable` with `reason` (`notReadYet` before the
   first reading of a program whose limits will be read, while a run is in
   progress, such as during the first scan or right after the Claude toggle
-  turns on; `programMissing`, `programTooOld`, `noPlanLimits`, or
-  `notSignedIn` for Codex), `throttled` with `retryAt` and the last good
+  turns on; `programMissing`, `programTooOld`, `noPlanLimits`,
+  `keychainUnavailable` for Claude Code on macOS, or `notSignedIn` for
+  Codex), `throttled` with `retryAt` and the last good
   reading (Claude Code), `error` with `reason`. A program without a
   reading while no run is in progress (failures paused the refresh, or
   none could start) is `error` with `requestFailed`.
@@ -909,6 +931,7 @@ tests and decoded by the Swift tests.
 | Reset time of a reading has passed | Window shown expired, usage unknown |
 | Claude Code too old for `get_usage` | `unavailable`, `programTooOld` |
 | Claude sign-in without plan limits | `unavailable`, `noPlanLimits` |
+| Claude Code on macOS cannot use the login keychain (herdr's server started over SSH, or the action unavailable) | `unavailable`, `keychainUnavailable` |
 | `get_usage` fails otherwise or times out | `throttled` with last good reading, retry after 5 minutes |
 | Unknown model | Tokens shown, cost marked unpriced |
 | Query exceeds 10 s | Bounded-script timeout; shown as a failed request |
@@ -1018,9 +1041,6 @@ Tracked under #494 as vertical slices:
 
 ## Open questions
 
-- Whether Claude Code started from an SSH session on an unlocked Mac can read
-  its keychain item: verify on a real Host. On 2.1.310 a failure surfaces
-  as `noPlanLimits`, indistinguishable from a sign-in without plan limits.
 - The first Claude Code version with `get_usage` and `skip_behaviors`:
   feature-detect.
 - Whether Claude's parent `usage` includes advisor iterations: decide from a

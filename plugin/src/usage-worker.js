@@ -12,7 +12,7 @@ import { priceContribution, pricingVersion } from "./usage/pricing.js";
 import { codexFiles, codexLines, ArchiveUnavailableError } from "./usage/codex-files.js";
 import { createCodexState, consumeCodexLine, finishCodexRead, codexTotalSignature } from "./usage/codex-scanner.js";
 import { readCodexLimits, codexRolloutLimits, codexLimitsWithFallback } from "./usage/codex-limits.js";
-import { readClaudeLimits, cacheClaudeLimits, claudeVersion } from "./usage/claude-limits.js";
+import { readClaudeLimits, readClaudeLimitsInServer, cacheClaudeLimits, claudeVersion } from "./usage/claude-limits.js";
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 class LockLostError extends Error {}
@@ -271,8 +271,10 @@ async function run() {
       limits.claude = { ...limits.claude, nextAllowedAt: Date.now() + 60_000 };
       writeJSON(join(directory, "limits.json"), limits);
       const version = await claudeVersion(runtime, directory, limits.claude.version);
-      limits.claude = { ...cacheClaudeLimits(limits.claude, await readClaudeLimits(runtime, directory, version?.version)),
-        ...(version ? { version } : {}) };
+      const inServer = process.platform === "darwin" ? await readClaudeLimitsInServer(runtime, directory, version?.version, {
+        socketPath: process.env.HERDR_SOCKET_PATH, wait: async () => { await sleep(100); maintainHeartbeat(); } }) : null;
+      const reading = inServer ?? await readClaudeLimits(runtime, directory, version?.version);
+      limits.claude = { ...cacheClaudeLimits(limits.claude, reading), ...(version ? { version } : {}) };
       heartbeat();
     }
     const fallback = Object.values(fileStates).map(file => file.carry.latestLimits).filter(reading => reading?.windows?.length)

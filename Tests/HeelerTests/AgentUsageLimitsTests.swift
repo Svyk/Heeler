@@ -286,6 +286,8 @@ struct AgentUsageLimitsTests {
             ("too-old", try AgentUsageLimitFixture.report(state: "unavailable", reason: "programTooOld"), ["Update Codex on this Host"]),
             ("signed-out", try AgentUsageLimitFixture.report(state: "unavailable", reason: "notSignedIn"), ["Sign in to Codex on this Host"]),
             ("no-plan", try AgentUsageLimitFixture.report(state: "unavailable", reason: "noPlanLimits"), ["This sign-in has no plan Usage Limits."]),
+            ("keychain", try AgentUsageLimitFixture.report(state: "unavailable", reason: "keychainUnavailable"),
+             ["Codex could not use this Mac’s keychain. Start herdr from a terminal on the Mac, then refresh."]),
             ("error", try AgentUsageLimitFixture.report(state: "error", reason: "timeout"), ["Usage Limits could not be read. Try refreshing."]),
             ("disabled", try AgentUsageLimitFixture.report(state: "disabled"), ["Usage Limits are off."]),
             ("not-read-yet", try AgentUsageLimitFixture.report(state: "unavailable", reason: "notReadYet"),

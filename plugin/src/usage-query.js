@@ -17,7 +17,11 @@ function startWorker(runtime, directory, claudeLimits) {
   if (!lock) return Boolean(activeLock(directory));
   try {
     const worker = spawn(runtime.node, [fileURLToPath(new URL("./usage-worker.js", import.meta.url)), "--config", process.env.HERDR_PLUGIN_CONFIG_DIR, "--lock-token", lock.token, ...(claudeLimits ? ["--claude-limits"] : [])], {
-      detached: true, stdio: "ignore", env: Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
+      detached: true, stdio: "ignore", env: {
+        ...Object.fromEntries(Object.entries(runtime.env).filter(([, value]) => typeof value === "string")),
+        // The worker asks this herdr server to read Claude Code's limits.
+        ...(process.env.HERDR_SOCKET_PATH ? { HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH } : {}),
+      },
     });
     worker.on("error", () => { try { releaseWorker(directory, lock.token); } catch { /* The lock goes stale. */ } });
     if (!worker.pid) throw new Error("The worker did not start.");

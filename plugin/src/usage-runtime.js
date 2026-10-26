@@ -45,6 +45,7 @@ export function recordUsageRuntime(configDir) {
     node: process.execPath,
     codex: executableOnPath("codex", process.env.PATH),
     claude: executableOnPath("claude", process.env.PATH),
+    herdr: isAbsolute(process.env.HERDR_BIN_PATH ?? "") ? process.env.HERDR_BIN_PATH : null,
     env: Object.fromEntries(ENVIRONMENT_NAMES.map((name) => [name, process.env[name] ?? null])),
     stateDir,
   };

@@ -611,9 +611,12 @@ page. Enabling it asks the Host's Claude Code for its plan limits through
 the undocumented `get_usage` control request. This automated use of the
 subscription is not officially supported; using Claude Code's own sign-in
 does not establish that the use is permitted. Turning it off hides Claude
-Code limits and leaves Token Usage and Codex limits available. Real-Mac
-SSH/keychain availability and current terms remain pre-release checks in
-the [design's open questions](../docs/design/agent-usage.md#open-questions).
+Code limits and leaves Token Usage and Codex limits available. On macOS,
+Claude Code's sign-in is in the login keychain, which SSH sessions cannot
+use, so the plugin's `usage-claude-limits` action reads the limits in
+herdr's session. Start herdr from a terminal on the Mac, not over SSH.
+Current terms remain a pre-release check in the
+[design's open questions](../docs/design/agent-usage.md#open-questions).
 
 Token Usage covers at most 30 days and only the Transcripts still on the
 Host. The page reports coverage, skipped compressed archives and Transcripts

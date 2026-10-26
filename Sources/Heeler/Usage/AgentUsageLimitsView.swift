@@ -254,6 +254,8 @@ struct AgentUsageLimitsView: View {
         case "programTooOld": return "Update \(programName) on this Host to read Usage Limits."
         case "notSignedIn": return "Sign in to \(programName) on this Host to read Usage Limits."
         case "noPlanLimits": return "This sign-in has no plan Usage Limits."
+        case "keychainUnavailable":
+            return "\(programName) could not use this Mac’s keychain. Start herdr from a terminal on the Mac, then refresh."
         default: return "Usage Limits could not be read. Try refreshing."
         }
     }
