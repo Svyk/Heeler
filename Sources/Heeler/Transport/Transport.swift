@@ -243,6 +243,13 @@ protocol Transport: Sendable {
     /// on Hosts the plugin does not support (native Windows).
     func readHeelerPlugin() async throws -> HeelerPluginInstallation?
 
+    /// Runs the Usage query of the plugin installed at `pluginRoot`, which
+    /// the caller resolved with `readHeelerPlugin()`. Reads aggregate usage,
+    /// never credentials or Transcripts.
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport
+
     /// Runs one change to the Host's Heeler plugin: the herdr CLI for install
     /// and uninstall, the session's `plugin.enable` request for enable.
     /// Throws `HeelerPluginStepError` when herdr refuses or fails the step,
@@ -492,6 +499,12 @@ extension Transport {
     func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
         throw TransportError.channelFailed(
             detail: "This transport cannot list herdr plugins.")
+    }
+
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport {
+        throw TransportError.hostFeatureUnavailable(feature: "Usage")
     }
 
     func runHeelerPluginStep(_ step: HeelerPluginStep) async throws {

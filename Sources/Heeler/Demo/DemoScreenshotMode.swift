@@ -259,11 +259,15 @@
             ] + (DemoScreenshotMode.showsHostProblems ? problemHosts : [])
             + (DemoScreenshotMode.showsPluginStates ? pluginStateHosts : [])
 
+        /// Where demo Hosts report the plugin; nothing is ever run there.
+        static let pluginRoot = "/demo/herdr/plugins/heeler"
+
         /// One Host per plugin state, named for it. Only with
         /// `DemoScreenshotMode.pluginStatesArgument`.
         static let pluginStates: [(name: String, plugin: Result<HeelerPluginInstallation?, TransportError>)] = [
             ("Plugin current (0.6.2)", .success(HeelerPluginInstallation(version: "0.6.2"))),
-            ("Plugin newer than app (0.7.0)", .success(HeelerPluginInstallation(version: "0.7.0"))),
+            ("Plugin newer than app (0.7.0)",
+             .success(HeelerPluginInstallation(pluginRoot: pluginRoot, version: "0.7.0"))),
             ("Plugin outdated (0.5.0)", .success(HeelerPluginInstallation(version: "0.5.0"))),
             ("Plugin outdated (0.4.0)", .success(HeelerPluginInstallation(version: "0.4.0"))),
             ("Plugin outdated (0.3.0)", .success(HeelerPluginInstallation(version: "0.3.0"))),
@@ -646,7 +650,9 @@
         var snapshotFailure: TransportError?
         /// What `plugin.list` reports for the Heeler plugin.
         var plugin: Result<HeelerPluginInstallation?, TransportError> = .success(
-            HeelerPluginInstallation(version: HeelerPluginCompatibility.bundled.description))
+            HeelerPluginInstallation(
+                pluginRoot: DemoScreenshotFixture.pluginRoot,
+                version: HeelerPluginCompatibility.bundled.description))
     }
 
     /// Preflight for screenshot Hosts: the Host detail's own connection,
@@ -1214,6 +1220,166 @@
         }
     }
 
+    /// Invented Usage for screenshot Hosts: both programs over 30 days that
+    /// end today in the requested time zone, with Usage Limits that reset
+    /// in the future so no demo window reads as expired. The build Host
+    /// reports its own figures, so All Hosts visibly adds two Hosts up.
+    enum DemoUsageSample {
+        private struct Profile {
+            let claudeDays: [Int]
+            let codexDays: [Int]
+            let claudeModels: [String]
+            let codexModels: [String]
+            let claudeDirectories: [String]
+            let codexDirectories: [String]
+            let claudePercents: (Double, Double)
+            let codexPercents: (Double, Double)
+        }
+
+        private static let studio = Profile(
+            claudeDays: [
+                41, 0, 0, 63, 72, 58, 80, 35, 0, 66, 91, 77, 84, 52, 12, 0, 70, 88, 95, 61,
+                74, 30, 0, 82, 99, 76, 90, 68, 85, 47,
+            ],
+            codexDays: [
+                12, 0, 0, 18, 25, 9, 31, 14, 0, 22, 27, 35, 19, 16, 4, 0, 26, 30, 21, 33,
+                24, 8, 0, 29, 38, 27, 34, 22, 31, 17,
+            ],
+            claudeModels: ["claude-opus-4-5", "claude-sonnet-4-5"],
+            codexModels: ["gpt-5.3-codex"],
+            claudeDirectories: ["/Users/demo/src/storefront", "/Users/demo/src/payments-api"],
+            codexDirectories: ["/Users/demo/src/payments-api", "/Users/demo/src/product-docs"],
+            claudePercents: (34, 61), codexPercents: (22, 47))
+
+        private static let build = Profile(
+            claudeDays: [
+                18, 22, 9, 25, 30, 14, 11, 20, 27, 52, 64, 38, 17, 9, 21, 26, 19, 23, 12, 8,
+                24, 31, 46, 58, 33, 20, 15, 28, 22, 26,
+            ],
+            codexDays: [
+                30, 41, 58, 47, 26, 19, 22, 35, 29, 24, 31, 27, 18, 33, 61, 72, 49, 30, 21, 25,
+                28, 34, 26, 19, 23, 38, 55, 63, 42, 36,
+            ],
+            claudeModels: ["claude-sonnet-4-5", "claude-haiku-4-5"],
+            codexModels: ["gpt-5.3-codex", "gpt-5.2"],
+            claudeDirectories: ["/home/builder/ci/infra", "/srv/builds/mobile"],
+            codexDirectories: ["/home/builder/ci/api-gateway", "/srv/builds/mobile"],
+            claudePercents: (48, 39), codexPercents: (26, 48))
+
+        static func report(
+            timeZone identifier: String, claudeLimits: Bool, hostID: Host.ID? = nil,
+            now: Date = Date()
+        ) throws -> AgentUsageReport {
+            let profile = hostID == DemoScreenshotFixture.buildHostID ? build : studio
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: identifier) ?? .gmt
+            let timestamp = ISO8601DateFormatter()
+            func day(_ index: Int) -> String {
+                let date = calendar.date(byAdding: .day, value: index - 29, to: now) ?? now
+                let parts = calendar.dateComponents([.year, .month, .day], from: date)
+                return String(
+                    format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            }
+            let limits: (String, [[String: Any]]) -> [String: Any] = { source, windows in
+                [
+                    "state": "ok", "source": source, "plan": "max",
+                    "observedAt": timestamp.string(from: now.addingTimeInterval(-90)),
+                    "windows": windows,
+                ]
+            }
+            let window: (String, Int, Double, TimeInterval) -> [String: Any] = {
+                id, minutes, percent, reset in
+                [
+                    "id": id, "durationMinutes": minutes, "usedPercent": percent,
+                    "resetsAt": timestamp.string(from: now.addingTimeInterval(reset)),
+                    "expired": false,
+                ]
+            }
+            let claude = program(
+                "claude", days: profile.claudeDays, unit: 9_500, costPerToken: 0.000_001_1,
+                day: day, models: profile.claudeModels, directories: profile.claudeDirectories,
+                limits: claudeLimits
+                    ? limits("service", [
+                        window("fiveHour", 300, profile.claudePercents.0, 2 * 3_600),
+                        window("sevenDay", 10_080, profile.claudePercents.1, 3 * 86_400),
+                    ])
+                    : ["state": "disabled"])
+            let codex = program(
+                "codex", days: profile.codexDays, unit: 7_000, costPerToken: 0.000_000_9,
+                day: day, models: profile.codexModels, directories: profile.codexDirectories,
+                limits: limits("service", [
+                    window("primary", 300, profile.codexPercents.0, 3 * 3_600),
+                    window("secondary", 10_080, profile.codexPercents.1, 4 * 86_400),
+                ]))
+            let object: [String: Any] = [
+                "version": 1, "runtime": "recorded",
+                "generatedAt": timestamp.string(from: now),
+                "timeZone": calendar.timeZone.identifier, "refreshing": false,
+                "pricingVersion": day(29),
+                "scan": [
+                    "state": "complete", "coveredFrom": day(0),
+                    "coveredThrough": timestamp.string(from: now.addingTimeInterval(-60)),
+                    "skippedArchives": 0, "unreadableFiles": 0,
+                ],
+                "programs": [claude, codex],
+            ]
+            return try AgentUsageReport.decode(JSONSerialization.data(withJSONObject: object))
+        }
+
+        private static func program(
+            _ name: String, days: [Int], unit: Int, costPerToken: Double,
+            day: (Int) -> String, models: [String], directories: [String],
+            limits: [String: Any]
+        ) -> [String: Any] {
+            func tokens(_ total: Int) -> [String: Any] {
+                let input = total / 20
+                let output = total / 25
+                let cacheRead = total * 4 / 5
+                return [
+                    "input": input, "cacheRead": cacheRead,
+                    "cacheWrite": total - input - output - cacheRead, "output": output,
+                    "reasoning": 0, "total": total,
+                ]
+            }
+            func summary(_ total: Int) -> [String: Any] {
+                [
+                    "tokens": tokens(total), "estimatedCostUSD": Double(total) * costPerToken,
+                    "unpricedTokens": 0,
+                ]
+            }
+            let totals = days.map { $0 * unit }
+            let last30 = totals.reduce(0, +)
+            func split(_ shares: [String], key: String) -> [[String: Any]] {
+                shares.enumerated().map { index, value in
+                    let total = index == 0 ? last30 * 7 / 10 : last30 * 3 / 10
+                    var entry = summary(total)
+                    entry[key] = value
+                    if key == "model" { entry["priced"] = true }
+                    return entry
+                }
+            }
+            return [
+                "program": name,
+                "usageLimits": limits,
+                "tokenUsage": [
+                    "state": "ok",
+                    "totals": [
+                        "today": summary(totals[29]),
+                        "last7Days": summary(totals.suffix(7).reduce(0, +)),
+                        "last30Days": summary(last30),
+                    ],
+                    "daily": totals.enumerated().map { index, total in
+                        var entry = summary(total)
+                        entry["date"] = day(index)
+                        return entry
+                    },
+                    "models": split(models, key: "model"),
+                    "directories": split(directories, key: "path"),
+                ],
+            ]
+        }
+    }
+
     private actor DemoScreenshotTransport: Transport {
         private let profile: DemoHostProfile
         private let hostID: Host.ID
@@ -1251,6 +1417,13 @@
 
         func readHeelerPlugin() async throws -> HeelerPluginInstallation? {
             try profile.plugin.get()
+        }
+
+        func readAgentUsage(
+            timeZone: String, claudeLimits: Bool, pluginRoot: String
+        ) async throws -> AgentUsageReport {
+            try DemoUsageSample.report(
+                timeZone: timeZone, claudeLimits: claudeLimits, hostID: hostID)
         }
 
         /// Plugin config files exist only where an enabled plugin would

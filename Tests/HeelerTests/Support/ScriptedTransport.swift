@@ -451,6 +451,35 @@ final actor ScriptedTransport: Transport {
     }
 
     /// Scripts what every subsequent Heeler plugin read answers.
+    private var agentUsage: Result<AgentUsageReport, any Error> = .failure(AgentUsageError.invalidReport)
+    private(set) var agentUsageReads = 0
+    private(set) var agentUsageClaudeLimits: [Bool] = []
+    private(set) var agentUsageTimeZones: [String] = []
+    private(set) var agentUsagePluginRoots: [String] = []
+    private var nextAgentUsageGate: ScriptedTransportCallGate?
+
+    func gateNextAgentUsageRead(_ gate: ScriptedTransportCallGate) {
+        nextAgentUsageGate = gate
+    }
+
+    func setAgentUsage(_ result: Result<AgentUsageReport, any Error>) {
+        agentUsage = result
+    }
+
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport {
+        agentUsageReads += 1
+        agentUsageClaudeLimits.append(claudeLimits)
+        agentUsageTimeZones.append(timeZone)
+        agentUsagePluginRoots.append(pluginRoot)
+        let result = agentUsage
+        let gate = nextAgentUsageGate
+        nextAgentUsageGate = nil
+        if let gate { await gate.waitUntilOpen() }
+        return try result.get()
+    }
+
     func setHeelerPlugin(_ result: Result<HeelerPluginInstallation?, any Error>) {
         heelerPlugin = result
     }

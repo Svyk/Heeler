@@ -1737,6 +1737,21 @@ actor HeelerSSHTransport: Transport {
         return HeelerPluginInstallation(result)
     }
 
+    /// Executes an already resolved plugin installation, so one read lists
+    /// plugins once. Real-SSH fixtures supply a scratch installation.
+    func readAgentUsage(
+        timeZone: String, claudeLimits: Bool, pluginRoot: String
+    ) async throws -> AgentUsageReport {
+        let nonce = UUID().uuidString
+        let script = try AgentUsageProbe.script(
+            pluginRoot: pluginRoot, timeZone: timeZone, claudeLimits: claudeLimits,
+            nonce: nonce, launcher: herdrLauncher)
+        let result = try await runBoundedScript(
+            script, feature: "Usage", deadline: .seconds(10), remoteSeconds: 8,
+            timeoutMarkerPrefix: "__HEELER_USAGE_TIMEOUT_", timedOut: .hostFileTimedOut)
+        return try AgentUsageProbe.parse(stdout: result.stdout, nonce: nonce)
+    }
+
     func runHeelerPluginStep(_ step: HeelerPluginStep) async throws {
         try await requirePOSIXHost(feature: "Changing the Heeler plugin")
         guard let arguments = step.herdrArguments else {

@@ -116,6 +116,52 @@ is [DemoChatSample](../../Sources/Heeler/Demo/DemoChatSample.swift).
 
 ## Other feature routes
 
+- **Usage Limits and Token Usage:** `ConsoleView.usageTab()` hosts the Usage
+  tab: [AgentUsageTabView and the iPad sidebar list](../../Sources/Heeler/Usage/AgentUsageTab.swift)
+  around [AgentUsageDashboard](../../Sources/Heeler/Usage/AgentUsageDashboard.swift),
+  with [charts](../../Sources/Heeler/Usage/AgentUsageCharts.swift),
+  [sheets](../../Sources/Heeler/Usage/AgentUsageSheets.swift), and the iPad
+  [wide layout's table, limits strip and Limits view](../../Sources/Heeler/Usage/AgentUsageWide.swift).
+  [AgentUsageScope](../../Sources/Heeler/Usage/AgentUsageScope.swift) adds
+  Token Usage across Hosts and lists the Hosts left out.
+  [HostOnboardingView](../../Sources/Heeler/Hosts/HostOnboardingView.swift)
+  embeds the short [AgentUsageSection](../../Sources/Heeler/Usage/AgentUsageSection.swift),
+  which opens the tab scoped to that Host.
+  `ConsoleStore.agentUsageStore(for:)` retains an
+  [AgentUsageStore](../../Sources/Heeler/Usage/AgentUsageStore.swift) per Host;
+  it owns refresh polling and the device's per-Host Claude limits preference.
+  The Home and Lock Screen widgets read the App Group snapshot that
+  [AgentUsageWidgetPublisher](../../Sources/Heeler/Usage/AgentUsageWidgetPublisher.swift)
+  writes from those stores, modeled in
+  [UsageWidgetSnapshot](../../Sources/HeelerUsageCore/UsageWidgetSnapshot.swift)
+  (shared with the extension, as are the formats in `AgentUsageStyle`).
+  [UsageWidgetViews](../../Sources/HeelerWidgets/Usage/UsageWidgetViews.swift)
+  draws every size and is compiled into the app for tests;
+  [UsageWidgets](../../Sources/HeelerWidgets/Usage/UsageWidgets.swift) holds
+  the timelines and configuration. Stale Hosts are re-read for the widgets
+  by `ConsoleStore.refreshStaleWidgetUsage()` in the foreground and by
+  [AgentUsageBackgroundRefresh](../../Sources/Heeler/Usage/AgentUsageBackgroundRefresh.swift)
+  (the app refresh task `HeelerApp` registers) in the background. Focused
+  tests: `AgentUsageWidgetTests`, `AgentUsageWidgetRefreshTests`.
+  `Transport.readAgentUsage` uses [AgentUsageProbe](../../Sources/Heeler/Usage/AgentUsageProbe.swift)
+  and the bounded SSH exec to decode [AgentUsageReport](../../Sources/Heeler/Usage/AgentUsageReport.swift).
+  On the Host, [usage-runtime.js](../../plugin/src/usage-runtime.js) records
+  herdr's environment, [usage-query.js](../../plugin/src/usage-query.js)
+  reads snapshots, and [usage-worker.js](../../plugin/src/usage-worker.js)
+  coordinates [scanners, limit readers, buckets and pricing](../../plugin/src/usage).
+  Read the [design](../design/agent-usage.md) and
+  [ADR 0028](../adr/0028-plugin-collects-agent-usage-on-the-host.md).
+  Focused app coverage: `AgentUsageStoreTests` and `ClaudeUsagePreferenceTests`
+  in [AgentUsageTests](../../Tests/HeelerTests/AgentUsageTests.swift),
+  [probe](../../Tests/HeelerTests/AgentUsageProbeTests.swift),
+  [presentation](../../Tests/HeelerTests/AgentUsagePresentationTests.swift),
+  [scope](../../Tests/HeelerTests/AgentUsageScopeTests.swift),
+  [page and interactions](../../Tests/HeelerTests/AgentUsagePageTests.swift),
+  [limits and disclosure](../../Tests/HeelerTests/AgentUsageLimitsTests.swift),
+  and [real SSH](../../Tests/HeelerTests/HeelerSSHTransportBehaviorE2ETests+Usage.swift).
+  Process coverage is `plugin/test/usage-*.test.js`; the worker test produces
+  the shared [usage-v1 vector](../../plugin/test-vectors/usage-v1.json).
+  Price-table maintenance is in the [plugin README](../../plugin/README.md#maintaining-the-price-table).
 - **Remote directory browsing:** [RemoteDirectoryBrowser](../../Sources/Heeler/Console/RemoteDirectoryBrowser.swift)
   and `ConsoleStore.listRemoteDirectories` reach the app SSH adapter.
   [RemoteDirectoryBrowserTests](../../Tests/HeelerTests/RemoteDirectoryBrowserTests.swift)

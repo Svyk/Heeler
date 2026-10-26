@@ -52,13 +52,14 @@ final class HeelerAppModel {
     /// `AppModelActivityDriverTests` is what turns deleting the task that
     /// runs `ConsoleActivityDriver` red (#167). Defaults are the production
     /// values: `HostStore()` reads the real persisted catalog and the
-    /// `ConsoleStore` reaches the real `sshSessionFactory()` and keeps Chat's
-    /// cache on disk.
+    /// `ConsoleStore` reaches the real `sshSessionFactory()`, keeps Chat's
+    /// cache on disk, and writes the widgets' Usage snapshot.
     init(
         pushRegistration: PushRegistrationStore,
         sceneDirectory: AgentSceneDirectory,
         hostStore: HostStore = HostStore(),
-        console: ConsoleStore = ConsoleStore(chatCache: FileChatTranscriptCache()),
+        console: ConsoleStore = ConsoleStore(
+            chatCache: FileChatTranscriptCache(), usageWidgets: AgentUsageWidgetPublisher()),
         overlayNetworks: OverlayNetworkStore = OverlayNetworkStore(),
         activity: AppActivityCoordinator = AppActivityCoordinator()
     ) {
@@ -207,9 +208,31 @@ final class HeelerAppModel {
             Task { await pushRegistration.refresh() }
         case .background:
             activity.didEnterBackground()
+            Task { await scheduleUsageRefresh() }
         default:
             break
         }
+    }
+
+    /// The Usage widgets' app refresh task: reads the Hosts whose figures
+    /// went stale and asks for the next run.
+    func refreshUsageInBackground() async {
+        guard await scheduleUsageRefresh(), let publisher = console.usageWidgets else { return }
+        await AgentUsageBackgroundRefresh.live().run(hosts: hostStore.hosts, publisher: publisher)
+    }
+
+    /// Asks for a background Usage read while a Usage widget is installed,
+    /// and withdraws the request once none is.
+    @discardableResult
+    private func scheduleUsageRefresh() async -> Bool {
+        guard let publisher = console.usageWidgets, !hostStore.hosts.isEmpty,
+            await publisher.widgetsInstalled()
+        else {
+            AgentUsageBackgroundRefresh.cancel()
+            return false
+        }
+        AgentUsageBackgroundRefresh.schedule()
+        return true
     }
 
     /// Store-to-store wiring that used to hang off the single window's view.

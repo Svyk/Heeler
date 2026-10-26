@@ -66,7 +66,8 @@ struct HeelerPluginListResultTests {
             PluginListResult.self, fromResponseLine: Data(Self.liveResponse.utf8), requestID: "r1")
         #expect(
             HeelerPluginInstallation(result)
-                == HeelerPluginInstallation(version: "0.6.0", source: .local, repository: nil))
+                == HeelerPluginInstallation(
+                    pluginRoot: "/u/Heeler/plugin", version: "0.6.0", source: .local, repository: nil))
     }
 
     @Test func prefersTheCurrentIDAndIgnoresOtherPlugins() throws {

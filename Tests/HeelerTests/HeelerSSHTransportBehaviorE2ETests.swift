@@ -1696,7 +1696,8 @@ struct HeelerSSHTransportBehaviorE2ETests {
         #expect(
             try await transport.readHeelerPlugin()
                 == HeelerPluginInstallation(
-                    version: "0.6.0", source: .github, repository: "ZingerLittleBee/Heeler"))
+                    pluginRoot: "/plugins/heeler", version: "0.6.0", source: .github,
+                    repository: "ZingerLittleBee/Heeler"))
         #expect(
             try await transport.readPane(PaneReadParams(paneID: "pane-1", source: .recent)).text
                 == "fixture output")

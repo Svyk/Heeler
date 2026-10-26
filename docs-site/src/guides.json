@@ -42,6 +42,13 @@
         "zh": "Chat"
       },
       "guides": ["chat", "chat-troubleshooting"]
+    },
+    {
+      "title": {
+        "en": "Usage",
+        "zh": "Usage"
+      },
+      "guides": ["usage"]
     }
   ],
   "sidebarTitles": {
@@ -59,7 +66,8 @@
       "windows-setup": "Windows setup",
       "selinux": "Fedora/RHEL SELinux",
       "chat": "Chat with an Agent",
-      "chat-troubleshooting": "Troubleshooting"
+      "chat-troubleshooting": "Troubleshooting",
+      "usage": "Usage and widgets"
     },
     "zh": {
       "index": "简介",
@@ -75,7 +83,8 @@
       "windows-setup": "Windows 配置",
       "selinux": "SELinux（Fedora/RHEL）",
       "chat": "在 Chat 中使用 Agent",
-      "chat-troubleshooting": "疑难排解"
+      "chat-troubleshooting": "疑难排解",
+      "usage": "Usage 与小组件"
     }
   },
   "icons": {
@@ -92,6 +101,7 @@
     "windows-setup": "MonitorCog",
     "selinux": "ShieldAlert",
     "chat": "MessagesSquare",
-    "chat-troubleshooting": "MessageSquareWarning"
+    "chat-troubleshooting": "MessageSquareWarning",
+    "usage": "Gauge"
   }
 }
