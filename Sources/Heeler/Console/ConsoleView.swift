@@ -1601,7 +1601,9 @@ struct ConsoleView: View {
                     onShowAll: { isShowingHostIssues = true })
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
+            .listSectionSeparator(.hidden)
         }
         let qualifiers = agentTitleQualifiers
         let saved = console.savedChatEntries
@@ -1614,6 +1616,7 @@ struct ConsoleView: View {
                         }
                     }
                 }
+                .listSectionSeparator(.hidden)
             }
         }
     }
@@ -1650,7 +1653,8 @@ struct ConsoleView: View {
                 background: ConsoleWorkspaceCardRow(
                     placed: placed, indent: standsAlone ? .icon : .text,
                     top: standsAlone ? (placed.followsHeader ? 0 : 6) : 2, bottom: standsAlone ? 6 : 4,
-                    isSelected: notificationRouter.path.last == agent.id)
+                    isSelected: notificationRouter.path.last == agent.id),
+                cardCornerRadius: ConsoleWorkspaceCardMetrics.cornerRadius
             ) {
                 cardAgentLabel(
                     agent, of: section, standsAlone: standsAlone, in: card,
@@ -1719,9 +1723,10 @@ struct ConsoleView: View {
         // A search opens every card holding a match, so a toggle then would
         // change nothing on screen.
         guard agentSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        withAnimation(reduceMotion ? nil : .snappy) {
-            listPresentation.toggleWorkspace(id)
-        }
+        // At once: a card's rows draw its rounded ends, which the list
+        // redraws only after an animated update, so a fold would pass
+        // through a card with its corners on the wrong rows.
+        listPresentation.toggleWorkspace(id)
     }
 
     @ViewBuilder
@@ -1786,9 +1791,10 @@ struct ConsoleView: View {
 
     /// An Agent's row: `label` opens its detail, with the row's pin, close,
     /// and window actions. `background` draws the row's place in the list;
-    /// `preview` is what a lifted card shows (see `ConsoleRowContextMenu`).
+    /// `preview` is what a lifted card shows, with `cardCornerRadius` when
+    /// the row's card has its own (see `ConsoleRowContextMenu`).
     private func agentLink<RowContent: View, Background: ViewModifier, Preview: View>(
-        _ agent: ConsoleAgent, background: Background,
+        _ agent: ConsoleAgent, background: Background, cardCornerRadius: CGFloat? = nil,
         @ViewBuilder label: () -> RowContent, @ViewBuilder preview: () -> Preview
     ) -> some View {
         NavigationLink(value: ConsoleSelection.agent(agent.id)) {
@@ -1805,7 +1811,7 @@ struct ConsoleView: View {
         .modifier(background)
         .hoverEffect(.highlight)
         .modifier(
-            ConsoleRowContextMenu {
+            ConsoleRowContextMenu(cardCornerRadius: cardCornerRadius) {
                 let pinned = console.pins.isPinned(
                     hostID: agent.hostID, paneID: agent.agent.paneID)
                 Button(
@@ -2687,20 +2693,19 @@ struct ConsoleHostStatusCountPills: View {
     }
 }
 
-/// The Agents list's style: plain rows, or for By Workspace an inset
-/// grouped list of cards on the other presentations' page.
+/// The Agents list's style: plain rows, or for By Workspace a plain list
+/// of cards that its rows draw.
 private struct ConsoleAgentListStyle: ViewModifier {
     let showsCards: Bool
-    @Environment(\.isSidebarColumn) private var isSidebarColumn
 
     func body(content: Content) -> some View {
         if showsCards {
             content
-                .listStyle(.insetGrouped)
+                .listStyle(.plain)
+                // Cells as wide as the cards, so a swipe's actions, a tap,
+                // and a lift stay on the card a row draws.
+                .contentMargins(.horizontal, ConsoleWorkspaceCardMetrics.margin, for: .scrollContent)
                 .listSectionSpacing(.custom(ConsoleWorkspaceCardMetrics.gap))
-                .scrollContentBackground(.hidden)
-                // Beside the sidebar, its glass, as the plain list shows.
-                .background(isSidebarColumn ? Color.clear : Color(uiColor: .systemBackground))
         } else {
             content.listStyle(.plain)
         }

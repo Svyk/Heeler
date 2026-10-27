@@ -1,9 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// The Agents list's By Workspace cards: an inset grouped list, one section
-/// per card, as the Terminals list's By Workspace cards. The list keeps the
-/// other presentations' page, so the cards take a quiet gray.
+/// The Agents list's By Workspace cards: a plain list, one section per card,
+/// whose rows draw the card. The list keeps the other presentations' page,
+/// so the cards take a quiet gray.
 enum ConsoleWorkspaceCardMetrics {
     /// From the card's edge to its icons.
     static let padding: CGFloat = 16
@@ -17,6 +17,9 @@ enum ConsoleWorkspaceCardMetrics {
     static let ruleTrailing: CGFloat = 16
     /// Between cards.
     static let gap: CGFloat = 12
+    /// From the list's edges to the cards'.
+    static let margin: CGFloat = 16
+    static let cornerRadius: CGFloat = 18
 
     /// A quiet gray card on the list's own background. Beside the sidebar's
     /// glass, the Terminals cards' fill.
@@ -35,9 +38,10 @@ private struct CardIconWidth: DynamicProperty {
     }
 }
 
-/// One row of a card. The list rounds the card's ends and clips a swiped
-/// row to them; the row draws the card's fill, the selection beside the
-/// sidebar, and its rule above.
+/// One row of a card: its slice of the card's fill, rounded at the card's
+/// ends, the selection beside the sidebar, and its rule above. The list's
+/// margins make the cell as wide as the card, so a swipe's actions, a tap,
+/// and a lift stay on the card.
 struct ConsoleWorkspaceCardRow: ViewModifier {
     enum Indent {
         /// The row starts at the icon column.
@@ -68,6 +72,15 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
 
     private typealias Metrics = ConsoleWorkspaceCardMetrics
 
+    /// The card's rounded ends, on its first and last rows.
+    private var shape: UnevenRoundedRectangle {
+        let top = placed.isFirst ? Metrics.cornerRadius : 0
+        let bottom = placed.isLast ? Metrics.cornerRadius : 0
+        return UnevenRoundedRectangle(
+            topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom,
+            topTrailingRadius: top, style: .continuous)
+    }
+
     func body(content: Content) -> some View {
         content
             .listRowInsets(
@@ -85,7 +98,8 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
                     // the detail stays on stage; see `ConsoleRowSelection`.
                     .overlay(isSidebarColumn && isSelected ? ConsoleRowSelection.fill : Color.clear)
                     .overlay(alignment: .top) { rule }
-                    .background { if isSidebarColumn { ListRowCellFocusHalo() } })
+                    .clipShape(shape)
+                    .background { if isSidebarColumn { ListRowFocusHalo(shape: shape) } })
     }
 
     @ViewBuilder
