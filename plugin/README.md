@@ -629,6 +629,13 @@ the app's update notice installs from that branch. See
   machine's own interfaces, so a Host behind a port mapping needs 0.6.2 to
   pair. Without `addresses` the checklist is unchanged.
 
+### Updating to 0.7.1
+
+- Plugin 0.7.1 emits a Pairing Code v2 from a herdr that runs outside
+  `~/.config/herdr` and reads `launcher` from `pair.json`. Older plugins emit
+  v1 there, which pairs the phone with the user's default herdr; re-pair such
+  a Host after the update. A herdr in `~/.config/herdr` pairs as before.
+
 ## Usage
 
 Plugin 0.7.0 adds Usage for Claude Code and Codex on Linux and macOS Hosts.
