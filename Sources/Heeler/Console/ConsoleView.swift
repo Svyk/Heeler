@@ -76,6 +76,12 @@ struct ConsoleView: View {
     /// The Agent whose detail shows Changes in place of its terminal; the
     /// window's chrome then follows the app, not the terminal theme.
     @State private var agentShowingChanges: ConsoleAgent.ID?
+    /// The Workspace section about to fold, whose rows the fold takes away
+    /// fade first, and the one that just folded, whose rows it brings in
+    /// slide into place (`ConsoleFoldReveal`).
+    @State private var leavingSection: ConsoleWorkspaceSection.ID?
+    @State private var foldingSection: ConsoleWorkspaceSection.ID?
+    @State private var foldGeneration = 0
     /// The Agent whose detail shows Chat in place of its terminal, for the
     /// same reason.
     @State private var agentShowingChat: ConsoleAgent.ID?
@@ -1641,6 +1647,7 @@ struct ConsoleView: View {
                 checkouts: card.isRepository ? checkoutSummaries(card) : [],
                 onToggle: { toggleWorkspaceSection(card.primary.id) }
             )
+            .modifier(foldReveal(placed, in: card))
             .modifier(
                 ConsoleWorkspaceCardRow(
                     placed: placed, indent: .text, top: 0, bottom: 6, fillsShortestRow: false))
@@ -1650,6 +1657,7 @@ struct ConsoleView: View {
                 section: section, title: checkoutTitle(section),
                 onToggle: section.isNested ? { toggleWorkspaceSection(section.id) } : nil
             )
+            .modifier(foldReveal(placed, in: card))
             .modifier(ConsoleWorkspaceCardRow(placed: placed, indent: .icon, top: 0, bottom: 0))
             .selectionDisabled()
         case .agent(let agent, let section, let standsAlone):
@@ -1663,6 +1671,7 @@ struct ConsoleView: View {
                 cardAgentLabel(
                     agent, of: section, standsAlone: standsAlone, in: card,
                     qualifier: qualifiers[agent.id], saved: saved[agent.id], readsChanges: true)
+                .modifier(foldReveal(placed, in: card))
             } preview: {
                 cardAgentLabel(
                     agent, of: section, standsAlone: standsAlone, in: card,
@@ -1727,9 +1736,67 @@ struct ConsoleView: View {
         // A search opens every card holding a match, so a toggle then would
         // change nothing on screen.
         guard agentSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        withAnimation(reduceMotion ? nil : .snappy) {
+        guard !reduceMotion else {
+            listPresentation.toggleWorkspace(id)
+            return
+        }
+        guard leavingSection == nil else { return }
+        // Opening a worktree takes nothing away; every other fold first
+        // fades the rows it takes, which the list would fade only slowly,
+        // under the rows coming in.
+        let opensWorktree = workspaceCards.lazy.flatMap(\.nested).first { $0.id == id }?.isCollapsed == true
+        guard !opensWorktree else {
+            fold(id)
+            return
+        }
+        withAnimation(.easeOut(duration: 0.12)) { leavingSection = id }
+        Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            fold(id)
+        }
+    }
+
+    private func fold(_ id: ConsoleWorkspaceSection.ID) {
+        foldGeneration += 1
+        let generation = foldGeneration
+        // All in the fold's animation: a change outside it, made in the
+        // same update, would take the list's animation away.
+        withAnimation(.snappy) {
+            leavingSection = nil
+            foldingSection = id
             listPresentation.toggleWorkspace(id)
         }
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            if foldGeneration == generation { foldingSection = nil }
+        }
+    }
+
+    /// Whether folding `section` brings `placed` in or takes it away: a
+    /// card's rows under its header when the card folds, a worktree's
+    /// Agents when it does.
+    private func fold(
+        _ section: ConsoleWorkspaceSection.ID?, moves placed: ConsoleWorkspaceCard.Placed,
+        in card: ConsoleWorkspaceCard
+    ) -> Bool {
+        guard let section else { return false }
+        return switch placed.row {
+        case .header: false
+        case .summary, .checkout: section == card.id
+        case .agent(_, let agentSection, _): section == card.id || section == agentSection.id
+        }
+    }
+
+    /// How `placed` moves with a fold: out before the fold takes it, or in
+    /// after the rows the fold brings in before it.
+    private func foldReveal(_ placed: ConsoleWorkspaceCard.Placed, in card: ConsoleWorkspaceCard) -> ConsoleFoldReveal {
+        let isLeaving = fold(leavingSection, moves: placed, in: card)
+        guard fold(foldingSection, moves: placed, in: card) else {
+            return ConsoleFoldReveal(isLeaving: isLeaving, isRevealing: false, delay: 0)
+        }
+        let order = card.rows.prefix { $0.id != placed.id }
+            .filter { fold(foldingSection, moves: $0, in: card) }.count
+        return ConsoleFoldReveal(isLeaving: isLeaving, isRevealing: true, delay: Double(order) * 0.04)
     }
 
     @ViewBuilder

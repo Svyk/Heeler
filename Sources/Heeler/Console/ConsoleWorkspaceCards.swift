@@ -122,6 +122,30 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
     }
 }
 
+/// A row a fold moves. One it is about to take fades first; one it brings
+/// in slides down from the row above into place after `delay`, as the list
+/// fades it in, so the rows a fold opens follow one another in.
+struct ConsoleFoldReveal: ViewModifier {
+    let isLeaving: Bool
+    let isRevealing: Bool
+    let delay: Double
+    @State private var isPlaced = false
+
+    func body(content: Content) -> some View {
+        let isHidden = isRevealing && !isPlaced
+        content
+            .opacity(isHidden || isLeaving ? 0 : 1)
+            .offset(y: isHidden ? -10 : 0)
+            .onAppear {
+                guard isRevealing else {
+                    isPlaced = true
+                    return
+                }
+                withAnimation(.snappy(duration: 0.35).delay(delay)) { isPlaced = true }
+            }
+    }
+}
+
 /// The card's icon column: a folder for what expands, a closed book for a
 /// repository's main checkout, and a branch for a linked worktree.
 struct ConsoleWorkspaceCardIcon: View {
