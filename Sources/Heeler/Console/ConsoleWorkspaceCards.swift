@@ -395,7 +395,7 @@ private struct ConsoleCardFoldButton: View {
                 .monospacedDigit()
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
-                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                .modifier(ConsoleFoldTurn(isCollapsed: isCollapsed))
         }
         .foregroundStyle(Color.secondary)
         .padding(.leading, 10)
@@ -415,7 +415,20 @@ private struct ConsoleFoldChevron: View {
         Image(systemName: "chevron.down")
             .font(.footnote.weight(.semibold))
             .foregroundStyle(Color.secondary)
-            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+            .modifier(ConsoleFoldTurn(isCollapsed: isCollapsed))
             .frame(width: width)
+    }
+}
+
+/// A fold chevron's turn, animated by its own value: a card header's row
+/// stays in place through a fold and does not carry the fold's animation.
+private struct ConsoleFoldTurn: ViewModifier {
+    let isCollapsed: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+            .animation(reduceMotion ? nil : .snappy, value: isCollapsed)
     }
 }
