@@ -77,6 +77,8 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
                     bottom: bottom + (placed.isLast ? Metrics.endPadding : 0),
                     trailing: Metrics.padding))
             .listRowSeparator(.hidden)
+            // A row opens its Agent; only a header's fold button points.
+            .navigationLinkIndicatorVisibility(.hidden)
             .listRowBackground(
                 Metrics.fill(inSidebar: isSidebarColumn)
                     // The selection shows only beside the sidebar, where
@@ -197,10 +199,7 @@ struct ConsoleWorkspaceCardHeader: View {
                             .foregroundStyle(Color.secondary)
                     }
                     Spacer(minLength: 0)
-                    Text("\(card.agents.count)")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.secondary)
-                    ConsoleFoldChevron(isCollapsed: card.isCollapsed)
+                    ConsoleCardFoldButton(count: card.agents.count, isCollapsed: card.isCollapsed)
                 }
                 if card.isCollapsed {
                     summary
@@ -328,16 +327,42 @@ struct ConsoleCheckoutHeader: View {
     }
 }
 
-/// A header's fold state, in a column as wide as either glyph at the
-/// current text size, so the count beside it stays put.
-private struct ConsoleFoldChevron: View {
+/// A card header's fold button: the card's Agent count and a chevron on one
+/// capsule, which reads as a control where a worktree's bare chevron does
+/// not.
+private struct ConsoleCardFoldButton: View {
+    let count: Int
     let isCollapsed: Bool
-    @ScaledMetric(relativeTo: .footnote) private var width: CGFloat = 12
+    @ScaledMetric(relativeTo: .subheadline) private var height: CGFloat = 24
 
     var body: some View {
-        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+        HStack(spacing: 6) {
+            Text("\(count)")
+                .font(.subheadline)
+                .monospacedDigit()
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+        }
+        .foregroundStyle(Color.secondary)
+        .padding(.leading, 10)
+        .padding(.trailing, 9)
+        .frame(minHeight: height)
+        .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+    }
+}
+
+/// A worktree's fold state: a bare chevron, quieter than its card's button,
+/// in a column that grows with the text so the count beside it stays put.
+private struct ConsoleFoldChevron: View {
+    let isCollapsed: Bool
+    @ScaledMetric(relativeTo: .footnote) private var width: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: "chevron.down")
             .font(.footnote.weight(.semibold))
             .foregroundStyle(Color.secondary)
+            .rotationEffect(.degrees(isCollapsed ? -90 : 0))
             .frame(width: width)
     }
 }
