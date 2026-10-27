@@ -7,6 +7,12 @@ Entries reference the pull request that made the change.
 
 ## [Unreleased]
 
+### Changed
+
+- Group Workspaces on a linked git worktree under their repository's main
+  checkout in the Agents list By Workspace, so a collapsed repository still
+  shows which of its worktrees need you.
+
 ## [0.1.16] - 2026-10-27
 
 ### Added

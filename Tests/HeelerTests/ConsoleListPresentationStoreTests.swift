@@ -110,6 +110,159 @@ struct ConsoleListPresentationStoreTests {
         #expect(store.workspaceSections(hosts: [host], agents: agents, searchQuery: " \n").first?.isCollapsed == true)
     }
 
+    private func checkoutAgent(
+        host: Host, paneID: String, status: AgentStatus, workspaceID: String, label: String,
+        repo: String?, linked: Bool = false
+    ) -> ConsoleAgent {
+        ConsoleAgent(
+            hostID: host.id, hostName: host.displayName,
+            agent: Agent(.fixture(paneID: paneID, status: status, workspaceID: workspaceID)),
+            workspaceLabel: label,
+            repositoryCheckout: repo.map {
+                RepositoryCheckout(
+                    repoKey: "/src/\($0)/.git", repoName: $0, repoRoot: "/src/\($0)",
+                    checkoutPath: linked ? "/wt/\(label)" : "/src/\($0)", isLinkedWorktree: linked)
+            })
+    }
+
+    private func sid(_ host: Host, _ workspaceID: String) -> ConsoleWorkspaceSection.ID {
+        .init(hostID: host.id, workspaceID: workspaceID)
+    }
+
+    @Test func linkedWorktreesNestUnderTheirMainCheckoutInPriorityOrder() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .working, workspaceID: "w1J", label: "PXD-5", repo: "plexus-Diagram", linked: true),
+            checkoutAgent(host: host, paneID: "p2", status: .done, workspaceID: "wY", label: "plexus-Diagram", repo: "plexus-Diagram"),
+            checkoutAgent(host: host, paneID: "p3", status: .idle, workspaceID: "wT", label: "Heeler Home", repo: nil),
+            checkoutAgent(host: host, paneID: "p4", status: .blocked, workspaceID: "w1N", label: "PXD-7", repo: "plexus-Diagram", linked: true),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        let groups = store.workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.id) == [sid(host, "wY"), sid(host, "w1J"), sid(host, "w1N"), sid(host, "wT")])
+        #expect(groups.map(\.parentID) == [nil, sid(host, "wY"), sid(host, "wY"), nil])
+        #expect(groups.map(\.isHidden) == [false, false, false, false])
+    }
+
+    @Test func worktreeJoinsTheFirstMainCheckoutWhenSeveralShareARepoKey() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .done, workspaceID: "w16", label: "roam-burrow", repo: "roam-burrow"),
+            checkoutAgent(host: host, paneID: "p2", status: .working, workspaceID: "w10", label: "BRW-10", repo: "roam-burrow", linked: true),
+            checkoutAgent(host: host, paneID: "p3", status: .idle, workspaceID: "w13", label: "roam-burrow", repo: "roam-burrow"),
+        ]
+        let groups = ConsoleListPresentationStore(defaults: defaults)
+            .workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.id) == [sid(host, "w16"), sid(host, "w10"), sid(host, "w13")])
+        #expect(groups.map(\.parentID) == [nil, sid(host, "w16"), nil])
+    }
+
+    @Test func worktreeWithoutAMainCheckoutWorkspaceStaysTopLevel() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .working, workspaceID: "w22", label: "DASH-2", repo: "Food_Safety", linked: true),
+            checkoutAgent(host: host, paneID: "p2", status: .idle, workspaceID: "w23", label: "DASH-3", repo: "Food_Safety", linked: true),
+        ]
+        let groups = ConsoleListPresentationStore(defaults: defaults)
+            .workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.id) == [sid(host, "w22"), sid(host, "w23")])
+        #expect(groups.allSatisfy { $0.parentID == nil })
+    }
+
+    @Test func worktreesNeverNestAcrossHosts() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let first = Host.fixture(name: "Studio")
+        let second = Host.fixture(name: "Build")
+        let agents = [
+            checkoutAgent(host: first, paneID: "p1", status: .done, workspaceID: "wY", label: "plexus-Diagram", repo: "plexus-Diagram"),
+            checkoutAgent(host: second, paneID: "p2", status: .working, workspaceID: "w1J", label: "PXD-5", repo: "plexus-Diagram", linked: true),
+        ]
+        let groups = ConsoleListPresentationStore(defaults: defaults)
+            .workspaceSections(hosts: [first, second], agents: agents)
+        #expect(groups.map(\.id) == [sid(first, "wY"), sid(second, "w1J")])
+        #expect(groups.allSatisfy { $0.parentID == nil })
+    }
+
+    @Test func collapsedParentAggregatesChildStatusesAndHidesChildren() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .done, workspaceID: "wY", label: "plexus-Diagram", repo: "plexus-Diagram"),
+            checkoutAgent(host: host, paneID: "p2", status: .blocked, workspaceID: "w1J", label: "PXD-5", repo: "plexus-Diagram", linked: true),
+            checkoutAgent(host: host, paneID: "p3", status: .working, workspaceID: "w1N", label: "PXD-7", repo: "plexus-Diagram", linked: true),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        store.toggleWorkspace(sid(host, "wY"))
+        let groups = store.workspaceSections(hosts: [host], agents: agents)
+        let parent = try #require(groups.first)
+        #expect(parent.isCollapsed)
+        #expect(parent.statusCounts == .init(blocked: 1, working: 1, done: 1))
+        #expect(parent.headerAgentCount == 3)
+        #expect(groups.dropFirst().map(\.isHidden) == [true, true])
+        #expect(groups.flatMap(\.visibleAgentIDs).isEmpty)
+
+        store.toggleWorkspace(sid(host, "wY"))
+        let expanded = try #require(store.workspaceSections(hosts: [host], agents: agents).first)
+        #expect(!expanded.isCollapsed)
+        #expect(expanded.statusCounts == .init(done: 1))
+        #expect(expanded.headerAgentCount == 1)
+    }
+
+    @Test func parentAndChildCollapseStatePersistsIndependently() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .done, workspaceID: "wY", label: "plexus-Diagram", repo: "plexus-Diagram"),
+            checkoutAgent(host: host, paneID: "p2", status: .blocked, workspaceID: "w1J", label: "PXD-5", repo: "plexus-Diagram", linked: true),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        store.toggleWorkspace(sid(host, "w1J"))
+        var reloaded = ConsoleListPresentationStore(defaults: defaults)
+        var groups = reloaded.workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.isCollapsed) == [false, true])
+        #expect(groups.map(\.isHidden) == [false, false])
+        reloaded.toggleWorkspace(sid(host, "wY"))
+        reloaded = ConsoleListPresentationStore(defaults: defaults)
+        groups = reloaded.workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.isCollapsed) == [true, true])
+        #expect(groups.map(\.isHidden) == [false, true])
+        reloaded.toggleWorkspace(sid(host, "wY"))
+        groups = ConsoleListPresentationStore(defaults: defaults).workspaceSections(hosts: [host], agents: agents)
+        #expect(groups.map(\.isCollapsed) == [false, true])
+    }
+
+    @Test func searchOpensParentAndChildWithoutChangingSavedCollapse() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .done, workspaceID: "wY", label: "plexus-Diagram", repo: "plexus-Diagram"),
+            checkoutAgent(host: host, paneID: "p2", status: .blocked, workspaceID: "w1J", label: "PXD-5", repo: "plexus-Diagram", linked: true),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        store.toggleWorkspace(sid(host, "wY"))
+        store.toggleWorkspace(sid(host, "w1J"))
+        // A match inside the child keeps its (unmatched) parent as the header.
+        let found = store.workspaceSections(hosts: [host], agents: agents, searchQuery: "PXD-5")
+        #expect(found.map(\.id) == [sid(host, "wY"), sid(host, "w1J")])
+        #expect(found.map(\.parentID) == [nil, sid(host, "wY")])
+        #expect(found.map(\.isCollapsed) == [false, false])
+        #expect(found.map(\.isHidden) == [false, false])
+        #expect(found.first?.agents.isEmpty == true)
+        #expect(found.flatMap(\.visibleAgentIDs) == [agents[1].id])
+        let cleared = store.workspaceSections(hosts: [host], agents: agents, searchQuery: "")
+        #expect(cleared.map(\.isCollapsed) == [true, true])
+    }
+
     @Test func workspaceGroupsReprojectNamesStatusesMembershipAndMissingLabels() throws {
         let (defaults, cleanup) = try makeDefaults()
         defer { cleanup() }

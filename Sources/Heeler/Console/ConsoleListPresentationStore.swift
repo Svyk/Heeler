@@ -44,11 +44,22 @@ struct ConsoleWorkspaceSection: Identifiable, Equatable {
     let hostName: String
     let agents: [ConsoleAgent]
     let isCollapsed: Bool
+    /// The main-checkout section this linked-worktree section nests under;
+    /// nil for a top-level section.
+    var parentID: ID?
+    /// Agents of the sections nested under this one, so a collapsed parent
+    /// still shows who needs the user.
+    var descendantAgents: [ConsoleAgent] = []
+    /// True while the parent is collapsed: the section is not drawn.
+    var isHidden = false
 
-    var statusCounts: ConsoleHostAgentStatusCounts { .init(agents: agents) }
-    var visibleAgentIDs: [ConsoleAgent.ID] { isCollapsed ? [] : agents.map(\.id) }
+    var isNested: Bool { parentID != nil }
+    /// A collapsed parent counts its nested sections' Agents too.
+    var headerAgentCount: Int { isCollapsed ? agents.count + descendantAgents.count : agents.count }
+    var statusCounts: ConsoleHostAgentStatusCounts { .init(agents: isCollapsed ? agents + descendantAgents : agents) }
+    var visibleAgentIDs: [ConsoleAgent.ID] { isCollapsed || isHidden ? [] : agents.map(\.id) }
     var accessibilityValue: String {
-        let count = agents.count == 1 ? "1 Agent" : "\(agents.count) Agents"
+        let count = headerAgentCount == 1 ? "1 Agent" : "\(headerAgentCount) Agents"
         return [count, isCollapsed ? "Collapsed" : "Expanded",
                 ConsoleHostSectionHeaderPresentation.statusText(items: statusCounts.items)]
             .compactMap { $0 }.joined(separator: ", ")
@@ -125,20 +136,75 @@ final class ConsoleListPresentationStore {
             hosts: hosts, agents: agents, filteredHostID: filteredHostID, searchQuery: searchQuery
         ).flatMap { host in
             let buckets = Dictionary(grouping: host.agents, by: \.agent.workspaceID)
-            var seen: Set<String> = []
-            return host.agents.compactMap { agent -> ConsoleWorkspaceSection? in
-                let workspaceID = agent.agent.workspaceID
-                guard seen.insert(workspaceID).inserted else { return nil }
-                let members = buckets[workspaceID] ?? []
-                let label = members.compactMap(\.workspaceLabel).first {
+            var order: [String] = []
+            for agent in host.agents where !order.contains(agent.agent.workspaceID) {
+                order.append(agent.agent.workspaceID)
+            }
+
+            // Nesting is decided on every Agent of the Host, so a search
+            // that matches only a worktree still finds its main checkout.
+            // Workspaces exist here only through their Agents: an agentless
+            // main checkout is not projected and cannot be a parent.
+            let everyAgent = agents.filter { $0.hostID == host.id }
+            let allBuckets = Dictionary(grouping: everyAgent, by: \.agent.workspaceID)
+            var allOrder: [String] = []
+            for agent in everyAgent where !allOrder.contains(agent.agent.workspaceID) {
+                allOrder.append(agent.agent.workspaceID)
+            }
+            func checkout(_ workspaceID: String) -> RepositoryCheckout? {
+                allBuckets[workspaceID]?.compactMap(\.repositoryCheckout).first
+            }
+            func mainCheckouts(_ repoKey: String, in ids: [String]) -> [String] {
+                ids.filter {
+                    let info = checkout($0)
+                    return info?.repoKey == repoKey && info?.isLinkedWorktree == false
+                }
+            }
+            var parentOf: [String: String] = [:]
+            for workspaceID in order {
+                guard let info = checkout(workspaceID), info.isLinkedWorktree else { continue }
+                let parent =
+                    mainCheckouts(info.repoKey, in: order).first
+                    ?? mainCheckouts(info.repoKey, in: allOrder).first
+                if let parent { parentOf[workspaceID] = parent }
+            }
+            var childrenOf: [String: [String]] = [:]
+            for workspaceID in order {
+                if let parent = parentOf[workspaceID] { childrenOf[parent, default: []].append(workspaceID) }
+            }
+
+            func members(_ workspaceID: String) -> [ConsoleAgent] { buckets[workspaceID] ?? [] }
+            func section(_ workspaceID: String) -> ConsoleWorkspaceSection {
+                let label = (allBuckets[workspaceID] ?? []).compactMap(\.workspaceLabel).first {
                     !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 }
                 let id = ConsoleWorkspaceSection.ID(hostID: host.id, workspaceID: workspaceID)
-                return ConsoleWorkspaceSection(
+                let parentID = parentOf[workspaceID].map {
+                    ConsoleWorkspaceSection.ID(hostID: host.id, workspaceID: $0)
+                }
+                var section = ConsoleWorkspaceSection(
                     id: id, title: label ?? (workspaceID.isEmpty ? "Unknown Workspace" : workspaceID),
-                    hostName: host.hostDisplayName, agents: members,
-                    isCollapsed: !isSearching && collapsedWorkspaceIDs.contains(id))
+                    hostName: host.hostDisplayName, agents: members(workspaceID),
+                    isCollapsed: !isSearching && collapsedWorkspaceIDs.contains(id),
+                    parentID: parentID)
+                section.descendantAgents = (childrenOf[workspaceID] ?? []).flatMap(members)
+                section.isHidden =
+                    !isSearching && parentID.map(collapsedWorkspaceIDs.contains) == true
+                return section
             }
+
+            var emitted: Set<String> = []
+            var result: [ConsoleWorkspaceSection] = []
+            func emit(_ workspaceID: String) {
+                guard emitted.insert(workspaceID).inserted else { return }
+                result.append(section(workspaceID))
+            }
+            for workspaceID in order {
+                let top = parentOf[workspaceID] ?? workspaceID
+                emit(top)
+                for child in childrenOf[top] ?? [] { emit(child) }
+            }
+            return result
         }
     }
 

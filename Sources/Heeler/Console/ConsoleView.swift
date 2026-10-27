@@ -1595,12 +1595,15 @@ struct ConsoleView: View {
         agentHostIssueRows
         let qualifiers = agentTitleQualifiers
         let saved = console.savedChatEntries
-        ForEach(workspaceSections) { @Sendable section in
+        ForEach(workspaceSections.filter { !$0.isHidden }) { @Sendable section in
             MainActorContent {
                 Section {
                     if !section.isCollapsed {
                         ForEach(section.agents) { @Sendable agent in
-                            MainActorContent { agentRow(agent, qualifier: qualifiers[agent.id], saved: saved[agent.id]) }
+                            MainActorContent {
+                                agentRow(agent, qualifier: qualifiers[agent.id], saved: saved[agent.id])
+                                    .padding(.leading, section.isNested ? 16 : 0)
+                            }
                         }
                     }
                 } header: {
@@ -2472,6 +2475,12 @@ private struct ConsoleWorkspaceSectionHeader: View {
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: 8) {
+                if section.isNested {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.footnote)
+                        .foregroundStyle(Color.secondary)
+                        .accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(section.title)
                         .font(.subheadline.weight(.semibold))
@@ -2485,7 +2494,7 @@ private struct ConsoleWorkspaceSectionHeader: View {
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
-                Text("\(section.agents.count)")
+                Text("\(section.headerAgentCount)")
                     .font(.subheadline)
                     .foregroundStyle(Color.secondary)
                 Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
@@ -2494,6 +2503,7 @@ private struct ConsoleWorkspaceSectionHeader: View {
                     .frame(width: 12)
             }
             .frame(minHeight: 44)
+            .padding(.leading, section.isNested ? 16 : 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
