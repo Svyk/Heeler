@@ -354,7 +354,8 @@ detects that from `HERDR_PLUGIN_CONFIG_DIR` and emits a Pairing Code v2 whose `s
   `XDG_CACHE_HOME` when set, and its `HERDR_*` variables except the ones herdr
   sets per process and an inherited client socket (`HERDR_SOCKET_PATH`,
   `HERDR_CLIENT_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`,
-  `HERDR_SESSION`, `HERDR_PLUGIN_*`, `HERDR_PANE*`), then `exec`s
+  `HERDR_SESSION`, `HERDR_PLUGIN_*`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`,
+  `HERDR_PANE*`), then `exec`s
   `HERDR_BIN_PATH`. The popup runs inside the server, so these are the
   server's own settings.
 - Before the launcher goes in the code, the popup runs

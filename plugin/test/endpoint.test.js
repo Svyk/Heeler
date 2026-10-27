@@ -105,6 +105,8 @@ suite("launcherScript", () => {
     HERDR_ENV: "1",
     HERDR_SESSION: "work",
     HERDR_PLUGIN_ID: "heeler",
+    HERDR_WORKSPACE_ID: "w1",
+    HERDR_TAB_ID: "w1:t2",
     HERDR_PANE_ID: "w1:p1",
     HOME: "/Users/ada",
     SECRET: "x",
