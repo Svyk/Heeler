@@ -263,6 +263,149 @@ struct ConsoleListPresentationStoreTests {
         #expect(cleared.map(\.isCollapsed) == [true, true])
     }
 
+    private func rowShape(_ card: ConsoleWorkspaceCard) -> [String] {
+        card.rows.map { placed in
+            let rule = switch placed.rule {
+            case .none: ""
+            case .full: "—"
+            case .inset: "-"
+            }
+            return switch placed.row {
+            case .header: "\(rule)header"
+            case .checkout(let section): "\(rule)checkout \(section.title)"
+            case .agent(let agent, _, let alone): "\(rule)\(alone ? "alone" : "agent") \(agent.agent.paneID)"
+            }
+        }
+    }
+
+    @Test func repositoryCardTitlesEachCheckoutOnceAndListsSeveralAgentsUnderIt() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .working, workspaceID: "wY", label: "Heeler", repo: "heeler"),
+            checkoutAgent(host: host, paneID: "p2", status: .blocked, workspaceID: "w1", label: "fix-inset", repo: "heeler", linked: true),
+            checkoutAgent(host: host, paneID: "p3", status: .done, workspaceID: "w2", label: "nest", repo: "heeler", linked: true),
+            checkoutAgent(host: host, paneID: "p4", status: .working, workspaceID: "w2", label: "nest", repo: "heeler", linked: true),
+            checkoutAgent(host: host, paneID: "p5", status: .idle, workspaceID: "wD", label: "Docs", repo: nil),
+            checkoutAgent(host: host, paneID: "p6", status: .idle, workspaceID: "wA", label: "API", repo: nil),
+            checkoutAgent(host: host, paneID: "p7", status: .done, workspaceID: "wA", label: "API", repo: nil),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        let cards = ConsoleWorkspaceCard.cards(store.workspaceSections(hosts: [host], agents: agents))
+        #expect(cards.map(\.id) == [sid(host, "wY"), sid(host, "wD"), sid(host, "wA")])
+        let repository = try #require(cards.first)
+        #expect(repository.isRepository)
+        #expect(repository.primary.checkout?.repoName == "heeler")
+        #expect(repository.agents.count == 4)
+        #expect(rowShape(repository) == [
+            "header", "alone p1", "—alone p2", "—checkout nest", "agent p3", "-agent p4",
+        ])
+        #expect(repository.rows.map(\.isFirst) == [true, false, false, false, false, false])
+        #expect(repository.rows.map(\.isLast) == [false, false, false, false, false, true])
+        #expect(repository.rows.map(\.followsHeader) == [false, true, false, false, true, false])
+        // A Workspace with one Agent is that Agent's card; with several, a header leads.
+        #expect(rowShape(cards[1]) == ["alone p5"])
+        #expect(rowShape(cards[2]) == ["header", "agent p6", "-agent p7"])
+        #expect(cards.flatMap(\.visibleAgentIDs) == agents.map(\.id))
+    }
+
+    @Test func cardsFoldAsTheirSectionsDoButALoneAgentHasNothingToFold() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .working, workspaceID: "wY", label: "Heeler", repo: "heeler"),
+            checkoutAgent(host: host, paneID: "p2", status: .done, workspaceID: "w2", label: "nest", repo: "heeler", linked: true),
+            checkoutAgent(host: host, paneID: "p3", status: .working, workspaceID: "w2", label: "nest", repo: "heeler", linked: true),
+            checkoutAgent(host: host, paneID: "p4", status: .idle, workspaceID: "wD", label: "Docs", repo: nil),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        store.toggleWorkspace(sid(host, "w2"))
+        store.toggleWorkspace(sid(host, "wD"))
+        var cards = ConsoleWorkspaceCard.cards(store.workspaceSections(hosts: [host], agents: agents))
+        #expect(rowShape(cards[0]) == ["header", "alone p1", "—checkout nest"])
+        #expect(rowShape(cards[1]) == ["alone p4"])
+        #expect(cards.flatMap(\.visibleAgentIDs) == [agents[0].id, agents[3].id])
+
+        store.toggleWorkspace(sid(host, "wY"))
+        cards = ConsoleWorkspaceCard.cards(store.workspaceSections(hosts: [host], agents: agents))
+        #expect(rowShape(cards[0]) == ["header"])
+        #expect(cards[0].rows.first?.isLast == true)
+        #expect(cards[0].accessibilityValue == "3 Agents, Collapsed, 2 working, 1 done")
+        #expect(cards.flatMap(\.visibleAgentIDs) == [agents[3].id])
+    }
+
+    @Test func searchKeepsTheRepositoryHeaderButNotItsUnmatchedMainCheckout() throws {
+        let (defaults, cleanup) = try makeDefaults()
+        defer { cleanup() }
+        let host = Host.fixture()
+        let agents = [
+            checkoutAgent(host: host, paneID: "p1", status: .working, workspaceID: "wY", label: "Heeler", repo: "heeler"),
+            checkoutAgent(host: host, paneID: "p2", status: .blocked, workspaceID: "w1", label: "PXD-5", repo: "heeler", linked: true),
+        ]
+        let store = ConsoleListPresentationStore(defaults: defaults)
+        let cards = ConsoleWorkspaceCard.cards(
+            store.workspaceSections(hosts: [host], agents: agents, searchQuery: "PXD-5"))
+        #expect(cards.count == 1)
+        #expect(rowShape(try #require(cards.first)) == ["header", "alone p2"])
+    }
+
+    @Test func rowsInACardLeaveTheWorkspaceHostAndCheckoutDirectoryToIt() {
+        let host = Host.fixture()
+        let atCheckout = checkoutAgent(
+            host: host, paneID: "p1", status: .idle, workspaceID: "w1", label: "nest", repo: "heeler", linked: true)
+        #expect(ConsoleWorkspaceCard.hiddenTokens(for: atCheckout, showsHost: false) == [.workspace, .host])
+        #expect(ConsoleWorkspaceCard.hiddenTokens(for: atCheckout, showsHost: true) == [.workspace])
+        let inCheckout = ConsoleAgent(
+            hostID: host.id, hostName: host.displayName,
+            agent: Agent(
+                terminalID: "term_p2", kind: "claude", title: "Task", status: .idle,
+                workspaceID: "w1", tabID: "w1:t1", paneID: "p2", cwd: "/wt/nest", revision: 1),
+            workspaceLabel: "nest", repositoryCheckout: atCheckout.repositoryCheckout)
+        #expect(ConsoleWorkspaceCard.hiddenTokens(for: inCheckout, showsHost: true) == [.workspace, .directory])
+
+        let layout = AgentRowLayout(rows: [
+            [.init(.workspace), .init(.host)], [.init(.agent)], [.init(.directory)],
+        ])
+        let card = AgentCardPresentation(
+            agent: inCheckout, layout: layout,
+            hiding: ConsoleWorkspaceCard.hiddenTokens(for: inCheckout, showsHost: false))
+        #expect(card.headline == inCheckout.agent.displayName)
+        #expect(card.additionalRows.isEmpty)
+    }
+
+    @Test func checkoutTitlesNameTheMainCheckoutByBranchAndAWorktreeByWorkspace() {
+        typealias Title = ConsoleCheckoutTitle
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: .named("release/1.4"))
+            == Title(title: "release/1.4"))
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: .detached)
+            == Title(title: "Heeler", detail: "detached"))
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: nil)
+            == Title(title: "Heeler", isPending: true))
+        #expect(Title(label: "nest", isMainCheckout: false, branch: .named("feat/nest"))
+            == Title(title: "nest", detail: "feat/nest"))
+        #expect(Title(label: "fix-inset", isMainCheckout: false, branch: .named("fix-inset"))
+            == Title(title: "fix-inset"))
+        #expect(Title(label: "ipad", isMainCheckout: false, branch: .detached)
+            == Title(title: "ipad", detail: "detached"))
+        #expect(Title(label: "ipad", isMainCheckout: false, branch: nil) == Title(title: "ipad"))
+    }
+
+    @Test func aCheckoutTakesTheBranchOnlyFromAReadOfThatCheckout() {
+        func read(_ path: String, _ branch: CheckoutHead.Branch) -> CheckoutChanges {
+            CheckoutChanges(
+                checkout: CheckoutLocation(
+                    topLevel: Data(path.utf8), isLinkedWorktree: false, displayPath: path),
+                head: CheckoutHead(branch: branch, commit: nil, latestCommit: nil),
+                files: [])
+        }
+        let reads = [read("/src/other", .named("elsewhere")), read("/src/heeler", .named("main"))]
+        #expect(ConsoleCheckoutTitle.branch(at: "/src/heeler", in: reads) == .named("main"))
+        #expect(ConsoleCheckoutTitle.branch(at: "/src/missing", in: reads) == nil)
+        #expect(ConsoleCheckoutTitle.branch(at: nil, in: reads) == nil)
+    }
+
     @Test func workspaceGroupsReprojectNamesStatusesMembershipAndMissingLabels() throws {
         let (defaults, cleanup) = try makeDefaults()
         defer { cleanup() }

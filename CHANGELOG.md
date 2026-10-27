@@ -19,9 +19,10 @@ Entries reference the pull request that made the change.
 
 ### Changed
 
-- Group Workspaces on a linked git worktree under their repository's main
-  checkout in the Agents list By Workspace, so a collapsed repository still
-  shows which of its worktrees need you. (#522)
+- Show the Agents list By Workspace as cards, with Workspaces on a linked
+  git worktree in their repository's card: the main checkout under its
+  current branch, each worktree beneath it, and a collapsed card still
+  shows which checkouts need you. (#522)
 
 ## [0.1.16] - 2026-10-27
 
