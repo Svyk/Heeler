@@ -132,6 +132,7 @@ final class ConsoleListPresentationStore {
         filteredHostID: Host.ID? = nil, searchQuery: String = ""
     ) -> [ConsoleWorkspaceSection] {
         let isSearching = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let collapsedIDs = collapsedWorkspaceIDs
         return sections(
             hosts: hosts, agents: agents, filteredHostID: filteredHostID, searchQuery: searchQuery
         ).flatMap { host in
@@ -185,11 +186,11 @@ final class ConsoleListPresentationStore {
                 var section = ConsoleWorkspaceSection(
                     id: id, title: label ?? (workspaceID.isEmpty ? "Unknown Workspace" : workspaceID),
                     hostName: host.hostDisplayName, agents: members(workspaceID),
-                    isCollapsed: !isSearching && collapsedWorkspaceIDs.contains(id),
+                    isCollapsed: !isSearching && collapsedIDs.contains(id),
                     parentID: parentID)
                 section.descendantAgents = (childrenOf[workspaceID] ?? []).flatMap(members)
                 section.isHidden =
-                    !isSearching && parentID.map(collapsedWorkspaceIDs.contains) == true
+                    !isSearching && parentID.map(collapsedIDs.contains) == true
                 return section
             }
 
