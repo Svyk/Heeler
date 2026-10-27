@@ -59,7 +59,7 @@ struct ConsoleListPresentationStoreTests {
             [agents[1].id, agents[3].id], [agents[2].id], [agents[0].id],
         ])
         #expect(groups.allSatisfy { !$0.isCollapsed && $0.title == "Shared" })
-        #expect(groups.flatMap(\.visibleAgentIDs).count == agents.count)
+        #expect(ConsoleWorkspaceCard.cards(groups).flatMap(\.visibleAgentIDs).count == agents.count)
         let filtered = store.workspaceSections(
             hosts: [first, second], agents: agents, filteredHostID: second.id)
         #expect(filtered.map(\.id) == [.init(hostID: second.id, workspaceID: "w1")])
@@ -83,7 +83,6 @@ struct ConsoleListPresentationStoreTests {
         let collapsed = try #require(groups.first)
         #expect(collapsed.title == "Renamed")
         #expect(collapsed.isCollapsed)
-        #expect(collapsed.visibleAgentIDs.isEmpty)
         #expect(collapsed.statusCounts == .init(blocked: 1))
         #expect(collapsed.accessibilityValue == "1 Agent, Collapsed, 1 blocked")
         #expect(groups.last?.isCollapsed == false)
@@ -105,7 +104,7 @@ struct ConsoleListPresentationStoreTests {
         let result = store.workspaceSections(hosts: [host], agents: agents, searchQuery: "  WEBSITE  ")
         #expect(result.count == 1)
         #expect(result.first?.isCollapsed == false)
-        #expect(result.flatMap(\.visibleAgentIDs) == [agents[0].id])
+        #expect(ConsoleWorkspaceCard.cards(result).flatMap(\.visibleAgentIDs) == [agents[0].id])
         #expect(store.workspaceSections(hosts: [host], agents: agents, searchQuery: "does-not-exist").isEmpty)
         #expect(store.workspaceSections(hosts: [host], agents: agents, searchQuery: " \n").first?.isCollapsed == true)
     }
@@ -143,7 +142,6 @@ struct ConsoleListPresentationStoreTests {
         let groups = store.workspaceSections(hosts: [host], agents: agents)
         #expect(groups.map(\.id) == [sid(host, "wY"), sid(host, "w1J"), sid(host, "w1N"), sid(host, "wT")])
         #expect(groups.map(\.parentID) == [nil, sid(host, "wY"), sid(host, "wY"), nil])
-        #expect(groups.map(\.isHidden) == [false, false, false, false])
     }
 
     @Test func worktreeJoinsTheFirstMainCheckoutWhenSeveralShareARepoKey() throws {
@@ -190,7 +188,7 @@ struct ConsoleListPresentationStoreTests {
         #expect(groups.allSatisfy { $0.parentID == nil })
     }
 
-    @Test func collapsedParentAggregatesChildStatusesAndHidesChildren() throws {
+    @Test func collapsedRepositoryCardCountsItsWorktreesAndHidesThem() throws {
         let (defaults, cleanup) = try makeDefaults()
         defer { cleanup() }
         let host = Host.fixture()
@@ -201,19 +199,19 @@ struct ConsoleListPresentationStoreTests {
         ]
         let store = ConsoleListPresentationStore(defaults: defaults)
         store.toggleWorkspace(sid(host, "wY"))
-        let groups = store.workspaceSections(hosts: [host], agents: agents)
-        let parent = try #require(groups.first)
-        #expect(parent.isCollapsed)
-        #expect(parent.statusCounts == .init(blocked: 1, working: 1, done: 1))
-        #expect(parent.headerAgentCount == 3)
-        #expect(groups.dropFirst().map(\.isHidden) == [true, true])
-        #expect(groups.flatMap(\.visibleAgentIDs).isEmpty)
+        let card = try #require(
+            ConsoleWorkspaceCard.cards(store.workspaceSections(hosts: [host], agents: agents)).first)
+        #expect(card.isCollapsed)
+        #expect(ConsoleHostAgentStatusCounts(agents: card.agents) == .init(blocked: 1, working: 1, done: 1))
+        #expect(card.accessibilityValue == "3 Agents, Collapsed, 1 blocked, 1 working, 1 done")
+        #expect(rowShape(card) == ["header"])
+        #expect(card.visibleAgentIDs.isEmpty)
 
         store.toggleWorkspace(sid(host, "wY"))
-        let expanded = try #require(store.workspaceSections(hosts: [host], agents: agents).first)
-        #expect(!expanded.isCollapsed)
-        #expect(expanded.statusCounts == .init(done: 1))
-        #expect(expanded.headerAgentCount == 1)
+        let groups = store.workspaceSections(hosts: [host], agents: agents)
+        // Each section counts its own Agents; the card adds them up.
+        #expect(groups.map(\.statusCounts) == [.init(done: 1), .init(blocked: 1), .init(working: 1)])
+        #expect(ConsoleWorkspaceCard.cards(groups).first?.visibleAgentIDs == agents.map(\.id))
     }
 
     @Test func parentAndChildCollapseStatePersistsIndependently() throws {
@@ -229,12 +227,10 @@ struct ConsoleListPresentationStoreTests {
         var reloaded = ConsoleListPresentationStore(defaults: defaults)
         var groups = reloaded.workspaceSections(hosts: [host], agents: agents)
         #expect(groups.map(\.isCollapsed) == [false, true])
-        #expect(groups.map(\.isHidden) == [false, false])
         reloaded.toggleWorkspace(sid(host, "wY"))
         reloaded = ConsoleListPresentationStore(defaults: defaults)
         groups = reloaded.workspaceSections(hosts: [host], agents: agents)
         #expect(groups.map(\.isCollapsed) == [true, true])
-        #expect(groups.map(\.isHidden) == [false, true])
         reloaded.toggleWorkspace(sid(host, "wY"))
         groups = ConsoleListPresentationStore(defaults: defaults).workspaceSections(hosts: [host], agents: agents)
         #expect(groups.map(\.isCollapsed) == [false, true])
@@ -256,9 +252,8 @@ struct ConsoleListPresentationStoreTests {
         #expect(found.map(\.id) == [sid(host, "wY"), sid(host, "w1J")])
         #expect(found.map(\.parentID) == [nil, sid(host, "wY")])
         #expect(found.map(\.isCollapsed) == [false, false])
-        #expect(found.map(\.isHidden) == [false, false])
         #expect(found.first?.agents.isEmpty == true)
-        #expect(found.flatMap(\.visibleAgentIDs) == [agents[1].id])
+        #expect(ConsoleWorkspaceCard.cards(found).flatMap(\.visibleAgentIDs) == [agents[1].id])
         let cleared = store.workspaceSections(hosts: [host], agents: agents, searchQuery: "")
         #expect(cleared.map(\.isCollapsed) == [true, true])
     }
@@ -377,19 +372,37 @@ struct ConsoleListPresentationStoreTests {
 
     @Test func checkoutTitlesNameTheMainCheckoutByBranchAndAWorktreeByWorkspace() {
         typealias Title = ConsoleCheckoutTitle
+        let main = Title.Role.mainCheckout
+        let worktree = Title.Role.worktree
         #expect(Title(label: "Heeler", isMainCheckout: true, branch: .named("release/1.4"))
-            == Title(title: "release/1.4"))
+            == Title(title: "release/1.4", role: main))
         #expect(Title(label: "Heeler", isMainCheckout: true, branch: .detached)
-            == Title(title: "Heeler", detail: "detached"))
+            == Title(title: "Heeler", detail: "detached", role: main))
         #expect(Title(label: "Heeler", isMainCheckout: true, branch: nil)
-            == Title(title: "Heeler", isPending: true))
+            == Title(title: "Heeler", isPending: true, role: main))
         #expect(Title(label: "nest", isMainCheckout: false, branch: .named("feat/nest"))
-            == Title(title: "nest", detail: "feat/nest"))
+            == Title(title: "nest", detail: "feat/nest", role: worktree))
         #expect(Title(label: "fix-inset", isMainCheckout: false, branch: .named("fix-inset"))
-            == Title(title: "fix-inset"))
+            == Title(title: "fix-inset", role: worktree))
         #expect(Title(label: "ipad", isMainCheckout: false, branch: .detached)
-            == Title(title: "ipad", detail: "detached"))
-        #expect(Title(label: "ipad", isMainCheckout: false, branch: nil) == Title(title: "ipad"))
+            == Title(title: "ipad", detail: "detached", role: worktree))
+        #expect(Title(label: "ipad", isMainCheckout: false, branch: nil) == Title(title: "ipad", role: worktree))
+    }
+
+    @Test func checkoutTitlesTellVoiceOverWhatTheIconShows() {
+        typealias Title = ConsoleCheckoutTitle
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: .named("main")).accessibilityLabel
+            == "Branch main")
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: .detached).accessibilityLabel
+            == "Heeler, detached")
+        #expect(Title(label: "Heeler", isMainCheckout: true, branch: nil).accessibilityLabel == "Heeler")
+        #expect(Title(label: "nest", isMainCheckout: false, branch: .named("feat/nest")).accessibilityLabel
+            == "nest, worktree, branch feat/nest")
+        #expect(Title(label: "nest", isMainCheckout: false, branch: .named("nest")).accessibilityLabel
+            == "nest, worktree")
+        #expect(Title(label: "ipad", isMainCheckout: false, branch: .detached).accessibilityLabel
+            == "ipad, worktree, detached")
+        #expect(Title(title: "Docs").accessibilityLabel == "Docs")
     }
 
     @Test func aCheckoutTakesTheBranchOnlyFromAReadOfThatCheckout() {

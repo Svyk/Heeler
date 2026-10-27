@@ -1,19 +1,17 @@
 import SwiftUI
 import UIKit
 
-/// The Agents list's By Workspace cards. The plain list keeps the other
-/// presentations' background and has no cards of its own, so each row draws
-/// its slice of one, as the Terminals list's By Host cards do.
+/// The Agents list's By Workspace cards: an inset grouped list, one section
+/// per card, as the Terminals list's By Workspace cards. The list keeps the
+/// other presentations' page, so the cards take a quiet gray.
 enum ConsoleWorkspaceCardMetrics {
-    /// From the screen edge to the card, as the Terminals cards.
-    static let margin: CGFloat = 16
     /// From the card's edge to its icons.
     static let padding: CGFloat = 14
+    /// The icon column at the default text size; it grows with the text.
     static let iconWidth: CGFloat = 20
     static let iconSpacing: CGFloat = 10
-    /// From the card's edge to its text, past the icon column.
-    static let textInset = padding + iconWidth + iconSpacing
-    static let radius: CGFloat = 18
+    /// From the card's right edge to the end of a rule between Agents.
+    static let ruleTrailing: CGFloat = 16
     /// Between cards.
     static let gap: CGFloat = 12
 
@@ -24,45 +22,63 @@ enum ConsoleWorkspaceCardMetrics {
     }
 }
 
-/// One row's slice of its card: the first rounds the top and keeps the gap
-/// above the card, the last rounds the bottom, and a row's rule sits on top.
-struct ConsoleWorkspaceCardSlice: ViewModifier {
+/// The icon column's width, scaled with the text it sits beside.
+private struct CardIconWidth: DynamicProperty {
+    @ScaledMetric(relativeTo: .subheadline) var value = ConsoleWorkspaceCardMetrics.iconWidth
+
+    /// From the card's edge to its text, past the icon column.
+    var textInset: CGFloat {
+        ConsoleWorkspaceCardMetrics.padding + value + ConsoleWorkspaceCardMetrics.iconSpacing
+    }
+}
+
+/// One row of a card. The list rounds the card's ends and clips a swiped
+/// row to them; the row draws the card's fill, the selection beside the
+/// sidebar, and its rule above.
+struct ConsoleWorkspaceCardRow: ViewModifier {
+    enum Indent {
+        /// The row starts at the icon column.
+        case icon
+        /// An Agent listed under a header starts at the text column.
+        case text
+    }
+
     let placed: ConsoleWorkspaceCard.Placed
-    /// From the card's edge to the row's content: its icon, or its text for
-    /// an Agent listed under a header.
-    let leading: CGFloat
+    let indent: Indent
     let top: CGFloat
     let bottom: CGFloat
     var isSelected = false
+    private var iconWidth = CardIconWidth()
     @Environment(\.displayScale) private var displayScale
     @Environment(\.isSidebarColumn) private var isSidebarColumn
+
+    init(
+        placed: ConsoleWorkspaceCard.Placed, indent: Indent, top: CGFloat, bottom: CGFloat,
+        isSelected: Bool = false
+    ) {
+        self.placed = placed
+        self.indent = indent
+        self.top = top
+        self.bottom = bottom
+        self.isSelected = isSelected
+    }
 
     private typealias Metrics = ConsoleWorkspaceCardMetrics
 
     func body(content: Content) -> some View {
-        let gap = placed.isFirst ? Metrics.gap : 0
-        let topRadius = placed.isFirst ? Metrics.radius : 0
-        let bottomRadius = placed.isLast ? Metrics.radius : 0
-        let slice = UnevenRoundedRectangle(
-            topLeadingRadius: topRadius, bottomLeadingRadius: bottomRadius,
-            bottomTrailingRadius: bottomRadius, topTrailingRadius: topRadius,
-            style: .continuous)
         content
             .listRowInsets(
                 EdgeInsets(
-                    top: gap + top, leading: Metrics.margin + leading, bottom: bottom,
-                    trailing: Metrics.margin + Metrics.padding))
+                    top: top, leading: indent == .text ? iconWidth.textInset : Metrics.padding,
+                    bottom: bottom, trailing: Metrics.padding))
             .listRowSeparator(.hidden)
             .listRowBackground(
-                slice
-                    .fill(Metrics.fill(inSidebar: isSidebarColumn))
-                    .background { if isSidebarColumn { ListRowFocusHalo(shape: slice) } }
-                    .overlay {
-                        if isSelected { slice.fill(ConsoleRowSelection.fill) }
-                    }
+                Metrics.fill(inSidebar: isSidebarColumn)
+                    // The selection shows only beside the sidebar, where
+                    // the detail stays on stage; see `ConsoleRowSelection`.
+                    .overlay(isSidebarColumn && isSelected ? ConsoleRowSelection.fill : Color.clear)
                     .overlay(alignment: .top) { rule }
-                    .padding(.top, gap)
-                    .padding(.horizontal, Metrics.margin))
+                    .background { if isSidebarColumn { ListRowCellFocusHalo() } })
     }
 
     @ViewBuilder
@@ -72,8 +88,8 @@ struct ConsoleWorkspaceCardSlice: ViewModifier {
             Rectangle()
                 .fill(Color(uiColor: .separator))
                 .frame(height: 1 / displayScale)
-                .padding(.leading, isInset ? Metrics.textInset : 0)
-                .padding(.trailing, isInset ? Metrics.padding : 0)
+                .padding(.leading, isInset ? iconWidth.textInset : 0)
+                .padding(.trailing, isInset ? Metrics.ruleTrailing : 0)
         }
     }
 }
@@ -82,6 +98,7 @@ struct ConsoleWorkspaceCardSlice: ViewModifier {
 /// repository's main checkout, and a branch for a linked worktree.
 struct ConsoleWorkspaceCardIcon: View {
     let systemName: String
+    private var width = CardIconWidth()
 
     static let folder = "folder"
 
@@ -90,20 +107,24 @@ struct ConsoleWorkspaceCardIcon: View {
     }
 
     init(checkout: RepositoryCheckout?) {
-        systemName = checkout?.isLinkedWorktree == true ? "arrow.triangle.branch" : "book.closed"
+        self.init(systemName: Self.systemName(for: checkout))
+    }
+
+    static func systemName(for checkout: RepositoryCheckout?) -> String {
+        checkout?.isLinkedWorktree == true ? "arrow.triangle.branch" : "book.closed"
     }
 
     var body: some View {
         Image(systemName: systemName)
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .frame(width: ConsoleWorkspaceCardMetrics.iconWidth)
+            .frame(width: width.value)
             .accessibilityHidden(true)
     }
 }
 
 /// A checkout's title, then its branch or state in a quieter face; the
-/// branch truncates first.
+/// branch truncates first. VoiceOver hears what the icon shows.
 struct ConsoleCheckoutTitleText: View {
     let title: ConsoleCheckoutTitle
     let font: Font
@@ -122,6 +143,8 @@ struct ConsoleCheckoutTitleText: View {
             }
         }
         .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: title.accessibilityLabel))
     }
 }
 
@@ -130,7 +153,16 @@ struct ConsoleCheckoutSummary: Identifiable, Sendable {
     let id: ConsoleWorkspaceSection.ID
     let title: ConsoleCheckoutTitle
     let checkout: RepositoryCheckout?
-    let statuses: [AgentStatus]
+    let agents: [ConsoleAgent]
+
+    /// "iOS App, worktree, branch attach-polish, 2 Agents, 1 working, 1 done".
+    var accessibilityText: String {
+        let count = agents.count == 1 ? "1 Agent" : "\(agents.count) Agents"
+        return [title.accessibilityLabel, count,
+                ConsoleHostSectionHeaderPresentation.statusText(
+                    items: ConsoleHostAgentStatusCounts(agents: agents).items)]
+            .compactMap { $0 }.joined(separator: ", ")
+    }
 }
 
 /// A card's header: what it holds, where, how many Agents, and the chevron
@@ -142,6 +174,7 @@ struct ConsoleWorkspaceCardHeader: View {
     let subtitle: String
     let checkouts: [ConsoleCheckoutSummary]
     let onToggle: () -> Void
+    private var iconWidth = CardIconWidth()
 
     private typealias Metrics = ConsoleWorkspaceCardMetrics
 
@@ -162,14 +195,11 @@ struct ConsoleWorkspaceCardHeader: View {
                     Text("\(card.agents.count)")
                         .font(.subheadline)
                         .foregroundStyle(Color.secondary)
-                    Image(systemName: card.isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color.secondary)
-                        .frame(width: 12)
+                    ConsoleFoldChevron(isCollapsed: card.isCollapsed)
                 }
                 if card.isCollapsed {
                     summary
-                        .padding(.leading, Metrics.iconWidth + Metrics.iconSpacing)
+                        .padding(.leading, iconWidth.value + Metrics.iconSpacing)
                 }
             }
             .lineLimit(1)
@@ -181,10 +211,15 @@ struct ConsoleWorkspaceCardHeader: View {
         .hoverEffect(.highlight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "\(title), \(subtitle)"))
-        .accessibilityValue(card.accessibilityValue)
+        .accessibilityValue(accessibilityValue)
         .accessibilityHint(card.isCollapsed ? "Expands this Workspace." : "Collapses this Workspace.")
         .accessibilityAddTraits(.isHeader)
         .textCase(nil)
+    }
+
+    /// Collapsed, the summary's lines as well, which the eye reads off it.
+    private var accessibilityValue: String {
+        ([card.accessibilityValue] + checkouts.map(\.accessibilityText)).joined(separator: "; ")
     }
 
     @ViewBuilder
@@ -192,7 +227,7 @@ struct ConsoleWorkspaceCardHeader: View {
         let items = ConsoleHostAgentStatusCounts(agents: card.agents).items
         VStack(alignment: .leading, spacing: 6) {
             if !items.isEmpty {
-                ConsoleHostStatusCountPills(items: items)
+                ConsoleHostStatusCountPills(items: items, wraps: true)
             }
             ForEach(checkouts) { @Sendable checkout in
                 MainActorContent { ConsoleCheckoutSummaryLine(summary: checkout) }
@@ -203,16 +238,17 @@ struct ConsoleWorkspaceCardHeader: View {
 
 private struct ConsoleCheckoutSummaryLine: View {
     let summary: ConsoleCheckoutSummary
+    @ScaledMetric(relativeTo: .caption2) private var iconWidth: CGFloat = 14
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: ConsoleWorkspaceCardIcon(checkout: summary.checkout).systemName)
+            Image(systemName: ConsoleWorkspaceCardIcon.systemName(for: summary.checkout))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .frame(width: 14)
+                .frame(width: iconWidth)
             ConsoleCheckoutTitleText(title: summary.title, font: .footnote, detailFont: .caption)
             Spacer(minLength: 8)
-            ConsoleAgentStatusDots(statuses: summary.statuses)
+            ConsoleAgentStatusDots(statuses: summary.agents.map(\.agent.status))
         }
     }
 }
@@ -230,6 +266,7 @@ private struct ConsoleAgentStatusDots: View {
                     .frame(width: 7, height: 7)
             }
         }
+        .fixedSize()
         .accessibilityHidden(true)
     }
 }
@@ -277,13 +314,25 @@ struct ConsoleCheckoutHeader: View {
                 .font(.subheadline)
                 .foregroundStyle(Color.secondary)
             if onToggle != nil {
-                Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color.secondary)
-                    .frame(width: 12)
+                ConsoleFoldChevron(isCollapsed: section.isCollapsed)
             }
         }
-        .frame(minHeight: 36)
+        // A whole fold target, as a header's tap area should be.
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
+    }
+}
+
+/// A header's fold state, in a column as wide as either glyph at the
+/// current text size, so the count beside it stays put.
+private struct ConsoleFoldChevron: View {
+    let isCollapsed: Bool
+    @ScaledMetric(relativeTo: .footnote) private var width: CGFloat = 12
+
+    var body: some View {
+        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Color.secondary)
+            .frame(width: width)
     }
 }

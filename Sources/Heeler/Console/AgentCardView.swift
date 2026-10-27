@@ -57,18 +57,22 @@ struct AgentCardView: View {
                         .accessibilityLabel("Pinned")
                 }
                 Spacer(minLength: 8)
-                if saved != nil {
-                    SavedChatBadge()
-                } else if agent.agent.status.displayTitle != nil {
-                    AgentStatusBadge(status: agent.agent.status)
+                // Whole at any text size; the title truncates instead.
+                Group {
+                    if saved != nil {
+                        SavedChatBadge()
+                    } else if agent.agent.status.displayTitle != nil {
+                        AgentStatusBadge(status: agent.agent.status)
+                    }
                 }
+                .fixedSize()
             }
             let additionalRows = heading == nil ? Array(presentation.rows.dropFirst()) : presentation.rows
             additionalRowViews(additionalRows)
             if additionalRows.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Spacer(minLength: 0)
-                    if showsHost { hostText }
+                    if showsHostText { hostText }
                     if let totalsSource {
                         ChangesRowTotals(source: totalsSource).layoutPriority(1)
                     }
@@ -101,7 +105,7 @@ struct AgentCardView: View {
                     if index == 0 || isLast {
                         Spacer(minLength: 8)
                     }
-                    if index == 0, showsHost {
+                    if index == 0, showsHostText {
                         hostText.layoutPriority(1)
                     }
                     if isLast, let totalsSource {
@@ -111,6 +115,9 @@ struct AgentCardView: View {
             }
         }
     }
+
+    /// A saved entry keeps its Host, whose tone stands in for a status.
+    private var showsHostText: Bool { showsHost || saved != nil }
 
     @ViewBuilder
     private var hostText: some View {

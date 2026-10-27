@@ -47,23 +47,15 @@ struct ConsoleWorkspaceSection: Identifiable, Equatable, Sendable {
     /// The main-checkout section this linked-worktree section nests under;
     /// nil for a top-level section.
     var parentID: ID?
-    /// Agents of the sections nested under this one, so a collapsed parent
-    /// still shows who needs the user.
-    var descendantAgents: [ConsoleAgent] = []
-    /// True while the parent is collapsed: the section is not drawn.
-    var isHidden = false
     /// The git checkout the Workspace reported, if any.
     var checkout: RepositoryCheckout?
     /// The checkout's path as rows print directories, with `~` for home.
     var pathText: String?
 
     var isNested: Bool { parentID != nil }
-    /// A collapsed parent counts its nested sections' Agents too.
-    var headerAgentCount: Int { isCollapsed ? agents.count + descendantAgents.count : agents.count }
-    var statusCounts: ConsoleHostAgentStatusCounts { .init(agents: isCollapsed ? agents + descendantAgents : agents) }
-    var visibleAgentIDs: [ConsoleAgent.ID] { isCollapsed || isHidden ? [] : agents.map(\.id) }
+    var statusCounts: ConsoleHostAgentStatusCounts { .init(agents: agents) }
     var accessibilityValue: String {
-        let count = headerAgentCount == 1 ? "1 Agent" : "\(headerAgentCount) Agents"
+        let count = agents.count == 1 ? "1 Agent" : "\(agents.count) Agents"
         return [count, isCollapsed ? "Collapsed" : "Expanded",
                 ConsoleHostSectionHeaderPresentation.statusText(items: statusCounts.items)]
             .compactMap { $0 }.joined(separator: ", ")
@@ -206,28 +198,40 @@ struct ConsoleWorkspaceCard: Identifiable, Equatable, Sendable {
 /// branch, a worktree by its Workspace with the branch after it when that
 /// says something more.
 struct ConsoleCheckoutTitle: Equatable, Sendable {
+    /// What the title names, which VoiceOver says where the icon shows it.
+    enum Role: Equatable, Sendable {
+        /// A Workspace on its own card.
+        case workspace
+        case mainCheckout
+        case worktree
+    }
+
     let title: String
     let detail: String?
     /// The main checkout's branch is not read yet: its Workspace stands in,
     /// quieter.
     let isPending: Bool
+    let role: Role
 
     static let detachedText = "detached"
 
-    init(title: String, detail: String? = nil, isPending: Bool = false) {
+    init(title: String, detail: String? = nil, isPending: Bool = false, role: Role = .workspace) {
         self.title = title
         self.detail = detail
         self.isPending = isPending
+        self.role = role
     }
 
     /// `branch` is nil until a read of the checkout has named it.
     init(label: String, isMainCheckout: Bool, branch: CheckoutHead.Branch?) {
+        let role: Role = isMainCheckout ? .mainCheckout : .worktree
         switch (isMainCheckout, branch) {
-        case (true, .named(let name)?): self.init(title: name)
-        case (true, nil): self.init(title: label, isPending: true)
-        case (_, .detached?): self.init(title: label, detail: Self.detachedText)
-        case (false, .named(let name)?): self.init(title: label, detail: name == label ? nil : name)
-        case (false, nil): self.init(title: label)
+        case (true, .named(let name)?): self.init(title: name, role: role)
+        case (true, nil): self.init(title: label, isPending: true, role: role)
+        case (_, .detached?): self.init(title: label, detail: Self.detachedText, role: role)
+        case (false, .named(let name)?):
+            self.init(title: label, detail: name == label ? nil : name, role: role)
+        case (false, nil): self.init(title: label, role: role)
         }
     }
 
@@ -239,7 +243,18 @@ struct ConsoleCheckoutTitle: Equatable, Sendable {
         return reads.first { String(decoding: $0.checkout.topLevel, as: UTF8.self) == path }?.head.branch
     }
 
-    var accessibilityLabel: String { [title, detail].compactMap { $0 }.joined(separator: ", ") }
+    var accessibilityLabel: String {
+        switch role {
+        case .workspace:
+            return title
+        case .mainCheckout:
+            if detail != nil { return "\(title), detached" }
+            return isPending ? title : "Branch \(title)"
+        case .worktree:
+            let branch = detail.map { $0 == Self.detachedText ? "detached" : "branch \($0)" }
+            return ["\(title), worktree", branch].compactMap { $0 }.joined(separator: ", ")
+        }
+    }
 }
 
 /// One Host section projected from the Host catalog and the Console's
@@ -364,13 +379,10 @@ final class ConsoleListPresentationStore {
                     hostName: host.hostDisplayName, agents: members(workspaceID),
                     isCollapsed: !isSearching && collapsedIDs.contains(id),
                     parentID: parentID)
-                section.descendantAgents = (childrenOf[workspaceID] ?? []).flatMap(members)
                 if let info = checkout(workspaceID) {
                     section.checkout = info
                     section.pathText = allBuckets[workspaceID]?.first?.displayPath(info.checkoutPath)
                 }
-                section.isHidden =
-                    !isSearching && parentID.map(collapsedIDs.contains) == true
                 return section
             }
 

@@ -1535,18 +1535,11 @@ struct ConsoleView: View {
                 case .byWorkspace: workspaceAgentListRows
                 }
             }
-            .listStyle(.plain)
-            // Card rows set their own heights; a checkout's header is
-            // shorter than a list row's default minimum.
-            .environment(
-                \.defaultMinListRowHeight,
-                listPresentation.mode == .byWorkspace ? 0 : Self.defaultMinListRowHeight)
+            .modifier(ConsoleAgentListStyle(showsCards: listPresentation.mode == .byWorkspace))
             .modifier(ConsoleSidebarListTint())
             .searchDrawerStartsTucked()
         }
     }
-
-    private static let defaultMinListRowHeight: CGFloat = 44
 
     private var noHostsView: some View {
         ContentUnavailableView {
@@ -1599,14 +1592,26 @@ struct ConsoleView: View {
 
     @ViewBuilder
     private var workspaceAgentListRows: some View {
-        agentHostIssueRows
+        if !visibleHostIssues.isEmpty {
+            Section {
+                // Off the cards, on the page: out to the cards' edges, as
+                // in the Terminals list's By Workspace.
+                ConsoleHostIssueList(
+                    issues: visibleHostIssues, onOpenHost: { openHostIssue($0) },
+                    onShowAll: { isShowingHostIssues = true })
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+        }
         let qualifiers = agentTitleQualifiers
         let saved = console.savedChatEntries
         ForEach(workspaceCards) { @Sendable card in
             MainActorContent {
-                ForEach(card.rows) { @Sendable placed in
-                    MainActorContent {
-                        workspaceCardRow(placed, in: card, qualifiers: qualifiers, saved: saved)
+                Section {
+                    ForEach(card.rows) { @Sendable placed in
+                        MainActorContent {
+                            workspaceCardRow(placed, in: card, qualifiers: qualifiers, saved: saved)
+                        }
                     }
                 }
             }
@@ -1629,52 +1634,63 @@ struct ConsoleView: View {
                 onToggle: { toggleWorkspaceSection(primary.id) }
             )
             .modifier(
-                ConsoleWorkspaceCardSlice(
-                    placed: placed, leading: ConsoleWorkspaceCardMetrics.padding, top: 8,
-                    bottom: card.isCollapsed ? 12 : 4))
+                ConsoleWorkspaceCardRow(
+                    placed: placed, indent: .icon, top: 8, bottom: card.isCollapsed ? 12 : 4))
             .selectionDisabled()
         case .checkout(let section):
             ConsoleCheckoutHeader(
                 section: section, title: checkoutTitle(section),
                 onToggle: section.isNested ? { toggleWorkspaceSection(section.id) } : nil
             )
-            .modifier(
-                ConsoleWorkspaceCardSlice(
-                    placed: placed, leading: ConsoleWorkspaceCardMetrics.padding, top: placed.followsHeader ? 0 : 2,
-                    bottom: 0))
+            .modifier(ConsoleWorkspaceCardRow(placed: placed, indent: .icon, top: 0, bottom: 0))
             .selectionDisabled()
         case .agent(let agent, let section, let standsAlone):
-            let showsHost = standsAlone && !card.isRepository
-            let hidden = ConsoleWorkspaceCard.hiddenTokens(for: agent, showsHost: showsHost)
-            let heading = standsAlone
-                ? AgentCardHeading(
-                    title: card.isRepository ? checkoutTitle(section) : ConsoleCheckoutTitle(title: section.title),
-                    isProminent: !card.isRepository)
-                : nil
             agentLink(
-                agent, qualifier: qualifiers[agent.id], saved: saved[agent.id], liftsCard: true,
-                background: ConsoleWorkspaceCardSlice(
-                    placed: placed, leading: standsAlone ? ConsoleWorkspaceCardMetrics.padding : ConsoleWorkspaceCardMetrics.textInset,
+                agent,
+                background: ConsoleWorkspaceCardRow(
+                    placed: placed, indent: standsAlone ? .icon : .text,
                     top: standsAlone ? (placed.followsHeader ? 0 : 6) : 2, bottom: standsAlone ? 6 : 4,
                     isSelected: notificationRouter.path.last == agent.id)
             ) {
-                HStack(alignment: .firstTextBaseline, spacing: ConsoleWorkspaceCardMetrics.iconSpacing) {
-                    if standsAlone {
-                        ConsoleWorkspaceCardIcon(checkout: section.checkout)
-                    }
-                    AgentCardView(
-                        agent: agent,
-                        layout: console.rowLayout(for: agent.hostID),
-                        isPinned: console.pins.isPinned(
-                            hostID: agent.hostID, paneID: agent.agent.paneID),
-                        changes: console.rowChanges.store(for: agent),
-                        qualifier: standsAlone ? nil : qualifiers[agent.id],
-                        saved: saved[agent.id],
-                        hiddenTokens: hidden,
-                        heading: heading,
-                        showsHost: showsHost)
-                }
+                cardAgentLabel(
+                    agent, of: section, standsAlone: standsAlone, in: card,
+                    qualifier: qualifiers[agent.id], saved: saved[agent.id], readsChanges: true)
+            } preview: {
+                cardAgentLabel(
+                    agent, of: section, standsAlone: standsAlone, in: card,
+                    qualifier: qualifiers[agent.id], saved: saved[agent.id], readsChanges: false)
             }
+        }
+    }
+
+    /// An Agent as its card shows it: an Agent that is its checkout's or
+    /// Workspace's only one takes that title and icon; a row leaves to the
+    /// card what the card already says.
+    private func cardAgentLabel(
+        _ agent: ConsoleAgent, of section: ConsoleWorkspaceSection, standsAlone: Bool,
+        in card: ConsoleWorkspaceCard, qualifier: String?, saved: HostReadiness?, readsChanges: Bool
+    ) -> some View {
+        let showsHost = standsAlone && !card.isRepository
+        let heading = standsAlone
+            ? AgentCardHeading(
+                title: card.isRepository ? checkoutTitle(section) : ConsoleCheckoutTitle(title: section.title),
+                isProminent: !card.isRepository)
+            : nil
+        return HStack(alignment: .firstTextBaseline, spacing: ConsoleWorkspaceCardMetrics.iconSpacing) {
+            if standsAlone {
+                ConsoleWorkspaceCardIcon(checkout: section.checkout)
+            }
+            AgentCardView(
+                agent: agent,
+                layout: console.rowLayout(for: agent.hostID),
+                isPinned: console.pins.isPinned(
+                    hostID: agent.hostID, paneID: agent.agent.paneID),
+                changes: readsChanges ? console.rowChanges.store(for: agent) : nil,
+                qualifier: standsAlone ? nil : qualifier,
+                saved: saved,
+                hiddenTokens: ConsoleWorkspaceCard.hiddenTokens(for: agent, showsHost: showsHost),
+                heading: heading,
+                showsHost: showsHost)
         }
     }
 
@@ -1695,7 +1711,7 @@ struct ConsoleView: View {
         card.checkouts.map { section in
             ConsoleCheckoutSummary(
                 id: section.id, title: checkoutTitle(section), checkout: section.checkout,
-                statuses: section.agents.map(\.agent.status))
+                agents: section.agents)
         }
     }
 
@@ -1745,7 +1761,7 @@ struct ConsoleView: View {
 
     private func agentRow(_ agent: ConsoleAgent, qualifier: String?, saved: HostReadiness?) -> some View {
         agentLink(
-            agent, qualifier: qualifier, saved: saved, liftsCard: false,
+            agent,
             background: ConsoleRowSelectionBackground(
                 isSelected: notificationRouter.path.last == agent.id)
         ) {
@@ -1757,21 +1773,26 @@ struct ConsoleView: View {
                 changes: console.rowChanges.store(for: agent),
                 qualifier: qualifier,
                 saved: saved)
+        } preview: {
+            AgentCardView(
+                agent: agent,
+                layout: console.rowLayout(for: agent.hostID),
+                isPinned: console.pins.isPinned(
+                    hostID: agent.hostID, paneID: agent.agent.paneID),
+                qualifier: qualifier,
+                saved: saved)
         }
     }
 
     /// An Agent's row: `label` opens its detail, with the row's pin, close,
     /// and window actions. `background` draws the row's place in the list;
-    /// `liftsCard` for a row drawn as a slice of a card.
-    private func agentLink<RowContent: View, Background: ViewModifier>(
-        _ agent: ConsoleAgent, qualifier: String?, saved: HostReadiness?, liftsCard: Bool,
-        background: Background, @ViewBuilder label: () -> RowContent
+    /// `preview` is what a lifted card shows (see `ConsoleRowContextMenu`).
+    private func agentLink<RowContent: View, Background: ViewModifier, Preview: View>(
+        _ agent: ConsoleAgent, background: Background,
+        @ViewBuilder label: () -> RowContent, @ViewBuilder preview: () -> Preview
     ) -> some View {
         NavigationLink(value: ConsoleSelection.agent(agent.id)) {
             label()
-                // Across the row, so the context menu lifts a card as wide
-                // as the row it measures.
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .modifier(ConsoleRowSelectionContent())
         }
         // The list reads what it shows: a row on screen reads its Agent's
@@ -1784,7 +1805,7 @@ struct ConsoleView: View {
         .modifier(background)
         .hoverEffect(.highlight)
         .modifier(
-            ConsoleRowContextMenu(liftsCard: liftsCard) {
+            ConsoleRowContextMenu {
                 let pinned = console.pins.isPinned(
                     hostID: agent.hostID, paneID: agent.agent.paneID)
                 Button(
@@ -1810,13 +1831,7 @@ struct ConsoleView: View {
                     pendingTabClose = agent
                 }
             } preview: {
-                AgentCardView(
-                    agent: agent,
-                    layout: console.rowLayout(for: agent.hostID),
-                    isPinned: console.pins.isPinned(
-                        hostID: agent.hostID, paneID: agent.agent.paneID),
-                    qualifier: qualifier,
-                    saved: saved)
+                preview()
             })
         .modifier(
             AgentWindowDrag(
@@ -2642,20 +2657,52 @@ struct AgentDetailStage {
 /// the same status distribution at a glance.
 struct ConsoleHostStatusCountPills: View {
     let items: [ConsoleHostAgentStatusCount]
+    /// Stacks the pills where one line cannot hold them, as a card's
+    /// summary needs at large text sizes.
+    var wraps = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(items) { @Sendable item in
-                Text("\(item.count) \(item.status.rawValue)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color(item.status.inkUIColor))
-                    .fixedSize()
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        Color(item.status.tintUIColor).opacity(0.15),
-                        in: Capsule())
+        if wraps {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 5) { pills }
+                VStack(alignment: .leading, spacing: 4) { pills }
             }
+        } else {
+            HStack(spacing: 5) { pills }
+        }
+    }
+
+    private var pills: some View {
+        ForEach(items) { @Sendable item in
+            Text("\(item.count) \(item.status.rawValue)")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(item.status.inkUIColor))
+                .fixedSize()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Color(item.status.tintUIColor).opacity(0.15),
+                    in: Capsule())
+        }
+    }
+}
+
+/// The Agents list's style: plain rows, or for By Workspace an inset
+/// grouped list of cards on the other presentations' page.
+private struct ConsoleAgentListStyle: ViewModifier {
+    let showsCards: Bool
+    @Environment(\.isSidebarColumn) private var isSidebarColumn
+
+    func body(content: Content) -> some View {
+        if showsCards {
+            content
+                .listStyle(.insetGrouped)
+                .listSectionSpacing(.custom(ConsoleWorkspaceCardMetrics.gap))
+                .scrollContentBackground(.hidden)
+                // Beside the sidebar, its glass, as the plain list shows.
+                .background(isSidebarColumn ? Color.clear : Color(uiColor: .systemBackground))
+        } else {
+            content.listStyle(.plain)
         }
     }
 }
