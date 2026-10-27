@@ -54,6 +54,7 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
     private var iconWidth = CardIconWidth()
     @Environment(\.displayScale) private var displayScale
     @Environment(\.isSidebarColumn) private var isSidebarColumn
+    @Environment(\.defaultMinListRowHeight) private var minRowHeight
 
     init(
         placed: ConsoleWorkspaceCard.Placed, indent: Indent, top: CGFloat, bottom: CGFloat,
@@ -70,12 +71,18 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // The list's shortest row, filled by the row itself, so a card
+            // end's padding adds to it rather than recentering the row.
+            .frame(minHeight: max(0, minRowHeight - top - bottom))
+            // In the row rather than its insets: a fold moves a card's end
+            // to another row, and the list applies changed insets only
+            // after it animates, so the row's content would jump then.
+            .padding(.top, placed.isFirst ? Metrics.endPadding : 0)
+            .padding(.bottom, placed.isLast ? Metrics.endPadding : 0)
             .listRowInsets(
                 EdgeInsets(
-                    top: top + (placed.isFirst ? Metrics.endPadding : 0),
-                    leading: indent == .text ? iconWidth.textInset : Metrics.padding,
-                    bottom: bottom + (placed.isLast ? Metrics.endPadding : 0),
-                    trailing: Metrics.padding))
+                    top: top, leading: indent == .text ? iconWidth.textInset : Metrics.padding,
+                    bottom: bottom, trailing: Metrics.padding))
             .listRowSeparator(.hidden)
             // A row opens its Agent; only a header's fold button points.
             .navigationLinkIndicatorVisibility(.hidden)
