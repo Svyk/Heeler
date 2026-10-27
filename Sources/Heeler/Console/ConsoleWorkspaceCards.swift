@@ -6,7 +6,10 @@ import UIKit
 /// other presentations' page, so the cards take a quiet gray.
 enum ConsoleWorkspaceCardMetrics {
     /// From the card's edge to its icons.
-    static let padding: CGFloat = 14
+    static let padding: CGFloat = 16
+    /// More room at a card's rounded ends, so the content there clears
+    /// the corners' curve.
+    static let endPadding: CGFloat = 8
     /// The icon column at the default text size; it grows with the text.
     static let iconWidth: CGFloat = 20
     static let iconSpacing: CGFloat = 10
@@ -69,8 +72,10 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
         content
             .listRowInsets(
                 EdgeInsets(
-                    top: top, leading: indent == .text ? iconWidth.textInset : Metrics.padding,
-                    bottom: bottom, trailing: Metrics.padding))
+                    top: top + (placed.isFirst ? Metrics.endPadding : 0),
+                    leading: indent == .text ? iconWidth.textInset : Metrics.padding,
+                    bottom: bottom + (placed.isLast ? Metrics.endPadding : 0),
+                    trailing: Metrics.padding))
             .listRowSeparator(.hidden)
             .listRowBackground(
                 Metrics.fill(inSidebar: isSidebarColumn)

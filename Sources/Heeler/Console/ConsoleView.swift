@@ -1635,7 +1635,7 @@ struct ConsoleView: View {
             )
             .modifier(
                 ConsoleWorkspaceCardRow(
-                    placed: placed, indent: .icon, top: 8, bottom: card.isCollapsed ? 12 : 4))
+                    placed: placed, indent: .icon, top: 8, bottom: card.isCollapsed ? 6 : 4))
             .selectionDisabled()
         case .checkout(let section):
             ConsoleCheckoutHeader(
