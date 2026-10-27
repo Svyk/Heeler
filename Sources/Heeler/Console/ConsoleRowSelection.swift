@@ -199,12 +199,9 @@ final class ListRowFocusHaloView: UIView {
 /// is beside the terminal: a clear background, so the row's text floats
 /// over the glass and past the sidebar's edge. The sidebar lifts a card of
 /// the row instead; compact width keeps the system's lifted row, unless the
-/// row draws its own card inside a wider cell (`liftsCard`). A lifted card
-/// takes the system's corners unless the row's card has its own
-/// (`cardCornerRadius`).
+/// row draws its own card inside a wider cell (`liftsCard`).
 struct ConsoleRowContextMenu<MenuItems: View, Preview: View>: ViewModifier {
     private let liftsCard: Bool
-    private let cardCornerRadius: CGFloat?
     private let menuItems: MenuItems
     private let preview: Preview
     @Environment(\.isSidebarColumn) private var isSidebarColumn
@@ -212,12 +209,10 @@ struct ConsoleRowContextMenu<MenuItems: View, Preview: View>: ViewModifier {
 
     init(
         liftsCard: Bool = false,
-        cardCornerRadius: CGFloat? = nil,
         @ViewBuilder menuItems: () -> MenuItems,
         @ViewBuilder preview: () -> Preview
     ) {
         self.liftsCard = liftsCard
-        self.cardCornerRadius = cardCornerRadius
         self.menuItems = menuItems()
         self.preview = preview()
     }
@@ -233,7 +228,6 @@ struct ConsoleRowContextMenu<MenuItems: View, Preview: View>: ViewModifier {
                         rowWidth = $0
                     }
                 }
-                .modifier(ContextMenuPreviewCorners(radius: cardCornerRadius))
                 .contextMenu {
                     menuItems
                 } preview: {
@@ -251,19 +245,6 @@ struct ConsoleRowContextMenu<MenuItems: View, Preview: View>: ViewModifier {
                 }
         } else {
             content.contextMenu { menuItems }
-        }
-    }
-}
-
-/// A lifted card's corners: the system's, or `radius`.
-private struct ContextMenuPreviewCorners: ViewModifier {
-    let radius: CGFloat?
-
-    func body(content: Content) -> some View {
-        if let radius {
-            content.contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: radius, style: .continuous))
-        } else {
-            content
         }
     }
 }
