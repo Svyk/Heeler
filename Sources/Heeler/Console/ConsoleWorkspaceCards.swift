@@ -25,6 +25,12 @@ enum ConsoleWorkspaceCardMetrics {
     }
 }
 
+extension EnvironmentValues {
+    /// The shortest row of the list the cards sit in, which a card's rows
+    /// keep themselves (see `ConsoleWorkspaceCardRow`).
+    @Entry var workspaceCardMinRowHeight: CGFloat = 44
+}
+
 /// The icon column's width, scaled with the text it sits beside.
 private struct CardIconWidth: DynamicProperty {
     @ScaledMetric(relativeTo: .subheadline) var value = ConsoleWorkspaceCardMetrics.iconWidth
@@ -51,34 +57,35 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
     let top: CGFloat
     let bottom: CGFloat
     var isSelected = false
+    /// Whether the row is at least the list's shortest row, centered in it
+    /// as the list would center it; a summary fits its content instead.
+    var fillsShortestRow = true
     private var iconWidth = CardIconWidth()
     @Environment(\.displayScale) private var displayScale
     @Environment(\.isSidebarColumn) private var isSidebarColumn
-    @Environment(\.defaultMinListRowHeight) private var minRowHeight
+    @Environment(\.workspaceCardMinRowHeight) private var minRowHeight
 
     init(
         placed: ConsoleWorkspaceCard.Placed, indent: Indent, top: CGFloat, bottom: CGFloat,
-        isSelected: Bool = false
+        isSelected: Bool = false, fillsShortestRow: Bool = true
     ) {
         self.placed = placed
         self.indent = indent
         self.top = top
         self.bottom = bottom
         self.isSelected = isSelected
+        self.fillsShortestRow = fillsShortestRow
     }
 
     private typealias Metrics = ConsoleWorkspaceCardMetrics
 
     func body(content: Content) -> some View {
         content
-            // The list's shortest row, filled by the row itself, so a card
-            // end's padding adds to it rather than recentering the row.
-            .frame(minHeight: max(0, minRowHeight - top - bottom))
-            // In the row rather than its insets: a fold moves a card's end
-            // to another row, and the list applies changed insets only
-            // after it animates, so the row's content would jump then.
+            .frame(minHeight: fillsShortestRow ? max(0, minRowHeight - top - bottom) : nil)
+            // A card's ends in the row rather than its insets, which the
+            // list applies only after a fold animates.
             .padding(.top, placed.isFirst ? Metrics.endPadding : 0)
-            .padding(.bottom, placed.isLast ? Metrics.endPadding : 0)
+            .padding(.bottom, padsBottom ? Metrics.endPadding : 0)
             .listRowInsets(
                 EdgeInsets(
                     top: top, leading: indent == .text ? iconWidth.textInset : Metrics.padding,
@@ -93,6 +100,13 @@ struct ConsoleWorkspaceCardRow: ViewModifier {
                     .overlay(isSidebarColumn && isSelected ? ConsoleRowSelection.fill : Color.clear)
                     .overlay(alignment: .top) { rule }
                     .background { if isSidebarColumn { ListRowCellFocusHalo() } })
+    }
+
+    /// A card's last row, unless it is a folded worktree's header: that
+    /// header ends the card only while folded, and room it gained then
+    /// would move it as it folds. It sits clear of the corners as it is.
+    private var padsBottom: Bool {
+        if case .checkout = placed.row { false } else { placed.isLast }
     }
 
     @ViewBuilder
@@ -188,33 +202,25 @@ struct ConsoleWorkspaceCardHeader: View {
     let subtitle: String
     let checkouts: [ConsoleCheckoutSummary]
     let onToggle: () -> Void
-    private var iconWidth = CardIconWidth()
 
     private typealias Metrics = ConsoleWorkspaceCardMetrics
 
     var body: some View {
         Button(action: onToggle) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: Metrics.iconSpacing) {
-                    ConsoleWorkspaceCardIcon(systemName: ConsoleWorkspaceCardIcon.folder)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.primary)
-                        Text(verbatim: subtitle)
-                            .font(.caption)
-                            .foregroundStyle(Color.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    ConsoleCardFoldButton(count: card.agents.count, isCollapsed: card.isCollapsed)
+            HStack(alignment: .firstTextBaseline, spacing: Metrics.iconSpacing) {
+                ConsoleWorkspaceCardIcon(systemName: ConsoleWorkspaceCardIcon.folder)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+                    Text(verbatim: subtitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
                 }
-                if card.isCollapsed {
-                    summary
-                        .padding(.leading, iconWidth.value + Metrics.iconSpacing)
-                }
+                Spacer(minLength: 0)
+                ConsoleCardFoldButton(count: card.agents.count, isCollapsed: card.isCollapsed)
             }
             .lineLimit(1)
-            // From the top, so the title stays put as the summary comes and goes.
             .frame(minHeight: 44, alignment: .top)
             .contentShape(Rectangle())
         }
@@ -228,22 +234,38 @@ struct ConsoleWorkspaceCardHeader: View {
         .textCase(nil)
     }
 
-    /// Collapsed, the summary's lines as well, which the eye reads off it.
+    /// Collapsed, the summary's lines as well, which the eye reads off the
+    /// row below.
     private var accessibilityValue: String {
         ([card.accessibilityValue] + checkouts.map(\.accessibilityText)).joined(separator: "; ")
     }
+}
 
-    @ViewBuilder
-    private var summary: some View {
+/// Under a collapsed card's header: who needs the user and, for a
+/// repository, in which checkout. It folds the card open like its header,
+/// which reads it to VoiceOver.
+struct ConsoleWorkspaceCardSummary: View {
+    let card: ConsoleWorkspaceCard
+    let checkouts: [ConsoleCheckoutSummary]
+    let onToggle: () -> Void
+
+    var body: some View {
         let items = ConsoleHostAgentStatusCounts(agents: card.agents).items
-        VStack(alignment: .leading, spacing: 6) {
-            if !items.isEmpty {
-                ConsoleHostStatusCountPills(items: items, wraps: true)
+        Button(action: onToggle) {
+            VStack(alignment: .leading, spacing: 6) {
+                if !items.isEmpty {
+                    ConsoleHostStatusCountPills(items: items, wraps: true)
+                }
+                ForEach(checkouts) { @Sendable checkout in
+                    MainActorContent { ConsoleCheckoutSummaryLine(summary: checkout) }
+                }
             }
-            ForEach(checkouts) { @Sendable checkout in
-                MainActorContent { ConsoleCheckoutSummaryLine(summary: checkout) }
-            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityHidden(true)
     }
 }
 

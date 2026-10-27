@@ -1633,9 +1633,17 @@ struct ConsoleView: View {
                 checkouts: card.isRepository && card.isCollapsed ? checkoutSummaries(card) : [],
                 onToggle: { toggleWorkspaceSection(primary.id) }
             )
+            .modifier(ConsoleWorkspaceCardRow(placed: placed, indent: .icon, top: 8, bottom: 4))
+            .selectionDisabled()
+        case .summary:
+            ConsoleWorkspaceCardSummary(
+                card: card,
+                checkouts: card.isRepository ? checkoutSummaries(card) : [],
+                onToggle: { toggleWorkspaceSection(card.primary.id) }
+            )
             .modifier(
                 ConsoleWorkspaceCardRow(
-                    placed: placed, indent: .icon, top: 8, bottom: card.isCollapsed ? 6 : 4))
+                    placed: placed, indent: .text, top: 0, bottom: 6, fillsShortestRow: false))
             .selectionDisabled()
         case .checkout(let section):
             ConsoleCheckoutHeader(
@@ -2692,10 +2700,15 @@ struct ConsoleHostStatusCountPills: View {
 private struct ConsoleAgentListStyle: ViewModifier {
     let showsCards: Bool
     @Environment(\.isSidebarColumn) private var isSidebarColumn
+    @Environment(\.defaultMinListRowHeight) private var minRowHeight
 
     func body(content: Content) -> some View {
         if showsCards {
             content
+                // A card's rows keep the list's shortest row themselves, so
+                // a collapsed card's summary can be shorter.
+                .environment(\.defaultMinListRowHeight, 0)
+                .environment(\.workspaceCardMinRowHeight, minRowHeight)
                 .listStyle(.insetGrouped)
                 .listSectionSpacing(.custom(ConsoleWorkspaceCardMetrics.gap))
                 .scrollContentBackground(.hidden)

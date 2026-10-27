@@ -204,7 +204,7 @@ struct ConsoleListPresentationStoreTests {
         #expect(card.isCollapsed)
         #expect(ConsoleHostAgentStatusCounts(agents: card.agents) == .init(blocked: 1, working: 1, done: 1))
         #expect(card.accessibilityValue == "3 Agents, Collapsed, 1 blocked, 1 working, 1 done")
-        #expect(rowShape(card) == ["header"])
+        #expect(rowShape(card) == ["header", "summary"])
         #expect(card.visibleAgentIDs.isEmpty)
 
         store.toggleWorkspace(sid(host, "wY"))
@@ -267,6 +267,7 @@ struct ConsoleListPresentationStoreTests {
             }
             return switch placed.row {
             case .header: "\(rule)header"
+            case .summary: "\(rule)summary"
             case .checkout(let section): "\(rule)checkout \(section.title)"
             case .agent(let agent, _, let alone): "\(rule)\(alone ? "alone" : "agent") \(agent.agent.paneID)"
             }
@@ -325,8 +326,10 @@ struct ConsoleListPresentationStoreTests {
 
         store.toggleWorkspace(sid(host, "wY"))
         cards = ConsoleWorkspaceCard.cards(store.workspaceSections(hosts: [host], agents: agents))
-        #expect(rowShape(cards[0]) == ["header"])
-        #expect(cards[0].rows.first?.isLast == true)
+        // A fold swaps the rows under the header for its summary, so the
+        // header keeps its height.
+        #expect(rowShape(cards[0]) == ["header", "summary"])
+        #expect(cards[0].rows.map(\.isLast) == [false, true])
         #expect(cards[0].accessibilityValue == "3 Agents, Collapsed, 2 working, 1 done")
         #expect(cards.flatMap(\.visibleAgentIDs) == [agents[3].id])
     }

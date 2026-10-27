@@ -68,8 +68,11 @@ struct ConsoleWorkspaceSection: Identifiable, Equatable, Sendable {
 struct ConsoleWorkspaceCard: Identifiable, Equatable, Sendable {
     enum Row: Equatable, Sendable {
         /// A repository's header, or the header of a Workspace with several
-        /// Agents; collapsed, it summarizes the card.
+        /// Agents.
         case header
+        /// A collapsed card's summary under its header: a row of its own,
+        /// so a fold adds or removes rows and never resizes the header.
+        case summary
         /// A checkout with several Agents inside a repository's card.
         case checkout(ConsoleWorkspaceSection)
         /// `standsAlone`: the only Agent of its checkout or Workspace, so
@@ -89,6 +92,7 @@ struct ConsoleWorkspaceCard: Identifiable, Equatable, Sendable {
     struct Placed: Identifiable, Equatable, Sendable {
         enum ID: Hashable, Sendable {
             case header(ConsoleWorkspaceSection.ID)
+            case summary(ConsoleWorkspaceSection.ID)
             case checkout(ConsoleWorkspaceSection.ID)
             case agent(ConsoleAgent.ID)
         }
@@ -123,7 +127,9 @@ struct ConsoleWorkspaceCard: Identifiable, Equatable, Sendable {
         }
         if isRepository {
             items.append((.header, .none))
-            if !isCollapsed {
+            if isCollapsed {
+                items.append((.summary, .none))
+            } else {
                 for (index, checkout) in checkouts.enumerated() {
                     let rule: Rule = index == 0 ? .none : .full
                     if checkout.agents.count == 1 {
@@ -139,12 +145,13 @@ struct ConsoleWorkspaceCard: Identifiable, Equatable, Sendable {
             items.append((.agent(primary.agents[0], of: primary, standsAlone: true), .none))
         } else {
             items.append((.header, .none))
-            if !isCollapsed { list(primary) }
+            if isCollapsed { items.append((.summary, .none)) } else { list(primary) }
         }
         return items.enumerated().map { index, item in
             let id: Placed.ID =
                 switch item.0 {
                 case .header: .header(primary.id)
+                case .summary: .summary(primary.id)
                 case .checkout(let section): .checkout(section.id)
                 case .agent(let agent, _, _): .agent(agent.id)
                 }
